@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "loglite"
+version = "0.1.0"
+description = ""
+authors = ["namoshizun <dilu3100@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+orjson = "^3.10.15"
+aiosqlite = "^0.21.0"
+aiohttp = "^3.11.13"
+aiohttp-cors = "^0.7.0"
+pyyaml = "^6.0.2"
+loguru = "^0.7.3"
+typer = "^0.15.2"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+ignore = ["E731", "E741", "F402", "E402"]
+
+[[tool.poetry.source]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+priority = "primary"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning",
+    "ignore::FutureWarning",
+]
+addopts = "-s"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

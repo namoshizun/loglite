@@ -1,10 +1,12 @@
+import orjson
 import aiosqlite
 from pathlib import Path
 from typing import Any, Sequence
 from loguru import logger
+from datetime import datetime
 
 from loglite.errors import InvalidLogEntryError
-from loglite.types import Column, QueryFilter
+from loglite.types import Column, PaginatedQueryResult, QueryFilter
 
 
 class Database:
@@ -119,6 +121,16 @@ class Database:
             return self._column_info
 
     async def insert(self, log_data: dict[str, Any]) -> int:
+        def _serialize_value(value: Any) -> Any:
+            if isinstance(value, (int, float, bool, str)):
+                return value
+            elif isinstance(value, (datetime,)):
+                return value.isoformat()
+            elif isinstance(value, (dict, list)):
+                return orjson.dumps(value).decode("utf-8")
+            else:
+                return str(value)
+
         """Insert a new log entry into the database"""
         columns = await self.get_log_columns()
 
@@ -139,7 +151,7 @@ class Database:
         for col_name in available_columns:
             if col_name in log_data:
                 insert_columns.append(col_name)
-                values.append(log_data[col_name])
+                values.append(_serialize_value(log_data[col_name]))
                 placeholders.append("?")
 
         # Execute the insert query
@@ -151,10 +163,11 @@ class Database:
 
     async def query(
         self,
+        fields: Sequence[str] = tuple(),
         filters: Sequence[QueryFilter] = tuple(),
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> PaginatedQueryResult:
         """Query logs based on provided filters without transforming results"""
         conn = await self.get_connection()
         conn.row_factory = aiosqlite.Row
@@ -180,9 +193,24 @@ class Database:
         # Construct the WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
+        # First, get the total count of logs matching the filters
+        count_query = f"""
+            SELECT COUNT(id)
+            FROM {self.log_table_name}
+            WHERE {where_clause}
+        """
+        async with conn.execute(count_query, params) as cursor:
+            total = (await cursor.fetchone())[0]
+
+        if total == 0:
+            return PaginatedQueryResult(
+                total=total, offset=offset, limit=limit, results=[]
+            )
+
         # Build the complete query
         query = f"""
-            SELECT * FROM {self.log_table_name}
+            SELECT {", ".join(fields)}
+            FROM {self.log_table_name}
             WHERE {where_clause}
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
@@ -195,7 +223,21 @@ class Database:
         # Execute query and fetch results
         async with conn.execute(query, params) as cursor:
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return PaginatedQueryResult(
+                total=total,
+                offset=offset,
+                limit=limit,
+                results=[dict(row) for row in rows],
+            )
+
+    async def ping(self) -> bool:
+        try:
+            conn = await self.get_connection()
+            await conn.execute("SELECT 1")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to ping database: {e}")
+            return False
 
     async def close(self):
         if self._connection:

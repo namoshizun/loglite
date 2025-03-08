@@ -1,4 +1,3 @@
-from typing import List, Dict, Any, TypedDict
 from loguru import logger
 
 from .database import Database
@@ -6,7 +5,7 @@ from .types import Migration
 
 
 class MigrationManager:
-    def __init__(self, db: Database, migrations_config: List[Dict[str, Any]]):
+    def __init__(self, db: Database, migrations_config: list[Migration]):
         self.db = db
         self.migrations_config = migrations_config
 
@@ -17,18 +16,17 @@ class MigrationManager:
         # Sort migrations by version
         sorted_migrations = sorted(self.migrations_config, key=lambda m: m["version"])
 
-        success = True
         for migration in sorted_migrations:
             version = migration["version"]
             if version not in applied_versions:
-                logger.info(f"Applying migration version {version}")
+                logger.info(f" Applying migration version {version}")
                 statements = migration.get("rollout", [])
                 if statements:
-                    if not await self.db.apply_migration(version, statements):
-                        success = False
-                        break
+                    return await self.db.apply_migration(version, statements)
+                else:
+                    logger.warning(f"🤔 No rollout statements for version {version}")
 
-        return success
+        return True
 
     async def rollback_migration(self, version: int) -> bool:
         """Rollback a specific migration version"""
@@ -36,7 +34,7 @@ class MigrationManager:
 
         if version not in applied_versions:
             logger.warning(
-                f"Migration version {version} not applied, nothing to rollback"
+                f" 🤷‍♂️ Migration version {version} not applied, nothing to rollback"
             )
             return False
 
@@ -46,8 +44,7 @@ class MigrationManager:
                 if statements:
                     return await self.db.rollback_migration(version, statements)
                 else:
-                    logger.warning(f"No rollback statements for version {version}")
-                    return False
+                    logger.warning(f"🤔 No rollback statements for version {version}")
 
-        logger.warning(f"Migration version {version} not found in configuration")
+        logger.warning(f"🤔 Migration version {version} not found in configuration")
         return False

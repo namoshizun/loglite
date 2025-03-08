@@ -11,6 +11,8 @@ class Config:
     port: int = 7788
     log_table_name: str = "Log"
     db_dir: Path = Path("./db")
+    allow_origin: str = "*"
+    debug: bool = False
     db_path: Path = field(init=False)
     migrations: list[Migration] = field(default_factory=list)
 
@@ -41,6 +43,12 @@ class Config:
 
         if "db_dir" in config:
             args["db_dir"] = Path(config["db_dir"])
+
+        if "allow_origin" in config:
+            args["allow_origin"] = config["allow_origin"]
+
+        if "debug" in config:
+            args["debug"] = config["debug"]
 
         if "migrations" not in config:
             raise ValueError("migrations is required")

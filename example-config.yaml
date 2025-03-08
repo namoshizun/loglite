@@ -1,7 +1,9 @@
 host: 0.0.0.0
 port: 7788
+debug: true
 log_table_name: Log
 db_dir: ./db
+allow_origin: "*"
 migrations:
   - version: 1
     rollout:

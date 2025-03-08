@@ -1,111 +1,132 @@
-from typing import Dict, Any
+import abc
+import re
 import orjson
-import logging
-import aiosqlite
+from typing import Any, get_args
+from loguru import logger
 from aiohttp import web
 
-from .database import Database
+from loglite.errors import InvalidLogEntryError
+from loglite.types import QueryFilter, QueryOperator
+from loglite.database import Database
 
-logger = logging.getLogger(__name__)
 
+class RequestHandler(abc.ABC):
+    description: str
 
-class LogHandler:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, verbose: bool):
         self.db = db
+        self.verbose = verbose
 
-    async def insert_log(self, request: web.Request) -> web.Response:
-        """Handle POST /logs request to insert a new log"""
+    def response_ok(self, payload: Any, status: int = 200) -> web.Response:
+        return web.Response(
+            body=orjson.dumps({"status": "success", "result": payload}),
+            content_type="application/json",
+            status=status,
+        )
+
+    def response_fail(self, message: str, status: int = 400) -> web.Response:
+        return web.Response(
+            body=orjson.dumps(
+                {
+                    "status": "error",
+                    "error": message,
+                }
+            ),
+            content_type="application/json",
+            status=status,
+        )
+
+    @abc.abstractmethod
+    def handle(self, request: web.Request) -> web.Response:
+        raise NotImplementedError
+
+
+class InsertLogHandler(RequestHandler):
+
+    description = "insert a new log"
+
+    async def handle(self, request: web.Request) -> web.Response:
         try:
             body = await request.read()
             log_data = orjson.loads(body)
 
-            # Validate required fields
-            if "message" not in log_data:
-                return web.Response(
-                    status=400,
-                    body=orjson.dumps({"error": "Missing required field 'message'"}),
-                    content_type="application/json",
-                )
+            if self.verbose:
+                logger.info(f"Inserting log: {log_data}")
 
-            if "level" not in log_data:
-                return web.Response(
-                    status=400,
-                    body=orjson.dumps({"error": "Missing required field 'level'"}),
-                    content_type="application/json",
-                )
+            try:
+                log_id = await self.db.insert(log_data)
+            except InvalidLogEntryError as e:
+                return self.response_fail(str(e))
 
-            if "service" not in log_data:
-                return web.Response(
-                    status=400,
-                    body=orjson.dumps({"error": "Missing required field 'service'"}),
-                    content_type="application/json",
-                )
+            return self.response_ok({"id": log_id})
 
-            # Insert log into database
-            log_id = await self.db.insert_log(log_data)
-
-            return web.Response(
-                body=orjson.dumps({"id": log_id, "status": "success"}),
-                content_type="application/json",
-            )
         except Exception as e:
             logger.exception("Error inserting log")
-            return web.Response(
-                status=400,
-                body=orjson.dumps({"error": str(e)}),
-                content_type="application/json",
+            return self.response_fail(str(e), status=500)
+
+
+class QueryLogsHandler(RequestHandler):
+    description = "query logs"
+    filter_regex = re.compile(r"^(?P<operator>[\!=<>~]+)(?P<value>.+)$")
+    valid_operators = set(get_args(QueryOperator))
+
+    def _to_query_filters(self, query_params: dict[str, str]) -> list[QueryFilter]:
+        filters = []
+
+        for field, spec in query_params.items():
+            match = self.filter_regex.match(spec)
+            if not match:
+                raise ValueError(f"Invalid filter spec: {spec}")
+
+            operator, value = match.groups()
+            if operator not in self.valid_operators:
+                raise ValueError(f"Invalid operator: {operator}")
+
+            filters.append(
+                {
+                    "field": field,
+                    "operator": operator,
+                    "value": value,
+                }
             )
 
-    async def query_logs(self, request: web.Request) -> web.Response:
-        """Handle GET /logs request to query logs"""
+        return filters
+
+    async def handle(self, request: web.Request) -> web.Response:
+        query_params = dict(request.query.items())
+        if self.verbose:
+            logger.info(f"Querying logs: {query_params}")
+
         try:
-            # Parse query parameters
-            filters = {}
-            for key, value in request.query.items():
-                if key in ["limit", "offset"]:
-                    try:
-                        filters[key] = int(value)
-                    except ValueError:
-                        pass
-                else:
-                    filters[key] = value
+            _fields = query_params.pop("fields", "*")
+            if _fields == "*":
+                fields = ["*"]
+            else:
+                fields = _fields.split(",")
 
-            # Get limit and offset parameters
-            limit = int(filters.pop("limit", 100))
-            offset = int(filters.pop("offset", 0))
+            offset = int(query_params.pop("offset", 0))
+            limit = int(query_params.pop("limit", 100))
+            query_filters = self._to_query_filters(query_params)
+        except Exception as e:
+            return self.response_fail(str(e), status=400)
 
-            # Query logs from database
-            logs = await self.db.query_logs(filters, limit, offset)
-
-            return web.Response(
-                body=orjson.dumps(
-                    {"logs": logs, "count": len(logs), "offset": offset, "limit": limit}
-                ),
-                content_type="application/json",
+        try:
+            result = await self.db.query(
+                fields, query_filters, offset=offset, limit=limit
             )
+            return self.response_ok(result)
         except Exception as e:
             logger.exception("Error querying logs")
-            return web.Response(
-                status=400,
-                body=orjson.dumps({"error": str(e)}),
-                content_type="application/json",
-            )
+            return self.response_fail(str(e), status=500)
 
-    async def health_check(self, request: web.Request) -> web.Response:
-        """Handle GET /health request for health check"""
+
+class HealthCheckHandler(RequestHandler):
+    description = "probe database connection"
+
+    async def handle(self, request: web.Request) -> web.Response:
         try:
-            # Check database connection
-            async with aiosqlite.connect(self.db.db_path) as db:
-                await db.execute("SELECT 1")
-
-            return web.Response(
-                body=orjson.dumps({"status": "healthy"}),
-                content_type="application/json",
-            )
+            await self.db.ping()
+            return self.response_ok("ok")
         except Exception as e:
             logger.exception("Health check failed")
-            return web.Response(
-                status=500,
-                body=orjson.dumps({"status": "unhealthy", "error": str(e)}),
-                content_type="application/json",
-            )
+            return self.response_fail(str(e), status=500)

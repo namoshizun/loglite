@@ -25,6 +25,9 @@ name = "aliyun"
 url = "https://mirrors.aliyun.com/pypi/simple/"
 priority = "primary"
 
+[tool.poetry.scripts]
+loglite = "loglite.cli:app"
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore::DeprecationWarning",

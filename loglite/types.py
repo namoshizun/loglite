@@ -20,7 +20,17 @@ class Column(TypedDict):
     primary_key: bool
 
 
+QueryOperator = Literal["=", "!=", ">", ">=", "<", "<=", "~="]
+
+
 class QueryFilter(TypedDict):
     field: str
-    operator: Literal["=", "!=", ">", ">=", "<", "<=", "~="]
+    operator: QueryOperator
     value: Any
+
+
+class PaginatedQueryResult(TypedDict):
+    total: int
+    offset: int
+    limit: int
+    results: list[dict[str, Any]]

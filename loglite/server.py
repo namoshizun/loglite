@@ -1,20 +1,16 @@
-import logging
-from aiohttp import web
 import aiohttp_cors
+from aiohttp import web
+from loguru import logger
 
 from .database import Database
-from .migrations import MigrationManager
-from .handlers import LogHandler
-
-logger = logging.getLogger(__name__)
+from .handlers import InsertLogHandler, QueryLogsHandler, HealthCheckHandler
+from .config import Config
 
 
-class LoggingServer:
-    def __init__(self, config):
+class LogLiteServer:
+    def __init__(self, config: Config):
         self.config = config
         self.db = Database(config.db_path, config.log_table_name)
-        self.migration_manager = MigrationManager(self.db, config.migrations)
-        self.handler = LogHandler(self.db)
         self.app = web.Application()
 
     async def setup(self):
@@ -22,25 +18,25 @@ class LoggingServer:
         # Initialize database
         await self.db.initialize()
 
-        # Apply migrations
-        success = await self.migration_manager.apply_pending_migrations()
-        if not success:
-            logger.error("Failed to apply all migrations")
-
         # Set up routes
-        self.app.add_routes(
-            [
-                web.post("/logs", self.handler.insert_log),
-                web.get("/logs", self.handler.query_logs),
-                web.get("/health", self.handler.health_check),
-            ]
-        )
+        route_handlers = {
+            "get": {
+                "/logs": QueryLogsHandler(self.db, self.config.debug),
+                "/health": HealthCheckHandler(self.db, self.config.debug),
+            },
+            "post": {
+                "/logs": InsertLogHandler(self.db, self.config.debug),
+            },
+        }
 
-        # Set up CORS
+        for method, routes in route_handlers.items():
+            for path, handler in routes.items():
+                self.app.router.add_route(method, path, handler.handle)
+
         cors = aiohttp_cors.setup(
             self.app,
             defaults={
-                "*": aiohttp_cors.ResourceOptions(
+                self.config.allow_origin: aiohttp_cors.ResourceOptions(
                     allow_credentials=True,
                     expose_headers="*",
                     allow_headers="*",
@@ -52,6 +48,13 @@ class LoggingServer:
         for route in list(self.app.router.routes()):
             cors.add(route)
 
+        logger.info("Available endpoints: ")
+        for method, routes in route_handlers.items():
+            for path, handler in routes.items():
+                logger.opt(colors=True).info(
+                    f"\t<g>{method.upper()}: {path}: {handler.description}</g>"
+                )
+
     async def start(self):
         """Start the server"""
         runner = web.AppRunner(self.app)
@@ -60,7 +63,7 @@ class LoggingServer:
         await site.start()
 
         logger.info(
-            f"Logging server started at http://{self.config.host}:{self.config.port}"
+            f"🤗 Log and roll!! 📝 Loglite server listening at {self.config.host}:{self.config.port}."
         )
 
         return runner, site

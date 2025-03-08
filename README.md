@@ -1,13 +1,21 @@
 # LogLite
 
-A lightweight, high-performance logging service that stores log data in SQLite with HTTP APIs for log insertion and querying.
+A lightweight, high-performance logging service that stores log data in SQLite with HTTP APIs for log insertion and querying 📝.
 
 ## Features
 
-- **Lightweight & Efficient**: Built with performance in mind using fully async libraries.
-- **Web interfaces**: Insert and query logs via straightforward REST endpoints.
+- **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles, orjson).
+- **Fully customizable table schema**: Make no assumptions about the log table schema, just define your own schema.
 - **SQLite Backend**: Store log messages in SQLite, enabling fast and complex queries.
+- **Web API**: Insert and query logs via straightforward REST endpoints.
 - **Database Migrations**: Built-in migration utilities to manage database schema changes.
+- More cool features in my wishlist 👀:
+  - [ ] **Column based compression**: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
+  captures all distinct values of that column.
+  - [ ] **Time based partitioning**: One SQLite database per date or month.
+  - [ ] **Just a logging handler**: Allow to be used as a basic logging handler without the Web API part.
+  - [ ] **Log redirection**: When used as service, allow redirecting logs to local file or other external sink.
+  - [ ] **CLI utilities**: More CLI utilities to directly query the database, and export the query results to a file.
 
 ## Installation
 
@@ -149,13 +157,10 @@ Example response:
 
 
 ## TODO:
-- [x] Add basic documentation
-- [ ] Customize SQLite configuration
-- [ ] Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
-captures all distinct values of that column. This will greatly reduce the storage space 👍.
-- [ ] Partition SQLite databases by date or month
-- [ ] Allow redirecting logs to local file
-- [ ] Add tests
+- [x] Add basic documentation.
+- [ ] Customize SQLite configuration.
+- [ ] Implement more features in the wishlist.
+- [ ] Add tests.
 
 ## License
 

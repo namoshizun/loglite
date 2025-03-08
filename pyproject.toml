@@ -20,11 +20,6 @@ line-length = 100
 target-version = "py311"
 ignore = ["E731", "E741", "F402", "E402"]
 
-[[tool.poetry.source]]
-name = "aliyun"
-url = "https://mirrors.aliyun.com/pypi/simple/"
-priority = "primary"
-
 [tool.poetry.scripts]
 loglite = "loglite.cli:app"
 

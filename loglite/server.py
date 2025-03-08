@@ -8,9 +8,9 @@ from .config import Config
 
 
 class LogLiteServer:
-    def __init__(self, config: Config):
+    def __init__(self, db: Database, config: Config):
         self.config = config
-        self.db = Database(config.db_path, config.log_table_name)
+        self.db = db
         self.app = web.Application()
 
     async def setup(self):

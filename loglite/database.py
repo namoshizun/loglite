@@ -244,3 +244,10 @@ class Database:
             await self._connection.close()
             logger.info(f"👋 Closed connection to {self.db_path}")
             self._connection = None
+
+    async def __aenter__(self):
+        await self.get_connection()
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        await self.close()

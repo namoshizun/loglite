@@ -1,4 +1,6 @@
+import dataclasses
 import yaml
+from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -7,18 +9,22 @@ from .types import Migration
 
 @dataclass
 class Config:
+    migrations: list[Migration]
     host: str = "127.0.0.1"
     port: int = 7788
     log_table_name: str = "Log"
-    db_dir: Path = Path("./db")
+    sqlite_dir: Path = Path("./db")
+    sqlite_params: dict[str, Any] = field(default_factory=dict)
     allow_origin: str = "*"
     debug: bool = False
     db_path: Path = field(init=False)
-    migrations: list[Migration] = field(default_factory=list)
 
     def __post_init__(self):
-        self.db_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.db_dir / "logs.db"
+        if isinstance(self.sqlite_dir, str):
+            self.sqlite_dir = Path(self.sqlite_dir)
+
+        self.sqlite_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.sqlite_dir / "logs.db"
 
     @classmethod
     def from_file(cls, config_path: str | Path):
@@ -32,34 +38,18 @@ class Config:
             config = yaml.safe_load(f)
 
         args = {}
-        if "host" in config:
-            args["host"] = config["host"]
 
-        if "port" in config:
-            args["port"] = config["port"]
+        for field in dataclasses.fields(cls):
+            if field.name in config:
+                args[field.name] = config[field.name]
+                continue
 
-        if "log_table_name" in config:
-            args["log_table_name"] = config["log_table_name"]
-
-        if "db_dir" in config:
-            args["db_dir"] = Path(config["db_dir"])
-
-        if "allow_origin" in config:
-            args["allow_origin"] = config["allow_origin"]
-
-        if "debug" in config:
-            args["debug"] = config["debug"]
-
-        if "migrations" not in config:
-            raise ValueError("migrations is required")
-
-        args["migrations"] = [
-            Migration(
-                version=migration["version"],
-                rollout=migration["rollout"],
-                rollback=migration["rollback"],
+            is_required = (
+                field.default is dataclasses.MISSING
+                and field.default_factory is dataclasses.MISSING
+                and field.init
             )
-            for migration in config["migrations"]
-        ]
+            if is_required:
+                raise ValueError(f"{field.name} is missing in config")
 
         return cls(**args)

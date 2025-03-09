@@ -9,13 +9,14 @@ A lightweight, high-performance logging service that stores log data in SQLite w
 - **SQLite Backend**: Store log messages in SQLite, enabling fast and complex queries.
 - **Web API**: Insert and query logs via straightforward REST endpoints.
 - **Database Migrations**: Built-in migration utilities to manage database schema changes.
-- More cool features in my wishlist 👀:
-  - [ ] **Column based compression**: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
+- ✨✨✨ **More cool features in my wishlist**:
+  - [ ] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
+  - [ ] *Column based compression*: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
   captures all distinct values of that column.
-  - [ ] **Time based partitioning**: One SQLite database per date or month.
-  - [ ] **Just a logging handler**: Allow to be used as a basic logging handler without the Web API part.
-  - [ ] **Log redirection**: When used as service, allow redirecting logs to local file or other external sink.
-  - [ ] **CLI utilities**: More CLI utilities to directly query the database, and export the query results to a file.
+  - [ ] *Time based partitioning*: One SQLite database per date or month.
+  - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
+  - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
+  - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
 
 ## Installation
 
@@ -33,8 +34,15 @@ host: 0.0.0.0  # Web API server bind host
 port: 7788  # Web API server bind port
 debug: true  # More verbose logging when enabled
 log_table_name: Log  # Name of the main log entry table in SQLite
-db_dir: ./db  # Directory for SQLite database
+sqlite_dir: ./db  # Directory for SQLite database
 allow_origin: "*"  # CORS configuration (default: *)
+sqlite_params:  # you can set any SQLite parameters, no default values
+  journal_mode: WAL
+  synchronous: NORMAL
+  cache_size: -32000  # 32MB
+  foreign_keys: OFF
+  temp_store: MEMORY
+  mmap_size: 52428800  # 50MB
 
 # Database migrations
 migrations:
@@ -158,7 +166,7 @@ Example response:
 
 ## TODO:
 - [x] Add basic documentation.
-- [ ] Customize SQLite configuration.
+- [x] Customize SQLite configuration.
 - [ ] Implement more features in the wishlist.
 - [ ] Add tests.
 

@@ -1,27 +1,33 @@
 import orjson
 import aiosqlite
-from pathlib import Path
 from typing import Any, Sequence
 from loguru import logger
 from datetime import datetime
 
+from loglite.config import Config
 from loglite.errors import InvalidLogEntryError
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
 
 
 class Database:
-    def __init__(self, db_path: str | Path, log_table_name: str):
-        if isinstance(db_path, str):
-            db_path = Path(db_path)
-
-        self.db_path = db_path
-        self.log_table_name = log_table_name
+    def __init__(self, config: Config):
+        self.db_path = config.db_path
+        self.log_table_name = config.log_table_name
+        self.sqlite_params = config.sqlite_params
         self._column_info: list[Column] = []
         self._connection: aiosqlite.Connection | None = None
 
     async def get_connection(self) -> aiosqlite.Connection:
         async def connect():
             conn = await aiosqlite.connect(self.db_path)
+            for param, value in self.sqlite_params.items():
+                statement = f"PRAGMA {param}={value}"
+                logger.info(statement)
+                try:
+                    await conn.execute(statement)
+                except Exception as e:
+                    logger.error(f"Failed to set SQLite parameter {param}: {e}")
+
             conn.row_factory = aiosqlite.Row
             return conn
 

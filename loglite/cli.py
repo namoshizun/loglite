@@ -33,7 +33,7 @@ async def _shutdown(signal, loop: asyncio.AbstractEventLoop):
 
 async def _run_server(config_path: str):
     config = Config.from_file(config_path)
-    db = Database(config.db_path, config.log_table_name)
+    db = Database(config)
     server = LogLiteServer(db, config)
     await server.setup()
 
@@ -57,14 +57,14 @@ async def _run_server(config_path: str):
 
 async def _migrate(config_path: str, start_version: int = -1):
     config = Config.from_file(config_path)
-    async with Database(config.db_path, config.log_table_name) as db:
+    async with Database(config) as db:
         migration_manager = MigrationManager(db, config.migrations)
         await migration_manager.apply_pending_migrations(start_version)
 
 
 async def _rollback(config_path: str, version_id: int, force: bool = False):
     config = Config.from_file(config_path)
-    async with Database(config.db_path, config.log_table_name) as db:
+    async with Database(config) as db:
         migration_manager = MigrationManager(db, config.migrations)
         await migration_manager.rollback_migration(version_id, force)
 

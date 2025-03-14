@@ -33,26 +33,27 @@ async def _shutdown(signal, loop: asyncio.AbstractEventLoop):
 
 async def _run_server(config_path: str):
     config = Config.from_file(config_path)
-    db = Database(config)
-    server = LogLiteServer(db, config)
-    await server.setup()
+    async with Database(config) as db:
+        server = LogLiteServer(db, config)
+        await server.setup()
 
-    # Handle shutdown signals
-    loop = asyncio.get_event_loop()
-    signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
-    for s in signals:
-        loop.add_signal_handler(s, lambda s=s: asyncio.create_task(_shutdown(s, loop)))
+        # Handle shutdown signals
+        loop = asyncio.get_event_loop()
+        exit_signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+        for s in exit_signals:
+            loop.add_signal_handler(
+                s, lambda s=s: asyncio.create_task(_shutdown(s, loop))
+            )
 
-    runner, _ = await server.start()
+        runner, _ = await server.start()
 
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await runner.cleanup()
-        await db.close()
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await runner.cleanup()
 
 
 async def _migrate(config_path: str, start_version: int = -1):

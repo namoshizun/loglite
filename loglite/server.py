@@ -3,7 +3,11 @@ from aiohttp import web
 from loguru import logger
 
 from .database import Database
-from .handlers import InsertLogHandler, QueryLogsHandler, HealthCheckHandler
+from .handlers import (
+    InsertLogHandler,
+    QueryLogsHandler,
+    HealthCheckHandler,
+)
 from .config import Config
 
 
@@ -31,7 +35,7 @@ class LogLiteServer:
 
         for method, routes in route_handlers.items():
             for path, handler in routes.items():
-                self.app.router.add_route(method, path, handler.handle)
+                self.app.router.add_route(method, path, handler.handle_request)
 
         cors = aiohttp_cors.setup(
             self.app,

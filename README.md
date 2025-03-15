@@ -9,7 +9,7 @@
 - ⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
 - 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
 - 💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
-- - 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
+- 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
 - 🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
 - ✨✨✨ **More cool features in my wishlist**:
   - [ ] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.

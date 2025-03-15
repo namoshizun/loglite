@@ -68,17 +68,30 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
             return self.response_fail(str(e), status=500)
 
 
-class SubscribeLogsSSEHandler(RequestHandler):
+class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
     description = "subscribe to current log"
 
-    async def handle(self, request: web.Request) -> web.StreamResponse:
+    async def validate_request(self, request: web.Request) -> list[str]:
+        _fields = request.query.get("fields", "*")
+        if _fields == "*":
+            fields = ["*"]
+        else:
+            fields = _fields.split(",")
+
+        return fields
+
+    async def handle(self, request) -> web.StreamResponse:
+        assert request.validated_data is not None
+        fields = request.validated_data
         pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or 0
         pushed_timestamp = 0
         last_log_id: int = 0
         new_log_event = LAST_INSERT_LOG_ID.subscribe()
         subscriber_id = id(new_log_event)
+
         logger.info(
-            f"New log subscriber. ID={subscriber_id}, Subscribers count={LAST_INSERT_LOG_ID.get_subscribers_count()}"
+            f"New log subscriber. ID={subscriber_id}, Subscribers count={LAST_INSERT_LOG_ID.get_subscribers_count()}, "
+            f"Fields={fields}"
         )
 
         try:
@@ -110,7 +123,7 @@ class SubscribeLogsSSEHandler(RequestHandler):
 
                     # Query and push new logs
                     logs = await self.db.query(
-                        fields=["*"],
+                        fields=fields,
                         filters=[
                             {
                                 "field": "id",

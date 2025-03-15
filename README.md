@@ -1,14 +1,16 @@
-# LogLite
+<div align="center">
+  <img src="docs/logo.png" alt="LogLite Logo" width="150"/>
 
-A lightweight, high-performance logging service that stores log data in SQLite with HTTP APIs for log insertion and querying 📝.
+### A lightweight, high-performance logging service with SQLite and async RESTful API.
+</div>
 
 ## Features
 
-- **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles, orjson).
-- **Fully customizable table schema**: Make no assumptions about the log table schema, just define your own schema.
-- **SQLite Backend**: Store log messages in SQLite, enabling fast and complex queries.
-- **Web API**: Insert and query logs via straightforward REST endpoints.
-- **Database Migrations**: Built-in migration utilities to manage database schema changes.
+- ⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
+- 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
+- 💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
+- - 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
+- 🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
 - ✨✨✨ **More cool features in my wishlist**:
   - [ ] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
   - [ ] *Column based compression*: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
@@ -16,6 +18,7 @@ A lightweight, high-performance logging service that stores log data in SQLite w
   - [ ] *Time based partitioning*: One SQLite database per date or month.
   - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
   - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
+  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
   - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
 
 ## Installation
@@ -36,6 +39,8 @@ debug: true  # More verbose logging when enabled
 log_table_name: Log  # Name of the main log entry table in SQLite
 sqlite_dir: ./db  # Directory for SQLite database
 allow_origin: "*"  # CORS configuration (default: *)
+sse_limit: 1000  # Maximum number of logs to push in a single SSE event payload
+sse_debounce_ms: 500  # Debounce time in milliseconds for SSE, logs may be pushed later if they arrive too frequently
 sqlite_params:  # you can set any SQLite parameters, no default values
   journal_mode: WAL
   synchronous: NORMAL
@@ -114,6 +119,8 @@ Add the `-f` flag to force rollback without confirmation.
 
 ### POST /logs
 
+Insert a new log entry. The payload format must be consistent with your log table schema.
+
 ```bash
 curl -X POST http://localhost:7788/logs \
   -H "Content-Type: application/json" \
@@ -128,16 +135,11 @@ curl -X POST http://localhost:7788/logs \
 
 ### GET /logs
 
-Query logs with filters. Each query parameter specifies the field, operation (=, ~=, !=, >=, <=, >, <) and value. The following are special query parameters that do not require operator, just provide the exact value:
-
-- ``fields``: Comma-separated list of fields to return, defaults to "*" (select all fields).
-- ``limit``: Maximum number of logs to return.
-- ``offset``: Offset in the result set.
-
+Query logs with filters. Each query parameter specifies a **field** and its **filters**. A filter defines the operator (e.g. =, ~=, !=, >=, <=, >, <) and the value. Filters are comma-separated.
 
 Example request:
 ```bash
-curl "http://localhost:7788/logs?fields=message,timestamp&limit=10&offset=0&level=>INFO&service==backend&timestamp=>=2023-04-01T00:00:00"
+curl "http://localhost:7788/logs?fields=message,timestamp&limit=10&offset=0&timestamp=>=2023-04-01T00:00:00,<=2023-04-01T05:00:00&level==WARNING"
 ```
 
 Example response:
@@ -151,11 +153,11 @@ Example response:
         "limit": 2,
         "results": [
             {
-                "timestamp": "2025-03-06T10:44:04.207515",
+                "timestamp": "2025-04-01T02:44:04.207515",
                 "message": "hello world!"
             },
             {
-                "timestamp": "2025-03-08T11:44:04.207515",
+                "timestamp": "2025-04-01T01:44:04.207515",
                 "message": "hello world!"
             }
         ]
@@ -163,6 +165,27 @@ Example response:
 }
 ```
 
+The following are special query parameters, just provide the exact value:
+
+- ``fields``: Comma-separated list of fields to return, defaults to "*" (select all fields).
+- ``limit``: Maximum number of logs to return.
+- ``offset``: Offset in the result set.
+
+
+### GET /logs/sse
+
+Subscribe to real-time log updates via Server-Sent Events (SSE). Query parameters only accept ``fields``, not filtering is applied.
+
+```bash
+curl -H "Accept: text/event-stream" http://localhost:7788/logs/sse?fields=message,timestamp
+```
+
+Example events:
+
+```
+data: [{"timestamp": "2025-04-01T02:44:04.207515", "message": "first msg"}]
+data: [{"timestamp": "2025-04-01T02:44:10.207515", "message": "third msg"}, {"timestamp": "2025-04-01T01:44:05.207515", "message": "second msg"}]
+```
 
 ## TODO:
 - [x] Add basic documentation.

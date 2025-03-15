@@ -237,6 +237,14 @@ class Database:
                 results=[dict(row) for row in rows],
             )
 
+    async def get_max_log_id(self) -> int:
+        conn = await self.get_connection()
+        async with conn.execute(f"SELECT MAX(id) FROM {self.log_table_name}") as cursor:
+            res = await cursor.fetchone()
+            if not res:
+                return 0
+            return res[0]
+
     async def ping(self) -> bool:
         try:
             conn = await self.get_connection()

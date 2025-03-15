@@ -21,6 +21,7 @@ class Config:
     db_path: Path = field(init=False)
     sse_limit: int = 1000
     sse_debounce_ms: int = 500
+    task_diagnostics_interval: int = 60  # seconds
 
     def __post_init__(self):
         if isinstance(self.sqlite_dir, str):

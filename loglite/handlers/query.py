@@ -9,8 +9,10 @@ from aiohttp_sse import sse_response
 
 from loglite.errors import RequestValidationError
 from loglite.handlers import RequestHandler
-from loglite.handlers.utils import LAST_INSERT_LOG_ID
+from loglite.globals import LAST_INSERT_LOG_ID
 from loglite.types import QueryFilter, QueryOperator
+from loglite.globals import QUERY_STATS
+from loglite.utils import Timer
 
 
 class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
@@ -59,9 +61,12 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
             )
 
         try:
-            result = await self.db.query(
-                fields, request.validated_data, offset=offset, limit=limit
-            )
+            with Timer(unit="ms") as timer:
+                result = await self.db.query(
+                    fields, request.validated_data, offset=offset, limit=limit
+                )
+
+            QUERY_STATS.collect(timer.duration)
             return self.response_ok(result)
         except Exception as e:
             logger.exception("Error querying logs")
@@ -83,7 +88,9 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
     async def handle(self, request) -> web.StreamResponse:
         assert request.validated_data is not None
         fields = request.validated_data
-        pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or 0
+        pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or (
+            await self.db.get_max_log_id()
+        )
         pushed_timestamp = 0
         last_log_id: int = 0
         new_log_event = LAST_INSERT_LOG_ID.subscribe()

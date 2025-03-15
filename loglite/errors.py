@@ -1,5 +1,4 @@
-class RequestValidationError(Exception):
-    pass
+class RequestValidationError(Exception): ...
 
 
 class InvalidLogEntryError(Exception): ...

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import orjson
 import aiosqlite
 from typing import Any, Sequence

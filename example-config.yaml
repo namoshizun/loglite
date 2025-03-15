@@ -10,7 +10,7 @@ sqlite_params:
   foreign_keys: OFF
   temp_store: MEMORY
   mmap_size: 52428800  # 50MB
-  
+
 allow_origin: "*"
 migrations:
   - version: 1

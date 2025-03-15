@@ -1,9 +1,11 @@
+from __future__ import annotations
 import abc
 import orjson
 from typing import Any, Generic, TypeVar
 from loguru import logger
 from aiohttp import web
 
+from loglite.config import Config
 from loglite.errors import RequestValidationError
 from loglite.database import Database
 
@@ -28,9 +30,21 @@ class Request(web.Request, Generic[Data]):
 class RequestHandler(abc.ABC, Generic[Data]):
     description: str
 
-    def __init__(self, db: Database, verbose: bool):
+    def __init__(self, db: Database, config: Config):
         self.db = db
-        self.verbose = verbose
+        self.config = config
+
+    @property
+    def sse_limit(self) -> int:
+        return self.config.sse_limit
+
+    @property
+    def sse_debounce_ms(self) -> int:
+        return self.config.sse_debounce_ms
+
+    @property
+    def verbose(self) -> bool:
+        return self.config.debug
 
     def response_ok(self, payload: Any, status: int = 200) -> web.Response:
         return web.Response(

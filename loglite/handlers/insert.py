@@ -4,6 +4,7 @@ from aiohttp import web
 
 from loglite.errors import InvalidLogEntryError
 from loglite.handlers import RequestHandler
+from loglite.handlers.utils import LAST_INSERT_LOG_ID
 
 
 class InsertLogHandler(RequestHandler):
@@ -23,6 +24,7 @@ class InsertLogHandler(RequestHandler):
             except InvalidLogEntryError as e:
                 return self.response_fail(str(e))
 
+            await LAST_INSERT_LOG_ID.set(log_id)
             return self.response_ok({"id": log_id})
 
         except Exception as e:

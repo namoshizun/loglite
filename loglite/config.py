@@ -1,3 +1,4 @@
+from __future__ import annotations
 import dataclasses
 import yaml
 from typing import Any
@@ -18,6 +19,8 @@ class Config:
     allow_origin: str = "*"
     debug: bool = False
     db_path: Path = field(init=False)
+    sse_limit: int = 1000
+    sse_debounce_ms: int = 500
 
     def __post_init__(self):
         if isinstance(self.sqlite_dir, str):

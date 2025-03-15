@@ -2,13 +2,14 @@ import aiohttp_cors
 from aiohttp import web
 from loguru import logger
 
-from .database import Database
-from .handlers import (
+from loglite.handlers.query import SubscribeLogsSSEHandler
+from loglite.database import Database
+from loglite.handlers import (
     InsertLogHandler,
     QueryLogsHandler,
     HealthCheckHandler,
 )
-from .config import Config
+from loglite.config import Config
 
 
 class LogLiteServer:
@@ -25,11 +26,12 @@ class LogLiteServer:
         # Set up routes
         route_handlers = {
             "get": {
-                "/logs": QueryLogsHandler(self.db, self.config.debug),
-                "/health": HealthCheckHandler(self.db, self.config.debug),
+                "/logs": QueryLogsHandler(self.db, self.config),
+                "/logs/sse": SubscribeLogsSSEHandler(self.db, self.config),
+                "/health": HealthCheckHandler(self.db, self.config),
             },
             "post": {
-                "/logs": InsertLogHandler(self.db, self.config.debug),
+                "/logs": InsertLogHandler(self.db, self.config),
             },
         }
 

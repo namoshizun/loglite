@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/logo.png" alt="LogLite Logo" width="150"/>
+  <img src="docs/loglite.png" alt="LogLite Logo" width="170"/>
 
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>

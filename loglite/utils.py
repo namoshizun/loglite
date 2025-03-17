@@ -3,9 +3,22 @@ import time
 import asyncio
 from dataclasses import dataclass, asdict
 from functools import wraps
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, get_args
 
+SizeUnit = Literal["B", "KB", "MB", "GB", "TB"]
 T = TypeVar("T")
+
+
+def bytes_to_mb(bytes: int) -> float:
+    return round(bytes / (1024 * 1024), 2)
+
+
+def convert_size_to_bytes(value: int, unit: str):
+    if unit not in get_args(SizeUnit):
+        raise ValueError(f"Invalid unit: {unit}")
+
+    multiplier = 1024 ** get_args(SizeUnit).index(unit)
+    return value * multiplier
 
 
 def repeat_every(
@@ -78,30 +91,30 @@ class AtomicMutableValue(Generic[T]):
 
     def __init__(self, value: T | None = None):
         self.value = value
-        self.__lock = asyncio.Lock()
-        self.__subscribers: list[asyncio.Event] = []
+        self._lock = asyncio.Lock()
+        self._subscribers: list[asyncio.Event] = []
 
     async def get(self) -> T | None:
-        async with self.__lock:
+        async with self._lock:
             return self.value
 
     async def set(self, value: T | None):
-        async with self.__lock:
+        async with self._lock:
             self.value = value
 
-        for event in self.__subscribers:
+        for event in self._subscribers:
             event.set()
 
     def subscribe(self) -> asyncio.Event:
         event = asyncio.Event()
-        self.__subscribers.append(event)
+        self._subscribers.append(event)
         return event
 
     def unsubscribe(self, event: asyncio.Event):
-        self.__subscribers.remove(event)
+        self._subscribers.remove(event)
 
     def get_subscribers_count(self) -> int:
-        return len(self.__subscribers)
+        return len(self._subscribers)
 
 
 class Timer:
@@ -155,11 +168,11 @@ class StatsTracker:
         self.period_seconds = period_seconds
         self.reset()
 
-    def collect(self, cost_ms: float):
+    def collect(self, cost_ms: float, count: int = 1):
         if self.__since is None:
             self.__since = time.monotonic()
 
-        self.__stats.count += 1
+        self.__stats.count += count
         self.__stats.total_cost_ms += cost_ms
         self.__stats.max = max(self.__stats.max, cost_ms)
         self.__stats.min = min(self.__stats.min, cost_ms)

@@ -59,6 +59,7 @@ async def _run_server(config_path: str):
 async def _migrate(config_path: str, start_version: int = -1):
     config = Config.from_file(config_path)
     async with Database(config) as db:
+        await db.initialize()
         migration_manager = MigrationManager(db, config.migrations)
         await migration_manager.apply_pending_migrations(start_version)
 
@@ -66,6 +67,7 @@ async def _migrate(config_path: str, start_version: int = -1):
 async def _rollback(config_path: str, version_id: int, force: bool = False):
     config = Config.from_file(config_path)
     async with Database(config) as db:
+        await db.initialize()
         migration_manager = MigrationManager(db, config.migrations)
         await migration_manager.rollback_migration(version_id, force)
 

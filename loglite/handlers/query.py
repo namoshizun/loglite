@@ -5,6 +5,7 @@ import time
 from typing import get_args
 from loguru import logger
 from aiohttp import web
+from aiohttp.client import ClientError
 from aiohttp_sse import sse_response
 
 from loglite.errors import RequestValidationError
@@ -29,8 +30,12 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
 
     async def validate_request(self, request: web.Request) -> list[QueryFilter]:
         non_filter_params = ["fields", "offset", "limit"]
-        query_filters = []
 
+        for param in non_filter_params:
+            if param not in request.query:
+                raise RequestValidationError(f"Required parameter '{param}' is missing")
+
+        query_filters = []
         for field, filter_expr in request.query.items():
             if field in non_filter_params:
                 continue
@@ -45,7 +50,6 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
         return query_filters
 
     async def handle(self, request) -> web.Response:
-        assert request.validated_data is not None
         _fields = request.query.get("fields", "*")
         if _fields == "*":
             fields = ["*"]
@@ -150,6 +154,8 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
                     await resp.send(data)
                     pushed_log_id = last_log_id
                     pushed_timestamp = now
+        except ClientError:
+            pass
         finally:
             LAST_INSERT_LOG_ID.unsubscribe(new_log_event)
             logger.info(

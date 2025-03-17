@@ -74,8 +74,7 @@ class RequestHandler(abc.ABC, Generic[Data]):
 
     async def handle_request(self, request: web.Request) -> web.Response:
         try:
-            if validated_data := await self.validate_request(request):
-                request.validated_data = validated_data
+            request.validated_data = await self.validate_request(request)
         except NotImplementedError:
             pass
         except RequestValidationError as e:

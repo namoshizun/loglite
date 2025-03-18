@@ -1,11 +1,12 @@
+import sys
 import asyncio
-from contextlib import suppress
 import aiohttp_cors
+from contextlib import suppress
 from aiohttp import web
 from loguru import logger
 
 import loglite
-from loglite.globals import INGESTION_STATS, QUERY_STATS
+from loglite.globals import BACKLOG, INGESTION_STATS, QUERY_STATS
 from loglite.handlers.query import SubscribeLogsSSEHandler
 from loglite.database import Database
 from loglite.handlers import (
@@ -14,8 +15,7 @@ from loglite.handlers import (
     HealthCheckHandler,
 )
 from loglite.config import Config
-from loglite.tasks.diagnostics import run_diagnostics
-from loglite.utils import repeat_every
+from loglite.tasks import register_diagnostics_task, register_flushing_backlog_task
 
 
 class LogLiteServer:
@@ -23,6 +23,15 @@ class LogLiteServer:
         self.config = config
         self.db = db
         self.app = web.Application()
+
+    def _setup_logging(self):
+        logger.remove()
+        logger.add(
+            sys.stdout,
+            level="INFO" if not self.config.debug else "DEBUG",
+            colorize=True,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level}</level> | <cyan>{module}:{function}</cyan> | {message} <dim>{extra}</dim>",
+        )
 
     async def _setup_routes(self):
         route_handlers = {
@@ -63,17 +72,15 @@ class LogLiteServer:
                 )
 
     async def _setup_tasks(self):
-        def make_task(interval, func):
-            task_func = repeat_every(seconds=interval)(func)
-            return asyncio.create_task(task_func())
-
         async def background_tasks(app: web.Application):
             INGESTION_STATS.set_period_seconds(self.config.task_diagnostics_interval)
             QUERY_STATS.set_period_seconds(self.config.task_diagnostics_interval)
+            BACKLOG.set_maxlen(self.config.task_backlog_max_size)
 
             tasks = web.AppKey("tasks", list[asyncio.Task])
             app[tasks] = [
-                make_task((self.config.task_diagnostics_interval), run_diagnostics)
+                asyncio.create_task(register_diagnostics_task(self.config)),
+                asyncio.create_task(register_flushing_backlog_task(self.db, self.config)),
             ]
 
             yield
@@ -88,6 +95,7 @@ class LogLiteServer:
     async def setup(self):
         """Set up the server"""
         # Initialize database
+        self._setup_logging()
         await self.db.initialize()
         await self._setup_routes()
         await self._setup_tasks()

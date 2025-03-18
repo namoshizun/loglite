@@ -23,10 +23,7 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
 
     def _to_query_filters(self, field: str, filter_expr: str) -> list[QueryFilter]:
         matches = re.findall(self.filter_regex, filter_expr)
-        return [
-            {"field": field, "operator": op, "value": value.strip()}
-            for op, value in matches
-        ]
+        return [{"field": field, "operator": op, "value": value.strip()} for op, value in matches]
 
     async def validate_request(self, request: web.Request) -> list[QueryFilter]:
         non_filter_params = ["fields", "offset", "limit"]
@@ -70,7 +67,7 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
                     fields, request.validated_data, offset=offset, limit=limit
                 )
 
-            QUERY_STATS.collect(timer.duration)
+            QUERY_STATS.collect(cost_ms=timer.duration)
             return self.response_ok(result)
         except Exception as e:
             logger.exception("Error querying logs")
@@ -92,9 +89,7 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
     async def handle(self, request) -> web.StreamResponse:
         assert request.validated_data is not None
         fields = request.validated_data
-        pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or (
-            await self.db.get_max_log_id()
-        )
+        pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or (await self.db.get_max_log_id())
         pushed_timestamp = 0
         last_log_id: int = 0
         new_log_event = LAST_INSERT_LOG_ID.subscribe()
@@ -140,7 +135,12 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
                                 "field": "id",
                                 "operator": ">",
                                 "value": pushed_log_id,
-                            }
+                            },
+                            {
+                                "field": "id",
+                                "operator": "<=",
+                                "value": last_log_id,
+                            },
                         ],
                         limit=self.sse_limit,
                     )

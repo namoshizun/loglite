@@ -7,6 +7,7 @@ from datetime import datetime
 
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
+from loglite.utils import bytes_to_mb
 
 
 class Database:
@@ -58,7 +59,9 @@ class Database:
     async def get_applied_versions(self) -> list[int]:
         """Get the list of already applied migration versions"""
         conn = await self.get_connection()
-        async with conn.execute("SELECT version FROM versions ORDER BY version") as cursor:
+        async with conn.execute(
+            "SELECT version FROM versions ORDER BY version"
+        ) as cursor:
             versions = [row[0] for row in await cursor.fetchall()]
             return versions
 
@@ -222,7 +225,9 @@ class Database:
             total = (await cursor.fetchone())[0]
 
         if total == 0:
-            return PaginatedQueryResult(total=total, offset=offset, limit=limit, results=[])
+            return PaginatedQueryResult(
+                total=total, offset=offset, limit=limit, results=[]
+            )
 
         # Build the complete query
         query = f"""
@@ -246,6 +251,25 @@ class Database:
                 limit=limit,
                 results=[dict(row) for row in rows],
             )
+
+    async def wal_checkpoint(self):
+        conn = await self.get_connection()
+        await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    async def get_size_mb(self) -> float:
+        conn = await self.get_connection()
+
+        async with conn.cursor() as cursor:
+            await cursor.execute("PRAGMA page_count")
+            page_count = await cursor.fetchone()
+            await cursor.execute("PRAGMA page_size")
+            page_size = await cursor.fetchone()
+            try:
+                total_size = page_count[0] * page_size[0]
+            except Exception:
+                total_size = 0
+
+        return bytes_to_mb(total_size)
 
     async def ping(self) -> bool:
         try:

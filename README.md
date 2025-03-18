@@ -32,16 +32,32 @@ pip install loglite
 LogLite requires a YAML configuration file. Here's a sample configuration:
 
 ```yaml
-# Server configuration
-host: 0.0.0.0  # Web API server bind host
-port: 7788  # Web API server bind port
-debug: true  # More verbose logging when enabled
-log_table_name: Log  # Name of the main log entry table in SQLite
-sqlite_dir: ./db  # Directory for SQLite database
-allow_origin: "*"  # CORS configuration (default: *)
-sse_limit: 1000  # Maximum number of logs to push in a single SSE event payload
-sse_debounce_ms: 500  # Debounce time in milliseconds for SSE, logs may be pushed later if they arrive too frequently
-sqlite_params:  # you can set any SQLite parameters, no default values
+# Web API server bind host
+host: 0.0.0.0
+# Web API server bind port
+port: 7788
+# More verbose logging when enabled
+debug: true
+# Name of the main log entry table in SQLite, **required**
+log_table_name: Log
+# Name of the column storing the log timestamp, used for removing logs older than N days (default: timestamp)
+log_timestamp_field: timestamp
+# Directory for SQLite database
+sqlite_dir: ./db
+# CORS configuration (default: *)
+allow_origin: "*"
+# Maximum number of logs to push in a single SSE event payload (default: 1000)
+sse_limit: 1000
+# Debounce time in milliseconds for SSE, logs may be pushed later if they arrive too quickly (default: 500)
+sse_debounce_ms: 500
+# Remove logs older than this number of days (default: 3650 days)
+vacuum_max_days: 7
+# Remove the oldest logs when the db size exceeds this value (default: 1TB)
+vacuum_max_size: 500MB
+# When above triggered, remove the oldest logs until the db size is blow this value (default: 800GB)
+vacuum_target_size: 400MB
+# You can set any SQLite parameters, no default values
+sqlite_params:
   journal_mode: WAL
   synchronous: NORMAL
   cache_size: -32000  # 32MB
@@ -49,7 +65,7 @@ sqlite_params:  # you can set any SQLite parameters, no default values
   temp_store: MEMORY
   mmap_size: 52428800  # 50MB
 
-# Database migrations
+# Database migrations, **required**
 migrations:
   - version: 1  # Incremental migration version
     rollout:  # Raw SQLite statements
@@ -80,6 +96,7 @@ migrations:
 
 ### Required Configuration Items
 
+- **log_table_name**: Name of the main log entry table in SQLite.
 - **migrations**: At least one migration must be defined with version, rollout and rollback statements
   - **version**: A unique integer for each migration
   - **rollout**: SQL statements to apply when migrating forward

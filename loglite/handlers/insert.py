@@ -2,7 +2,6 @@ import orjson
 from loguru import logger
 from aiohttp import web
 
-from loglite.errors import InvalidLogEntryError
 from loglite.handlers import RequestHandler
 from loglite.globals import BACKLOG
 
@@ -20,7 +19,7 @@ class InsertLogHandler(RequestHandler):
 
             try:
                 await BACKLOG.add(log_data)
-            except InvalidLogEntryError as e:
+            except Exception as e:
                 return self.response_fail(str(e))
 
             return self.response_ok("ok")

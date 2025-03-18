@@ -80,7 +80,9 @@ class LogLiteServer:
             tasks = web.AppKey("tasks", list[asyncio.Task])
             app[tasks] = [
                 asyncio.create_task(register_diagnostics_task(self.config)),
-                asyncio.create_task(register_flushing_backlog_task(self.db, self.config)),
+                asyncio.create_task(
+                    register_flushing_backlog_task(self.db, self.config)
+                ),
             ]
 
             yield

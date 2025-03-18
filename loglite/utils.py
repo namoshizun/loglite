@@ -177,7 +177,9 @@ class StatsTracker:
 
     def get_stats(self) -> dict[str, Any]:
         if self.__stats.count > 0:
-            self.__stats.avg_cost_ms = round(self.__stats.total_cost_ms / self.__stats.count, 1)
+            self.__stats.avg_cost_ms = round(
+                self.__stats.total_cost_ms / self.__stats.count, 1
+            )
 
         self.__stats.total_cost_ms = round(self.__stats.total_cost_ms, 1)
         self.__stats.min = round(self.__stats.min, 1)

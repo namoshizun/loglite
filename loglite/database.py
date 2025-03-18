@@ -6,7 +6,6 @@ from loguru import logger
 from datetime import datetime
 
 from loglite.config import Config
-from loglite.errors import InvalidLogEntryError
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
 
 
@@ -59,9 +58,7 @@ class Database:
     async def get_applied_versions(self) -> list[int]:
         """Get the list of already applied migration versions"""
         conn = await self.get_connection()
-        async with conn.execute(
-            "SELECT version FROM versions ORDER BY version"
-        ) as cursor:
+        async with conn.execute("SELECT version FROM versions ORDER BY version") as cursor:
             versions = [row[0] for row in await cursor.fetchall()]
             return versions
 
@@ -127,46 +124,61 @@ class Database:
             ]
             return self._column_info
 
-    async def insert(self, log_data: dict[str, Any]) -> int:
+    async def get_max_log_id(self) -> int:
+        conn = await self.get_connection()
+        async with conn.execute(f"SELECT MAX(id) FROM {self.log_table_name}") as cursor:
+            res = await cursor.fetchone()
+            if not res:
+                return 0
+            return res[0]
+
+    async def insert(self, log_data: dict[str, Any] | list[dict[str, Any]]) -> int:
         def _serialize_value(value: Any) -> Any:
+            if value is None:
+                return None
             if isinstance(value, (int, float, bool, str)):
                 return value
-            elif isinstance(value, (datetime,)):
+            if isinstance(value, (datetime,)):
                 return value.isoformat()
-            elif isinstance(value, (dict, list)):
+            if isinstance(value, (dict, list)):
                 return orjson.dumps(value).decode("utf-8")
-            else:
-                return str(value)
+            return str(value)
 
         """Insert a new log entry into the database"""
-        columns = await self.get_log_columns()
+        columns = [col for col in await self.get_log_columns() if col["name"] != "id"]
+        if isinstance(log_data, dict):
+            log_data = [log_data]
 
-        # Identify required columns (not null and no default value)
-        for col in columns:
-            is_required = (
-                col["not_null"] and col["default"] is None and col["name"] != "id"
-            )
-            if is_required and col["name"] not in log_data:
-                raise InvalidLogEntryError("Missing required field in the log data")
+        row_values = []
+        for log in log_data:
+            col_values = []
+            valid = True
+            for col in columns:
+                # Check if the column is required and not present in the log
+                col_value = log.get(col["name"])
+                if col["not_null"] and col_value is None:
+                    logger.warning(
+                        f"invalid log format encountered, column {col['name']} is required but not present in log: {log}"
+                    )
+                    valid = False
+                    break
 
-        # Build SQL query using only the fields present in log_data
-        available_columns = [col["name"] for col in columns if col["name"] != "id"]
-        insert_columns = []
-        values = []
-        placeholders = []
+                # Serialize the column value
+                col_values.append(_serialize_value(col_value))
 
-        for col_name in available_columns:
-            if col_name in log_data:
-                insert_columns.append(col_name)
-                values.append(_serialize_value(log_data[col_name]))
-                placeholders.append("?")
+            if valid:
+                row_values.append(col_values)
+
+        if not row_values:
+            return 0
 
         # Execute the insert query
+        col_names = [col["name"] for col in columns]
         conn = await self.get_connection()
-        query = f"INSERT INTO {self.log_table_name} ({', '.join(insert_columns)}) VALUES ({', '.join(placeholders)})"
-        cursor = await conn.execute(query, values)
-        await conn.commit()
-        return cursor.lastrowid or 0
+        statement = f"INSERT INTO {self.log_table_name} ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(col_names))})"
+        async with conn.executemany(statement, row_values) as cursor:
+            await conn.commit()
+            return cursor.rowcount or 0
 
     async def query(
         self,
@@ -210,9 +222,7 @@ class Database:
             total = (await cursor.fetchone())[0]
 
         if total == 0:
-            return PaginatedQueryResult(
-                total=total, offset=offset, limit=limit, results=[]
-            )
+            return PaginatedQueryResult(total=total, offset=offset, limit=limit, results=[])
 
         # Build the complete query
         query = f"""
@@ -236,14 +246,6 @@ class Database:
                 limit=limit,
                 results=[dict(row) for row in rows],
             )
-
-    async def get_max_log_id(self) -> int:
-        conn = await self.get_connection()
-        async with conn.execute(f"SELECT MAX(id) FROM {self.log_table_name}") as cursor:
-            res = await cursor.fetchone()
-            if not res:
-                return 0
-            return res[0]
 
     async def ping(self) -> bool:
         try:

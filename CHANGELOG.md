@@ -1,5 +1,10 @@
 ## Changelog
 
+### 0.1.5
+
+- feat: ingestion view pushes logs to the backlog, which gets periodically flushed to the database using bulk insert (default interval: 2 seconds)
+
+
 ### 0.1.4
 
 - fix: initialize db before migration

@@ -12,7 +12,7 @@
 - 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
 - 🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
 - ✨✨✨ **More cool features in my wishlist**:
-  - [ ] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
+  - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
   - [ ] *Column based compression*: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
   captures all distinct values of that column.
   - [ ] *Time based partitioning*: One SQLite database per date or month.

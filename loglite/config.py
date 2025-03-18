@@ -22,6 +22,8 @@ class Config:
     sse_limit: int = 1000
     sse_debounce_ms: int = 500
     task_diagnostics_interval: int = 60  # seconds
+    task_backlog_flush_interval: int = 2  # seconds
+    task_backlog_max_size: int = 200  # max logs in backlog before triggering force flush
 
     def __post_init__(self):
         if isinstance(self.sqlite_dir, str):

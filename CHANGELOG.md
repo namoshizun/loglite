@@ -1,9 +1,13 @@
 ## Changelog
 
+
+### 0.1.6
+
+- fix: pass the current event loop to asyncio.Event for p39
+
 ### 0.1.5
 
 - feat: ingestion view pushes logs to the backlog, which gets periodically flushed to the database using bulk insert (default interval: 2 seconds)
-
 
 ### 0.1.4
 
@@ -20,11 +24,9 @@
 - feat: allow specify multiple query filters per field, improve modularization
 - feat: log stream subscrition via server-sent-event, support debouncing
 
-
 ### 0.1.1
 
 - Allow settings SQLite parameters in config file.
-
 
 ### 0.1.0
 

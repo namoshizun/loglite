@@ -96,13 +96,13 @@ class Config:
 
         # Validate that required fields are present
         for field in dataclasses.fields(cls):
-            if field.name in config:
-                args[field.name] = config[field.name]
-                continue
-
             if field.name in env_args:
                 FieldTypeClass = eval(field.type)
                 args[field.name] = FieldTypeClass(env_args[field.name])
+                continue
+
+            if field.name in config:
+                args[field.name] = config[field.name]
                 continue
 
             is_required = (

@@ -272,6 +272,11 @@ class Database:
             await conn.commit()
             return cursor.rowcount or 0
 
+    async def vacuum(self):
+        conn = await self.get_connection()
+        async with conn.cursor() as cursor:
+            await cursor.execute("VACUUM")
+
     async def wal_checkpoint(self):
         conn = await self.get_connection()
         await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

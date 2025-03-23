@@ -4,12 +4,17 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
-- ⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
-- 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
-- 💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
-- 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
-- 🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
-- ✨✨✨ **More cool features in my wishlist**:
+⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
+
+🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
+
+💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
+
+🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
+
+🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
+
+✨✨✨ **More cool features in my wishlist**:
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
   - [ ] *Column based compression*: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
   captures all distinct values of that column.

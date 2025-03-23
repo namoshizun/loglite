@@ -15,7 +15,11 @@ from loglite.handlers import (
     HealthCheckHandler,
 )
 from loglite.config import Config
-from loglite.tasks import register_diagnostics_task, register_flushing_backlog_task
+from loglite.tasks import (
+    register_diagnostics_task,
+    register_flushing_backlog_task,
+    register_database_vacuuming_task,
+)
 
 
 class LogLiteServer:
@@ -80,7 +84,12 @@ class LogLiteServer:
             tasks = web.AppKey("tasks", list[asyncio.Task])
             app[tasks] = [
                 asyncio.create_task(register_diagnostics_task(self.config)),
-                asyncio.create_task(register_flushing_backlog_task(self.db, self.config)),
+                asyncio.create_task(
+                    register_flushing_backlog_task(self.db, self.config)
+                ),
+                asyncio.create_task(
+                    register_database_vacuuming_task(self.db, self.config)
+                ),
             ]
 
             yield

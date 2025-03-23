@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.1.7
+
+- feat: trigger log entries clean-up based on `vacuum_max_days` and `vacuum_max_size` configurations.
+- feat: read config from environment variables using prefix "LOGLITE_", this can override the config file settings.
 
 ### 0.1.6
 

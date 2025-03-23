@@ -7,6 +7,30 @@ from datetime import datetime
 
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
+from loglite.utils import bytes_to_mb
+
+
+def _convert_filters_to_sql(filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
+    conditions = []
+    params = []
+
+    for filter_item in filters:
+        field = filter_item["field"]
+        operator = filter_item["operator"]
+        value = filter_item["value"]
+
+        if operator == "~=":
+            # Convert ~= operator to LIKE
+            conditions.append(f"{field} LIKE ?")
+            params.append(f"%{value}%")  # Add wildcards for partial matching
+        else:
+            # Map other operators directly to SQL
+            conditions.append(f"{field} {operator} ?")
+            params.append(value)
+
+    # Construct the WHERE clause
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    return where_clause, params
 
 
 class Database:
@@ -58,7 +82,9 @@ class Database:
     async def get_applied_versions(self) -> list[int]:
         """Get the list of already applied migration versions"""
         conn = await self.get_connection()
-        async with conn.execute("SELECT version FROM versions ORDER BY version") as cursor:
+        async with conn.execute(
+            "SELECT version FROM versions ORDER BY version"
+        ) as cursor:
             versions = [row[0] for row in await cursor.fetchall()]
             return versions
 
@@ -132,7 +158,15 @@ class Database:
                 return 0
             return res[0]
 
-    async def insert(self, log_data: dict[str, Any] | list[dict[str, Any]]) -> int:
+    async def get_min_log_id(self) -> int:
+        conn = await self.get_connection()
+        async with conn.execute(f"SELECT MIN(id) FROM {self.log_table_name}") as cursor:
+            res = await cursor.fetchone()
+            if not res:
+                return 0
+            return res[0]
+
+    async def insert(self, log_data: dict[str, Any] | Sequence[dict[str, Any]]) -> int:
         def _serialize_value(value: Any) -> Any:
             if value is None:
                 return None
@@ -189,28 +223,9 @@ class Database:
     ) -> PaginatedQueryResult:
         """Query logs based on provided filters without transforming results"""
         conn = await self.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         # Build query conditions
-        conditions = []
-        params = []
-
-        for filter_item in filters:
-            field = filter_item["field"]
-            operator = filter_item["operator"]
-            value = filter_item["value"]
-
-            if operator == "~=":
-                # Convert ~= operator to LIKE
-                conditions.append(f"{field} LIKE ?")
-                params.append(f"%{value}%")  # Add wildcards for partial matching
-            else:
-                # Map other operators directly to SQL
-                conditions.append(f"{field} {operator} ?")
-                params.append(value)
-
-        # Construct the WHERE clause
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        where_clause, params = _convert_filters_to_sql(filters)
 
         # First, get the total count of logs matching the filters
         count_query = f"""
@@ -222,9 +237,13 @@ class Database:
             total = (await cursor.fetchone())[0]
 
         if total == 0:
-            return PaginatedQueryResult(total=total, offset=offset, limit=limit, results=[])
+            return PaginatedQueryResult(
+                total=total, offset=offset, limit=limit, results=[]
+            )
 
         # Build the complete query
+        params.append(limit)
+        params.append(offset)
         query = f"""
             SELECT {", ".join(fields)}
             FROM {self.log_table_name}
@@ -232,10 +251,6 @@ class Database:
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
         """
-
-        # Add pagination params
-        params.append(limit)
-        params.append(offset)
 
         # Execute query and fetch results
         async with conn.execute(query, params) as cursor:
@@ -246,6 +261,40 @@ class Database:
                 limit=limit,
                 results=[dict(row) for row in rows],
             )
+
+    async def delete(self, filters: Sequence[QueryFilter]) -> int:
+        """Delete logs based on provided filters"""
+        conn = await self.get_connection()
+        where_clause, params = _convert_filters_to_sql(filters)
+        async with conn.execute(
+            f"DELETE FROM {self.log_table_name} WHERE {where_clause}", params
+        ) as cursor:
+            await conn.commit()
+            return cursor.rowcount or 0
+
+    async def vacuum(self):
+        conn = await self.get_connection()
+        async with conn.cursor() as cursor:
+            await cursor.execute("VACUUM")
+
+    async def wal_checkpoint(self):
+        conn = await self.get_connection()
+        await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    async def get_size_mb(self) -> float:
+        conn = await self.get_connection()
+
+        async with conn.cursor() as cursor:
+            await cursor.execute("PRAGMA page_count")
+            page_count = await cursor.fetchone()
+            await cursor.execute("PRAGMA page_size")
+            page_size = await cursor.fetchone()
+            try:
+                total_size = page_count[0] * page_size[0]
+            except Exception:
+                total_size = 0
+
+        return bytes_to_mb(total_size)
 
     async def ping(self) -> bool:
         try:

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "loglite"
-version = "0.1.6"
+version = "0.1.7"
 description = ""
 authors = ["namoshizun <dilu3100@gmail.com>"]
 readme = "README.md"
@@ -15,6 +15,7 @@ aiohttp-cors = "^0.7.0"
 pyyaml = "^6.0.2"
 loguru = "^0.7.3"
 typer = "^0.15.2"
+python-dotenv = "^1.0.1"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"

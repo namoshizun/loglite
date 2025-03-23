@@ -10,6 +10,29 @@ from loglite.types import Column, PaginatedQueryResult, QueryFilter
 from loglite.utils import bytes_to_mb
 
 
+def _convert_filters_to_sql(filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
+    conditions = []
+    params = []
+
+    for filter_item in filters:
+        field = filter_item["field"]
+        operator = filter_item["operator"]
+        value = filter_item["value"]
+
+        if operator == "~=":
+            # Convert ~= operator to LIKE
+            conditions.append(f"{field} LIKE ?")
+            params.append(f"%{value}%")  # Add wildcards for partial matching
+        else:
+            # Map other operators directly to SQL
+            conditions.append(f"{field} {operator} ?")
+            params.append(value)
+
+    # Construct the WHERE clause
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    return where_clause, params
+
+
 class Database:
     def __init__(self, config: Config):
         self.db_path = config.db_path
@@ -135,7 +158,15 @@ class Database:
                 return 0
             return res[0]
 
-    async def insert(self, log_data: dict[str, Any] | list[dict[str, Any]]) -> int:
+    async def get_min_log_id(self) -> int:
+        conn = await self.get_connection()
+        async with conn.execute(f"SELECT MIN(id) FROM {self.log_table_name}") as cursor:
+            res = await cursor.fetchone()
+            if not res:
+                return 0
+            return res[0]
+
+    async def insert(self, log_data: dict[str, Any] | Sequence[dict[str, Any]]) -> int:
         def _serialize_value(value: Any) -> Any:
             if value is None:
                 return None
@@ -192,28 +223,9 @@ class Database:
     ) -> PaginatedQueryResult:
         """Query logs based on provided filters without transforming results"""
         conn = await self.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         # Build query conditions
-        conditions = []
-        params = []
-
-        for filter_item in filters:
-            field = filter_item["field"]
-            operator = filter_item["operator"]
-            value = filter_item["value"]
-
-            if operator == "~=":
-                # Convert ~= operator to LIKE
-                conditions.append(f"{field} LIKE ?")
-                params.append(f"%{value}%")  # Add wildcards for partial matching
-            else:
-                # Map other operators directly to SQL
-                conditions.append(f"{field} {operator} ?")
-                params.append(value)
-
-        # Construct the WHERE clause
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        where_clause, params = _convert_filters_to_sql(filters)
 
         # First, get the total count of logs matching the filters
         count_query = f"""
@@ -230,6 +242,8 @@ class Database:
             )
 
         # Build the complete query
+        params.append(limit)
+        params.append(offset)
         query = f"""
             SELECT {", ".join(fields)}
             FROM {self.log_table_name}
@@ -237,10 +251,6 @@ class Database:
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
         """
-
-        # Add pagination params
-        params.append(limit)
-        params.append(offset)
 
         # Execute query and fetch results
         async with conn.execute(query, params) as cursor:
@@ -251,6 +261,16 @@ class Database:
                 limit=limit,
                 results=[dict(row) for row in rows],
             )
+
+    async def delete(self, filters: Sequence[QueryFilter]) -> int:
+        """Delete logs based on provided filters"""
+        conn = await self.get_connection()
+        where_clause, params = _convert_filters_to_sql(filters)
+        async with conn.execute(
+            f"DELETE FROM {self.log_table_name} WHERE {where_clause}", params
+        ) as cursor:
+            await conn.commit()
+            return cursor.rowcount or 0
 
     async def wal_checkpoint(self):
         conn = await self.get_connection()

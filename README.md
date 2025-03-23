@@ -4,8 +4,6 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
-## Features
-
 - ⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
 - 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
 - 💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.

@@ -1,16 +1,29 @@
 from __future__ import annotations
-import dataclasses
+import os
 import yaml
 import re
+import dataclasses
 from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, field
+from dotenv import load_dotenv
 
 from loglite.utils import convert_size_to_bytes
+from loglite.types import Migration
 
-from .types import Migration
+load_dotenv()
 
 SIZE_RE = re.compile(r"^(\d+)([KMGT]B)$")
+CONFIG_ENV_PREFIX = "LOGLITE_"
+
+
+def _read_args_from_env() -> dict[str, Any]:
+    args = {}
+    for name, value in os.environ.items():
+        if name.startswith(CONFIG_ENV_PREFIX):
+            name = name[len(CONFIG_ENV_PREFIX) :]
+            args[name.lower()] = value
+    return args
 
 
 @dataclass
@@ -38,7 +51,7 @@ class Config:
     task_backlog_max_size: int = (
         200  # max logs in backlog before triggering force flush
     )
-    task_vacuum_interval: int = 3  # 60 * 5  # 5 minutes
+    task_vacuum_interval: int = 60 * 5  # 5 minutes
 
     def __post_init__(self):
         # Run validations
@@ -79,10 +92,17 @@ class Config:
             config = yaml.safe_load(f)
 
         args = {}
+        env_args = _read_args_from_env()
 
+        # Validate that required fields are present
         for field in dataclasses.fields(cls):
             if field.name in config:
                 args[field.name] = config[field.name]
+                continue
+
+            if field.name in env_args:
+                FieldTypeClass = eval(field.type)
+                args[field.name] = FieldTypeClass(env_args[field.name])
                 continue
 
             is_required = (

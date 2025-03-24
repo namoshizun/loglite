@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, asdict
 from functools import wraps
 from typing import Any, Generic, Literal, TypeVar, get_args
+from loguru import logger
 
 SizeUnit = Literal["B", "KB", "MB", "GB", "TB"]
 T = TypeVar("T")
@@ -26,7 +27,7 @@ def repeat_every(
     seconds: float,
     wait_first: float | None = None,
     on_complete=None,
-    on_exception=None,
+    on_exception=logger.exception,
 ):
     """
     Copied and modified from:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import orjson
 import aiosqlite
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 from loguru import logger
 from datetime import datetime
 
@@ -166,6 +166,16 @@ class Database:
                 return 0
             return res[0]
 
+    async def get_min_timestamp(self) -> datetime:
+        conn = await self.get_connection()
+        async with conn.execute(
+            f"SELECT MIN(timestamp) FROM {self.log_table_name}"
+        ) as cursor:
+            res = await cursor.fetchone()
+            if not res:
+                return datetime.min
+            return datetime.fromisoformat(res[0])
+
     async def insert(self, log_data: dict[str, Any] | Sequence[dict[str, Any]]) -> int:
         def _serialize_value(value: Any) -> Any:
             if value is None:
@@ -277,9 +287,11 @@ class Database:
         async with conn.cursor() as cursor:
             await cursor.execute("VACUUM")
 
-    async def wal_checkpoint(self):
+    async def wal_checkpoint(
+        self, mode: Literal["TRUNCATE", "PASSIVE", "FULL"] = "TRUNCATE"
+    ):
         conn = await self.get_connection()
-        await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        await conn.execute(f"PRAGMA wal_checkpoint({mode})")
 
     async def get_size_mb(self) -> float:
         conn = await self.get_connection()

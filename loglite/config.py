@@ -3,6 +3,7 @@ import os
 import yaml
 import re
 import dataclasses
+from contextlib import suppress
 from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -40,6 +41,7 @@ class Config:
     vacuum_max_size_bytes: int = field(init=False)
     vacuum_target_size: str = "800GB"  # pattern: \d+[KMGT]B
     vacuum_target_size_bytes: int = field(init=False)
+    vacuum_delete_batch_size: int = 2500
     allow_origin: str = "*"
     debug: bool = False
     db_path: Path = field(init=False)
@@ -89,7 +91,7 @@ class Config:
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         with config_path.open("r") as f:
-            config = yaml.safe_load(f)
+            config_data = yaml.safe_load(f)
 
         args = {}
         env_args = _read_args_from_env()
@@ -97,12 +99,13 @@ class Config:
         # Validate that required fields are present
         for field in dataclasses.fields(cls):
             if field.name in env_args:
-                FieldTypeClass = eval(field.type)
-                args[field.name] = FieldTypeClass(env_args[field.name])
-                continue
+                with suppress(Exception):
+                    FieldTypeClass = eval(field.type)
+                    args[field.name] = FieldTypeClass(env_args[field.name])
+                    continue
 
-            if field.name in config:
-                args[field.name] = config[field.name]
+            if field.name in config_data:
+                args[field.name] = config_data[field.name]
                 continue
 
             is_required = (

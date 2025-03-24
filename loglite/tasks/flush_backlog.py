@@ -3,7 +3,7 @@ from contextlib import suppress
 from loguru import logger
 from loglite.config import Config
 from loglite.database import Database
-from loglite.globals import INGESTION_STATS, BACKLOG, LAST_INSERT_LOG_ID
+from loglite.globals import INGESTION_STATS, BACKLOG, LAST_INSERT_LOG_ID, COLUMN_DICT
 from loglite.utils import Timer
 
 
@@ -11,12 +11,12 @@ async def register_flushing_backlog_task(db: Database, config: Config):
     interval = config.task_backlog_flush_interval
 
     async def _task():
-        evt = BACKLOG.full_signal
         while True:
+            backlog = BACKLOG.instance()
             with suppress(asyncio.TimeoutError, TimeoutError):
-                await asyncio.wait_for(evt.wait(), timeout=interval)
+                await asyncio.wait_for(backlog.full_signal.wait(), timeout=interval)
 
-            logs = await BACKLOG.flush()
+            logs = await backlog.flush()
             if not logs:
                 continue
 
@@ -24,7 +24,7 @@ async def register_flushing_backlog_task(db: Database, config: Config):
                 logger.info(f"🧹 flushing {len(logs)} logs from backlog")
 
             with Timer("ms") as timer:
-                count = await db.insert(logs)
+                count = await db.insert(logs, COLUMN_DICT.instance())
                 max_log_id = await db.get_max_log_id()
 
             INGESTION_STATS.collect(count, timer.duration)

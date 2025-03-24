@@ -1,13 +1,16 @@
 from __future__ import annotations
 import orjson
 import aiosqlite
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Sequence, TYPE_CHECKING
 from loguru import logger
 from datetime import datetime
 
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
 from loglite.utils import bytes_to_mb
+
+if TYPE_CHECKING:
+    from loglite.column_dict import ColumnDictionary
 
 
 def _convert_filters_to_sql(filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
@@ -33,6 +36,18 @@ def _convert_filters_to_sql(filters: Sequence[QueryFilter]) -> tuple[str, list[A
     return where_clause, params
 
 
+def _serialize_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (int, float, bool, str)):
+        return value
+    if isinstance(value, (datetime,)):
+        return value.isoformat()
+    if isinstance(value, (dict, list)):
+        return orjson.dumps(value).decode("utf-8")
+    return str(value)
+
+
 class Database:
     def __init__(self, config: Config):
         self.db_path = config.db_path
@@ -40,6 +55,11 @@ class Database:
         self.sqlite_params = config.sqlite_params
         self._column_info: list[Column] = []
         self._connection: aiosqlite.Connection | None = None
+        self._compressed_columns: set[str] = (
+            set()
+            if not config.compression["enabled"]
+            else set(config.compression["columns"])
+        )
 
     async def get_connection(self) -> aiosqlite.Connection:
         async def connect():
@@ -74,6 +94,16 @@ class Database:
             CREATE TABLE IF NOT EXISTS versions (
                 version INTEGER PRIMARY KEY,
                 applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS column_dictionary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                column TEXT NOT NULL,
+                value_id INTEGER NOT NULL,
+                value JSON
             )
         """
         )
@@ -176,18 +206,11 @@ class Database:
                 return datetime.min
             return datetime.fromisoformat(res[0])
 
-    async def insert(self, log_data: dict[str, Any] | Sequence[dict[str, Any]]) -> int:
-        def _serialize_value(value: Any) -> Any:
-            if value is None:
-                return None
-            if isinstance(value, (int, float, bool, str)):
-                return value
-            if isinstance(value, (datetime,)):
-                return value.isoformat()
-            if isinstance(value, (dict, list)):
-                return orjson.dumps(value).decode("utf-8")
-            return str(value)
-
+    async def insert(
+        self,
+        log_data: dict[str, Any] | Sequence[dict[str, Any]],
+        column_dict: "ColumnDictionary",
+    ) -> int:
         """Insert a new log entry into the database"""
         columns = [col for col in await self.get_log_columns() if col["name"] != "id"]
         if isinstance(log_data, dict):
@@ -195,8 +218,7 @@ class Database:
 
         row_values = []
         for log in log_data:
-            col_values = []
-            valid = True
+            values, valid = [], True
             for col in columns:
                 # Check if the column is required and not present in the log
                 col_value = log.get(col["name"])
@@ -207,11 +229,15 @@ class Database:
                     valid = False
                     break
 
-                # Serialize the column value
-                col_values.append(_serialize_value(col_value))
+                # Serialize the column value. Store the value id if it is compressed.
+                col_value = _serialize_value(col_value)
+                if col["name"] in self._compressed_columns:
+                    col_value = await column_dict.get_or_create(col["name"], col_value)
+
+                values.append(col_value)
 
             if valid:
-                row_values.append(col_values)
+                row_values.append(values)
 
         if not row_values:
             return 0
@@ -307,6 +333,20 @@ class Database:
                 total_size = 0
 
         return bytes_to_mb(total_size)
+
+    async def get_column_dict_table(self) -> list[aiosqlite.Row]:
+        conn = await self.get_connection()
+        async with conn.execute("SELECT * FROM column_dictionary") as cursor:
+            return list(await cursor.fetchall())
+
+    async def insert_column_dict_value(self, col: str, value: Any, id: int):
+        conn = await self.get_connection()
+        async with conn.execute(
+            "INSERT INTO column_dictionary (column, value, value_id) VALUES (?, ?, ?)",
+            (col, value, id),
+        ) as cursor:
+            await conn.commit()
+            return cursor.rowcount or 0
 
     async def ping(self) -> bool:
         try:

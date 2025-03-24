@@ -1,0 +1,44 @@
+host: 0.0.0.0
+port: 7788
+debug: true
+log_table_name: Log
+log_timestamp_field: timestamp
+vacuum_max_days: 7
+vacuum_max_size: 500MB
+vacuum_target_size: 400MB
+sqlite_dir: ./db
+allow_origin: "*"
+compression:
+  enabled: true
+  columns:
+    - service
+    - filename
+    - path
+    - function
+    - process_name
+migrations:
+  - version: 1
+    rollout:
+      - |
+        CREATE TABLE Log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME NOT NULL,
+            message TEXT NOT NULL,
+            level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+            service INTEGER NOT NULL,
+            filename INTEGER,
+            path INTEGER,
+            line INTEGER,
+            function INTEGER,
+            pid INTEGER,
+            process_name INTEGER,
+            extra JSON
+        );
+      - CREATE INDEX IF NOT EXISTS idx_timestamp ON Log(timestamp);
+      - CREATE INDEX IF NOT EXISTS idx_level ON Log(level);
+      - CREATE INDEX IF NOT EXISTS idx_service ON Log(service);
+    rollback:
+      - DROP INDEX IF EXISTS idx_service;
+      - DROP INDEX IF EXISTS idx_level;
+      - DROP INDEX IF EXISTS idx_timestamp;
+      - DROP TABLE IF EXISTS Log;

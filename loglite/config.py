@@ -4,7 +4,7 @@ import yaml
 import re
 import dataclasses
 from contextlib import suppress
-from typing import Any
+from typing import Any, TypedDict
 from pathlib import Path
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
@@ -25,6 +25,11 @@ def _read_args_from_env() -> dict[str, Any]:
             name = name[len(CONFIG_ENV_PREFIX) :]
             args[name.lower()] = value
     return args
+
+
+class CompressionConfig(TypedDict):
+    enabled: bool
+    columns: list[str]
 
 
 @dataclass
@@ -48,6 +53,12 @@ class Config:
     sse_limit: int = 1000
     sse_debounce_ms: int = 500
     backlog_max_size: int = 100
+    compression: CompressionConfig = field(
+        default_factory=lambda: {
+            "enabled": False,
+            "columns": [],
+        }
+    )
     task_diagnostics_interval: int = 60  # seconds
     task_backlog_flush_interval: int = 2  # seconds
     task_backlog_max_size: int = (

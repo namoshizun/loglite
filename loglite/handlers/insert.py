@@ -18,7 +18,7 @@ class InsertLogHandler(RequestHandler):
                 logger.info(f"Inserting log: {log_data}")
 
             try:
-                await BACKLOG.add(log_data)
+                await BACKLOG.instance().add(log_data)
             except Exception as e:
                 return self.response_fail(str(e))
 

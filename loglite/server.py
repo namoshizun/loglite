@@ -6,7 +6,9 @@ from aiohttp import web
 from loguru import logger
 
 import loglite
-from loglite.globals import BACKLOG, INGESTION_STATS, QUERY_STATS
+from loglite.backlog import Backlog
+from loglite.column_dict import ColumnDictionary
+from loglite.globals import BACKLOG, COLUMN_DICT, INGESTION_STATS, QUERY_STATS
 from loglite.handlers.query import SubscribeLogsSSEHandler
 from loglite.database import Database
 from loglite.handlers import (
@@ -77,10 +79,6 @@ class LogLiteServer:
 
     async def _setup_tasks(self):
         async def background_tasks(app: web.Application):
-            INGESTION_STATS.set_period_seconds(self.config.task_diagnostics_interval)
-            QUERY_STATS.set_period_seconds(self.config.task_diagnostics_interval)
-            BACKLOG.set_maxlen(self.config.task_backlog_max_size)
-
             tasks = web.AppKey("tasks", list[asyncio.Task])
             app[tasks] = [
                 asyncio.create_task(register_diagnostics_task(self.config)),
@@ -101,11 +99,18 @@ class LogLiteServer:
 
         self.app.cleanup_ctx.append(background_tasks)
 
+    async def _setup_globals(self):
+        INGESTION_STATS.set_period_seconds(self.config.task_diagnostics_interval)
+        QUERY_STATS.set_period_seconds(self.config.task_diagnostics_interval)
+        BACKLOG.set(Backlog(self.config.task_backlog_max_size))
+        COLUMN_DICT.set(await ColumnDictionary.load(self.db))
+
     async def setup(self):
         """Set up the server"""
         # Initialize database
         self._setup_logging()
         await self.db.initialize()
+        await self._setup_globals()
         await self._setup_routes()
         await self._setup_tasks()
 

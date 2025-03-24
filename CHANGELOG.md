@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.1.8
+
+- refactor: delete expired logs in batches (default size: 2500) when vacuuming
+
 ### 0.1.7
 
 - feat: trigger log entries clean-up based on `vacuum_max_days` and `vacuum_max_size` configurations.

@@ -1,9 +1,11 @@
 from __future__ import annotations
+import sys
 import orjson
 import aiosqlite
 from typing import Any, Literal, Sequence, TYPE_CHECKING
 from loguru import logger
 from datetime import datetime
+from contextlib import suppress
 
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
@@ -204,7 +206,19 @@ class Database:
             res = await cursor.fetchone()
             if not res:
                 return datetime.min
-            return datetime.fromisoformat(res[0])
+
+            if sys.version_info >= (3, 11):
+                return datetime.fromisoformat(res[0])
+
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S",
+            ):
+                with suppress(Exception):
+                    return datetime.strptime(res[0], fmt)
+
+            raise ValueError(f"Failed to parse timestamp: {res[0]}")
 
     async def insert(
         self,

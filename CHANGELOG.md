@@ -1,5 +1,10 @@
 ## Changelog
 
+### 0.2.0
+
+- feat: supports column based compression, adds `compression` section in config file to specify which columns are compressible. The user should make sure those columns are integer type.
+- feat: creates `column_dictionary` table to store the mapping between unique column values and their canonical ids. Load the dictionary into memory during initialization.
+
 ### 0.1.8
 
 - refactor: delete expired logs in batches (default size: 2500) when vacuuming

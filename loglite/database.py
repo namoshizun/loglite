@@ -2,40 +2,15 @@ from __future__ import annotations
 import sys
 import orjson
 import aiosqlite
-from typing import Any, Literal, Sequence, TYPE_CHECKING
+from typing import Any, Literal, Sequence
 from loguru import logger
 from datetime import datetime
 from contextlib import suppress
 
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
+from loglite.column_dict import ColumnDictionary
 from loglite.utils import bytes_to_mb
-
-if TYPE_CHECKING:
-    from loglite.column_dict import ColumnDictionary
-
-
-def _convert_filters_to_sql(filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
-    conditions = []
-    params = []
-
-    for filter_item in filters:
-        field = filter_item["field"]
-        operator = filter_item["operator"]
-        value = filter_item["value"]
-
-        if operator == "~=":
-            # Convert ~= operator to LIKE
-            conditions.append(f"{field} LIKE ?")
-            params.append(f"%{value}%")  # Add wildcards for partial matching
-        else:
-            # Map other operators directly to SQL
-            conditions.append(f"{field} {operator} ?")
-            params.append(value)
-
-    # Construct the WHERE clause
-    where_clause = " AND ".join(conditions) if conditions else "1=1"
-    return where_clause, params
 
 
 def _serialize_value(value: Any) -> Any:
@@ -62,6 +37,51 @@ class Database:
             if not config.compression["enabled"]
             else set(config.compression["columns"])
         )
+
+    @property
+    def column_dict(self) -> ColumnDictionary:
+        if not hasattr(self, "_column_dict"):
+            raise RuntimeError(
+                "Database not initialized, please call initialize() first"
+            )
+        return self._column_dict
+
+    @column_dict.setter
+    def column_dict(self, value: ColumnDictionary):
+        self._column_dict = value
+
+    def _build_sql_query(self, filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
+        conditions = []
+        params = []
+
+        for ft in filters:
+            col = ft["field"]
+            operator = ft["operator"]
+            value = ft["value"]
+
+            if col in self._compressed_columns:
+                # Do query in-memory if the column is compressed
+                candidate_ids = self.column_dict.query_candidates(ft)
+                if not candidate_ids:
+                    # Then we know immediately that there are no matching rows given the
+                    # current filters, which saves us from having to execute the query at all!
+                    return "1=0", []
+
+                conditions.append(f"{col} IN ({', '.join(['?'] * len(candidate_ids))})")
+                params.extend(candidate_ids)
+
+            else:
+                # Run SQL as usual for non-compressed columns
+                if operator == "~=":
+                    conditions.append(f"{col} LIKE ?")
+                    params.append(f"%{value}%")
+                else:
+                    conditions.append(f"{col} {operator} ?")
+                    params.append(value)
+
+        # Construct the WHERE clause
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        return where_clause, params
 
     async def get_connection(self) -> aiosqlite.Connection:
         async def connect():
@@ -110,6 +130,7 @@ class Database:
         """
         )
         await conn.commit()
+        self.column_dict = await ColumnDictionary.load(self)
 
     async def get_applied_versions(self) -> list[int]:
         """Get the list of already applied migration versions"""
@@ -186,17 +207,17 @@ class Database:
         conn = await self.get_connection()
         async with conn.execute(f"SELECT MAX(id) FROM {self.log_table_name}") as cursor:
             res = await cursor.fetchone()
-            if not res:
-                return 0
-            return res[0]
+            with suppress(Exception):
+                return res[0] or 0
+            return 0
 
     async def get_min_log_id(self) -> int:
         conn = await self.get_connection()
         async with conn.execute(f"SELECT MIN(id) FROM {self.log_table_name}") as cursor:
             res = await cursor.fetchone()
-            if not res:
-                return 0
-            return res[0]
+            with suppress(Exception):
+                return res[0] or 0
+            return 0
 
     async def get_min_timestamp(self) -> datetime:
         conn = await self.get_connection()
@@ -204,8 +225,8 @@ class Database:
             f"SELECT MIN(timestamp) FROM {self.log_table_name}"
         ) as cursor:
             res = await cursor.fetchone()
-            if not res:
-                return datetime.min
+            if not res or res[0] is None:
+                return datetime(1900, 1, 1)
 
             if sys.version_info >= (3, 11):
                 return datetime.fromisoformat(res[0])
@@ -217,13 +238,11 @@ class Database:
             ):
                 with suppress(Exception):
                     return datetime.strptime(res[0], fmt)
-
             raise ValueError(f"Failed to parse timestamp: {res[0]}")
 
     async def insert(
         self,
         log_data: dict[str, Any] | Sequence[dict[str, Any]],
-        column_dict: "ColumnDictionary",
     ) -> int:
         """Insert a new log entry into the database"""
         columns = [col for col in await self.get_log_columns() if col["name"] != "id"]
@@ -246,7 +265,7 @@ class Database:
                 # Serialize the column value. Store the value id if it is compressed.
                 col_value = _serialize_value(col_value)
                 if col["name"] in self._compressed_columns:
-                    col_value = await column_dict.get_or_create(col["name"], col_value)
+                    col_value = self.column_dict.get_or_create(col["name"], col_value)
 
                 values.append(col_value)
 
@@ -271,11 +290,14 @@ class Database:
         limit: int = 100,
         offset: int = 0,
     ) -> PaginatedQueryResult:
+        if fields == ("*",):
+            fields = tuple(col["name"] for col in await self.get_log_columns())
+
         """Query logs based on provided filters without transforming results"""
         conn = await self.get_connection()
 
         # Build query conditions
-        where_clause, params = _convert_filters_to_sql(filters)
+        where_clause, params = self._build_sql_query(filters)
 
         # First, get the total count of logs matching the filters
         count_query = f"""
@@ -309,13 +331,23 @@ class Database:
                 total=total,
                 offset=offset,
                 limit=limit,
-                results=[dict(row) for row in rows],
+                results=[
+                    {
+                        col: (
+                            row[col]
+                            if col not in self._compressed_columns
+                            else self.column_dict.get_value(col, row[col])
+                        )
+                        for col in fields
+                    }
+                    for row in rows
+                ],
             )
 
     async def delete(self, filters: Sequence[QueryFilter]) -> int:
         """Delete logs based on provided filters"""
         conn = await self.get_connection()
-        where_clause, params = _convert_filters_to_sql(filters)
+        where_clause, params = self._build_sql_query(filters)
         async with conn.execute(
             f"DELETE FROM {self.log_table_name} WHERE {where_clause}", params
         ) as cursor:

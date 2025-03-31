@@ -21,10 +21,6 @@ class Backlog(AtomicMutableValue[deque[dict]]):
             self._full_signal = asyncio.Event(loop=asyncio.get_running_loop())
         return self._full_signal
 
-    def set_maxlen(self, max_size: int):
-        del self.value
-        self.value = deque(maxlen=max_size)
-
     async def add(self, log: dict):
         async with self._lock:
             self.value.append(log)

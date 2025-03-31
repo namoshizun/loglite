@@ -21,8 +21,8 @@
   - [ ] *Time based partitioning*: One SQLite database per date or month.
   - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
   - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
-  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
   - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
+  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
 
 ## Installation
 

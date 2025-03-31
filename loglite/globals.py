@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Any, TypeVar, Generic, Optional
 from loglite.backlog import Backlog
-from loglite.column_dict import ColumnDictionary
 from loglite.utils import AtomicMutableValue, StatsTracker
 
 
@@ -31,18 +30,10 @@ class ObjectProxy(Generic[T]):
         self._instance = None
 
 
-class ColumnDictionaryProxy(ObjectProxy[ColumnDictionary]): ...
-
-
-class BacklogProxy(ObjectProxy[Backlog]): ...
-
-
 LAST_INSERT_LOG_ID = AtomicMutableValue[int](0)
 
 INGESTION_STATS = StatsTracker(period_seconds=10)
 
 QUERY_STATS = StatsTracker(period_seconds=10)
 
-BACKLOG = BacklogProxy()
-
-COLUMN_DICT = ColumnDictionaryProxy()
+BACKLOG = ObjectProxy[Backlog]()

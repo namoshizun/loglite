@@ -7,8 +7,7 @@ from loguru import logger
 
 import loglite
 from loglite.backlog import Backlog
-from loglite.column_dict import ColumnDictionary
-from loglite.globals import BACKLOG, COLUMN_DICT, INGESTION_STATS, QUERY_STATS
+from loglite.globals import BACKLOG, INGESTION_STATS, QUERY_STATS
 from loglite.handlers.query import SubscribeLogsSSEHandler
 from loglite.database import Database
 from loglite.handlers import (
@@ -103,7 +102,6 @@ class LogLiteServer:
         INGESTION_STATS.set_period_seconds(self.config.task_diagnostics_interval)
         QUERY_STATS.set_period_seconds(self.config.task_diagnostics_interval)
         BACKLOG.set(Backlog(self.config.task_backlog_max_size))
-        COLUMN_DICT.set(await ColumnDictionary.load(self.db))
 
     async def setup(self):
         """Set up the server"""

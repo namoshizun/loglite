@@ -16,13 +16,12 @@
 
 ✨✨✨ **More cool features in my wishlist**:
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
-  - [ ] *Column based compression*: Mark some columns as "enums", silently create a "Enums" table which the main log table points to. Gradually grow the enums table to 
-  captures all distinct values of that column.
+  - [x] *Column based compression*: Store the canonical ids for enum columns instead of the original values, saving disk space and improves query performance. See [enable-compression.yaml](configs/enable-compression.yaml) for an example configuration.
   - [ ] *Time based partitioning*: One SQLite database per date or month.
   - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
   - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
-  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
   - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
+  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
 
 ## Installation
 

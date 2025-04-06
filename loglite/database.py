@@ -285,7 +285,7 @@ class Database:
 
     async def query(
         self,
-        fields: Sequence[str] = tuple(),
+        fields: Sequence[str] = ("*",),
         filters: Sequence[QueryFilter] = tuple(),
         limit: int = 100,
         offset: int = 0,

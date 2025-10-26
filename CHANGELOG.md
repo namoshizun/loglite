@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.2.1
+
+- refactor: data vacuuming now supports  `auto_vacuum: INCREMENTAL` mode and removes freeable pages in batches. Switch to full vacuuming if configured the FULL vacuuming mode.
+
 ### 0.2.0
 
 - feat: supports column based compression, adds `compression` section in config file to specify which columns are compressible. The user should make sure those columns are integer type.

@@ -55,11 +55,9 @@ class Config:
         }
     )
     task_diagnostics_interval: int = 60  # seconds
-    task_backlog_flush_interval: int = 2  # seconds
-    task_backlog_max_size: int = (
-        200  # max logs in backlog before triggering force flush
-    )
-    task_vacuum_interval: int = 60 * 5  # 5 minutes
+    task_backlog_max_size: int = 200  # max logs in backlog before triggering force flush
+    task_vacuum_interval: int = 60 * 2  # 2 minutes
+    task_vacuum_max_size: int = 20  # MB
 
     def __post_init__(self):
         # Run validations

@@ -1,7 +1,9 @@
+from __future__ import annotations
 import sys
 import asyncio
 from loguru import logger
 from collections import deque
+
 from loglite.utils import AtomicMutableValue
 
 
@@ -21,11 +23,14 @@ class Backlog(AtomicMutableValue[deque[dict]]):
             self._full_signal = asyncio.Event(loop=asyncio.get_running_loop())
         return self._full_signal
 
-    async def add(self, log: dict):
+    async def add(self, log: dict | list[dict]):
         async with self._lock:
-            self.value.append(log)
+            if isinstance(log, list):
+                self.value.extend(log)
+            else:
+                self.value.append(log)
 
-            if len(self.value) == self.value.maxlen:
+            if len(self.value) >= (self.value.maxlen or 0):
                 logger.warning("backlog is full...")
                 self.full_signal.set()
 

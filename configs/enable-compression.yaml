@@ -8,6 +8,13 @@ vacuum_max_size: 500MB
 vacuum_target_size: 400MB
 sqlite_dir: ./db
 allow_origin: "*"
+sqlite_params:
+  auto_vacuum: INCREMENTAL
+  journal_mode: WAL
+  synchronous: NORMAL
+  temp_store: MEMORY
+  cache_size: -32000  # 32MB
+  mmap_size: 52428800  # 50MB
 compression:
   enabled: true
   columns:

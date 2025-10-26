@@ -89,16 +89,16 @@ def repeat_every(
 
 
 class AtomicMutableValue(Generic[T]):
-    def __init__(self, value: T | None = None):
+    def __init__(self, value: T):
         self.value = value
         self._lock = asyncio.Lock()
         self._subscribers: list[asyncio.Event] = []
 
-    async def get(self) -> T | None:
+    async def get(self) -> T:
         async with self._lock:
             return self.value
 
-    async def set(self, value: T | None):
+    async def set(self, value: T):
         async with self._lock:
             self.value = value
 
@@ -126,12 +126,11 @@ class Timer:
         self.unit = unit
         self.rounded = rounded
 
-    def __enter__(self):
-        self.start = time.perf_counter()
-        return self
+    def start(self):
+        self._start = time.perf_counter()
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        cost = time.perf_counter() - self.start
+    def end(self):
+        cost = time.perf_counter() - self._start
         if self.unit == "ms":
             self.duration = cost * 1000
         else:
@@ -139,6 +138,20 @@ class Timer:
 
         if self.rounded:
             self.duration = round(self.duration)
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.end()
+
+    async def __aenter__(self):
+        self.start()
+        return self
+
+    async def __aexit__(self, *args, **kwargs):
+        self.end()
 
 
 @dataclass
@@ -178,9 +191,7 @@ class StatsTracker:
 
     def get_stats(self) -> dict[str, Any]:
         if self.__stats.count > 0:
-            self.__stats.avg_cost_ms = round(
-                self.__stats.total_cost_ms / self.__stats.count, 1
-            )
+            self.__stats.avg_cost_ms = round(self.__stats.total_cost_ms / self.__stats.count, 1)
 
         self.__stats.total_cost_ms = round(self.__stats.total_cost_ms, 1)
         self.__stats.min = round(self.__stats.min, 1)

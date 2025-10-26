@@ -4,7 +4,9 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
-⚡️ **Lightweight & Efficient**: Built with performance in mind using fully async libraries (aiohttp, aiofiles) and orjson to boost JSON serialization.
+⚡️ **Lightweight & Efficient**: Built with performance in mind:
+  - Fully async libraries, with orjson for fast JSON serialization.
+  - Supports incremental vacuuming to minimize IO / memory overhead.
 
 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
 
@@ -60,6 +62,7 @@ vacuum_max_size: 500MB
 vacuum_target_size: 400MB
 # You can set any SQLite parameters, no default values
 sqlite_params:
+  auto_vacuum: INCREMENTAL
   journal_mode: WAL
   synchronous: NORMAL
   cache_size: -32000  # 32MB

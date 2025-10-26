@@ -220,9 +220,7 @@ async def test_insert_single(migrated_db: Database):
     assert inserted_log["source"] == "test_insert"
     assert orjson.loads(inserted_log["extra"]) == {"key": "value"}
 
-    assert abs(datetime.fromisoformat(inserted_log["timestamp"]) - ts) < timedelta(
-        milliseconds=1
-    )
+    assert abs(datetime.fromisoformat(inserted_log["timestamp"]) - ts) < timedelta(milliseconds=1)
 
 
 @pytest.mark.asyncio
@@ -334,7 +332,7 @@ async def test_query_pagination(migrated_db: Database):
         {
             "timestamp": base_ts - timedelta(seconds=i),
             "level": "INFO",
-            "message": f"Msg {4-i}",
+            "message": f"Msg {4 - i}",
             "source": "pagination",
         }
         for i in range(total_count)  # Creates Msg 0 (latest) to Msg 4 (oldest)
@@ -394,9 +392,7 @@ async def test_delete(migrated_db: Database):
     ]
     await db.insert(log_entries)
 
-    f1: list[QueryFilter] = [
-        {"field": "message", "operator": "=", "value": "Delete msg 1"}
-    ]
+    f1: list[QueryFilter] = [{"field": "message", "operator": "=", "value": "Delete msg 1"}]
     deleted_count1 = await db.delete(filters=f1)
     assert deleted_count1 == 1
 
@@ -414,9 +410,7 @@ async def test_delete(migrated_db: Database):
     assert result3["total"] == 2
 
     # Delete remaining items
-    f4: list[QueryFilter] = [
-        {"field": "source", "operator": "!=", "value": "___________"}
-    ]
+    f4: list[QueryFilter] = [{"field": "source", "operator": "!=", "value": "___________"}]
     deleted_count4 = await db.delete(filters=f4)
     assert deleted_count4 == 2
 

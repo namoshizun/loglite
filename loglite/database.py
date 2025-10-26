@@ -33,17 +33,13 @@ class Database:
         self._column_info: list[Column] = []
         self._connection: aiosqlite.Connection | None = None
         self._compressed_columns: set[str] = (
-            set()
-            if not config.compression["enabled"]
-            else set(config.compression["columns"])
+            set() if not config.compression["enabled"] else set(config.compression["columns"])
         )
 
     @property
     def column_dict(self) -> ColumnDictionary:
         if not hasattr(self, "_column_dict"):
-            raise RuntimeError(
-                "Database not initialized, please call initialize() first"
-            )
+            raise RuntimeError("Database not initialized, please call initialize() first")
         return self._column_dict
 
     @column_dict.setter
@@ -86,6 +82,27 @@ class Database:
     async def get_connection(self) -> aiosqlite.Connection:
         async def connect():
             conn = await aiosqlite.connect(self.db_path)
+
+            # NOTE: changing auto_vacuuming requires a full VACUUM operation.
+            res = await conn.execute("PRAGMA auto_vacuum")
+            current_vacuuming_mode = {
+                0: "NONE",
+                1: "FULL",
+                2: "INCREMENTAL",
+            }[(await res.fetchone())[0]]
+            set_vacuuming_mode = self.sqlite_params.pop(
+                "auto_vacuum", current_vacuuming_mode
+            ).upper()
+
+            if set_vacuuming_mode != current_vacuuming_mode:
+                logger.info(
+                    f"Changing auto_vacuuming mode: {current_vacuuming_mode} => {set_vacuuming_mode}"
+                )
+                await conn.execute(statement := f"PRAGMA auto_vacuum={set_vacuuming_mode}")
+                await conn.execute("VACUUM")
+                logger.info(statement)
+
+            # Set other params
             for param, value in self.sqlite_params.items():
                 statement = f"PRAGMA {param}={value}"
                 logger.info(statement)
@@ -132,12 +149,27 @@ class Database:
         await conn.commit()
         self.column_dict = await ColumnDictionary.load(self)
 
+    async def get_pragma(self, name: str) -> Any:
+        conn = await self.get_connection()
+        async with conn.execute(f"PRAGMA {name}") as cursor:
+            result = await cursor.fetchone()
+            if not result:
+                return None
+            return result[name]
+
+    async def set_pragma(self, name: str, value: Any):
+        conn = await self.get_connection()
+        await conn.execute(f"PRAGMA {name}={value}")
+
+    async def incremental_vacuum(self, page_count: int):
+        conn = await self.get_connection()
+        async with conn.execute(f"PRAGMA incremental_vacuum({page_count})") as cursor:
+            await cursor.fetchall()
+
     async def get_applied_versions(self) -> list[int]:
         """Get the list of already applied migration versions"""
         conn = await self.get_connection()
-        async with conn.execute(
-            "SELECT version FROM versions ORDER BY version"
-        ) as cursor:
+        async with conn.execute("SELECT version FROM versions ORDER BY version") as cursor:
             versions = [row[0] for row in await cursor.fetchall()]
             return versions
 
@@ -221,9 +253,7 @@ class Database:
 
     async def get_min_timestamp(self) -> datetime:
         conn = await self.get_connection()
-        async with conn.execute(
-            f"SELECT MIN(timestamp) FROM {self.log_table_name}"
-        ) as cursor:
+        async with conn.execute(f"SELECT MIN(timestamp) FROM {self.log_table_name}") as cursor:
             res = await cursor.fetchone()
             if not res or res[0] is None:
                 return datetime(1900, 1, 1)
@@ -309,9 +339,7 @@ class Database:
             total = (await cursor.fetchone())[0]
 
         if total == 0:
-            return PaginatedQueryResult(
-                total=total, offset=offset, limit=limit, results=[]
-            )
+            return PaginatedQueryResult(total=total, offset=offset, limit=limit, results=[])
 
         # Build the complete query
         params.append(limit)
@@ -359,25 +387,15 @@ class Database:
         async with conn.cursor() as cursor:
             await cursor.execute("VACUUM")
 
-    async def wal_checkpoint(
-        self, mode: Literal["TRUNCATE", "PASSIVE", "FULL"] = "TRUNCATE"
-    ):
+    async def wal_checkpoint(self, mode: Literal["TRUNCATE", "PASSIVE", "FULL"] = "TRUNCATE"):
         conn = await self.get_connection()
         await conn.execute(f"PRAGMA wal_checkpoint({mode})")
 
     async def get_size_mb(self) -> float:
-        conn = await self.get_connection()
-
-        async with conn.cursor() as cursor:
-            await cursor.execute("PRAGMA page_count")
-            page_count = await cursor.fetchone()
-            await cursor.execute("PRAGMA page_size")
-            page_size = await cursor.fetchone()
-            try:
-                total_size = page_count[0] * page_size[0]
-            except Exception:
-                total_size = 0
-
+        page_count = await self.get_pragma("page_count")
+        page_size = await self.get_pragma("page_size")
+        freelist_count = await self.get_pragma("freelist_count")
+        total_size = (page_count - freelist_count) * page_size
         return bytes_to_mb(total_size)
 
     async def get_column_dict_table(self) -> list[aiosqlite.Row]:

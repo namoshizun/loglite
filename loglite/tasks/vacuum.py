@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from loglite.config import Config
 from loglite.database import Database
 from loglite.types import QueryFilter
-from loglite.utils import bytes_to_mb, repeat_every
+from loglite.utils import Timer, bytes_to_mb, repeat_every
+from loglite.globals import OPERATION_LOCK
 
 
 async def __remove_stale_logs(db: Database, max_age_days: int) -> int:
@@ -18,8 +19,6 @@ async def __remove_stale_logs(db: Database, max_age_days: int) -> int:
         {"field": "timestamp", "operator": "<=", "value": cutoff_dtime.isoformat()}
     ]
     n = await db.delete(filters)
-    await db.vacuum()
-    await db.wal_checkpoint("FULL")
     return n
 
 
@@ -48,17 +47,30 @@ async def __remove_excessive_logs(
     )
     for start_id in range(min_id, remove_max_id, batch_size):
         end_id = min(start_id + batch_size - 1, remove_max_id)
-        filters: list[QueryFilter] = [
-            {"field": "id", "operator": "<=", "value": end_id}
-        ]
+        filters: list[QueryFilter] = [{"field": "id", "operator": "<=", "value": end_id}]
         removed += await db.delete(filters)
-        logger.opt(colors=True).info(
-            f"<y>[Log cleanup] ... already removed {removed} entries</y>"
-        )
+        logger.opt(colors=True).info(f"<y>[Log cleanup] ... already removed {removed} entries</y>")
 
-    await db.vacuum()
-    await db.wal_checkpoint("FULL")
     return removed
+
+
+async def __incremental_vacuum(db: Database, max_size_mb: int) -> int:
+    freelist_count = await db.get_pragma("freelist_count")
+    if not freelist_count:
+        return 0
+
+    page_size = await db.get_pragma("page_size")
+    max_free_count = max_size_mb * 1024 * 1024 // page_size
+    free_count = min(max_free_count, freelist_count)
+
+    async with OPERATION_LOCK, Timer("s") as timer:
+        await db.incremental_vacuum(free_count)
+
+    logger.opt(colors=True).info(
+        f"<y>[Log cleanup] incremental vacuumed {free_count}/{freelist_count} pages in {timer.duration:.1f}s</y>"
+    )
+    remain_freelist_count = await db.get_pragma("freelist_count")
+    return remain_freelist_count
 
 
 async def register_database_vacuuming_task(db: Database, config: Config):
@@ -66,6 +78,13 @@ async def register_database_vacuuming_task(db: Database, config: Config):
     async def _task():
         # Do checkpoint to make sure we can then get an accurate estimate of the database size
         await db.wal_checkpoint()
+
+        # Finish incremental vacuuming rounds first
+        vacuum_mode = await db.get_pragma("auto_vacuum")
+        if vacuum_mode == 2:
+            remain_freelist_count = await __incremental_vacuum(db, config.task_vacuum_max_size)
+            if remain_freelist_count > 0:
+                return
 
         # Remove logs older than `vacuum_max_days`
         columns = await db.get_log_columns()
@@ -98,7 +117,15 @@ async def register_database_vacuuming_task(db: Database, config: Config):
                 f"<r>[Log cleanup] removed {n} logs entries, database size is now {db_size}MB</r>"
             )
 
-    logger.opt(colors=True).info(
-        f"<e>database vacuuming task interval: {interval}s</e>"
-    )
+        if vacuum_mode == 1:
+            # Do full vacuuming
+            async with OPERATION_LOCK, Timer("s") as timer:
+                await db.vacuum()
+                await db.wal_checkpoint("FULL")
+
+            logger.opt(colors=True).info(
+                f"<y>[Log cleanup] full vacuumed the database in {timer.duration:.1f}s</y>"
+            )
+
+    logger.opt(colors=True).info(f"<e>database vacuuming task interval: {interval}s</e>")
     await _task()

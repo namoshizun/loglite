@@ -8,7 +8,7 @@ from loglite.utils import Timer, bytes_to_mb, repeat_every
 from loglite.globals import OPERATION_LOCK
 
 
-async def __remove_stale_logs(db: Database, max_age_days: int) -> int:
+async def _remove_stale_logs(db: Database, max_age_days: int) -> int:
     now = datetime.now()
     cutoff_dtime = now - timedelta(days=max_age_days)
     min_timestamp = await db.get_min_timestamp()
@@ -22,7 +22,7 @@ async def __remove_stale_logs(db: Database, max_age_days: int) -> int:
     return n
 
 
-async def __remove_excessive_logs(
+async def _remove_excessive_logs(
     db: Database, max_size_mb: float, target_size_mb: float, batch_size: int
 ) -> int:
     db_size = await db.get_size_mb()
@@ -54,7 +54,7 @@ async def __remove_excessive_logs(
     return removed
 
 
-async def __incremental_vacuum(db: Database, max_size_mb: int) -> int:
+async def _incremental_vacuum(db: Database, max_size_mb: int) -> int:
     freelist_count = await db.get_pragma("freelist_count")
     if not freelist_count:
         return 0
@@ -82,7 +82,7 @@ async def register_database_vacuuming_task(db: Database, config: Config):
         # Finish incremental vacuuming rounds first
         vacuum_mode = await db.get_pragma("auto_vacuum")
         if vacuum_mode == 2:
-            remain_freelist_count = await __incremental_vacuum(db, config.task_vacuum_max_size)
+            remain_freelist_count = await _incremental_vacuum(db, config.task_vacuum_max_size)
             if remain_freelist_count > 0:
                 return
 
@@ -97,14 +97,14 @@ async def register_database_vacuuming_task(db: Database, config: Config):
                 "unable to remove stale logs based on timestamp"
             )
         else:
-            n = await __remove_stale_logs(db, config.vacuum_max_days)
+            n = await _remove_stale_logs(db, config.vacuum_max_days)
             if n > 0:
                 logger.opt(colors=True).info(
                     f"<r>[Log cleanup] removed {n} stale logs entries (max retention days = {config.vacuum_max_days})</r>"
                 )
 
         # Remove logs if whatever remains still exceeds `vacuum_max_size`
-        n = await __remove_excessive_logs(
+        n = await _remove_excessive_logs(
             db,
             bytes_to_mb(config.vacuum_max_size_bytes),
             bytes_to_mb(config.vacuum_target_size_bytes),

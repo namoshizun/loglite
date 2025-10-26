@@ -6,7 +6,7 @@
 
 ⚡️ **Lightweight & Efficient**: Built with performance in mind:
   - Fully async libraries, with orjson for fast JSON serialization.
-  - Supports incremental vacuuming to minimize IO disruptions.
+  - Supports incremental vacuuming to minimize IO / memory overhead.
 
 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
 

@@ -4,13 +4,13 @@ import yaml
 import re
 import dataclasses
 from contextlib import suppress
-from typing import Any, TypedDict
+from typing import Any
 from pathlib import Path
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 from loglite.utils import convert_size_to_bytes
-from loglite.types import Migration
+from loglite.types import CompressionConfig, Migration
 
 load_dotenv()
 
@@ -25,11 +25,6 @@ def _read_args_from_env() -> dict[str, Any]:
             name = name[len(CONFIG_ENV_PREFIX) :]
             args[name.lower()] = value
     return args
-
-
-class CompressionConfig(TypedDict):
-    enabled: bool
-    columns: list[str]
 
 
 @dataclass

@@ -20,6 +20,7 @@ python-dotenv = "^1.0.1"
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"
 pytest-cov = "^6.0.0"
+pytest-asyncio = "^0.26.0"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
@@ -39,7 +40,8 @@ filterwarnings = [
     "ignore::UserWarning",
     "ignore::FutureWarning",
 ]
-addopts = "-s"
+# addopts = "-s -v"
+addopts = "-v --cov=loglite --cov-report=term"
 
 [build-system]
 requires = ["poetry-core"]

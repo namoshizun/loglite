@@ -66,6 +66,9 @@ class ColumnDictionary:
             if _id == id:
                 return _v
 
+    def get_lookup(self) -> LookupTable:
+        return self.__lookup
+
     def query_candidates(self, filter: QueryFilter) -> list[int]:
         col = filter["field"]
         op = filter["operator"]

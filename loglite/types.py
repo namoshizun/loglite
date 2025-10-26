@@ -34,3 +34,8 @@ class PaginatedQueryResult(TypedDict):
     offset: int
     limit: int
     results: list[dict[str, Any]]
+
+
+class CompressionConfig(TypedDict):
+    enabled: bool
+    columns: list[str]

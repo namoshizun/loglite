@@ -138,26 +138,6 @@ async def test_close(initialized_db: Database):
 
 
 @pytest.mark.asyncio
-async def test_get_log_columns(migrated_db: Database):
-    """Test retrieving log table columns after migration."""
-    columns = await migrated_db.get_log_columns()
-    expected_names = {"id", "timestamp", "level", "message", "source", "extra"}
-    expected_types = {"INTEGER", "TEXT"}
-
-    assert {col["name"] for col in columns} == expected_names
-    assert all(col["type"] in expected_types for col in columns if col["name"] != "id")
-
-    ts_col = next((col for col in columns if col["name"] == "timestamp"))
-    assert ts_col is not None
-    assert ts_col["not_null"] is True
-    assert ts_col["type"] == "TEXT"
-
-    # Test caching
-    cached_columns = await migrated_db.get_log_columns()
-    assert cached_columns is columns
-
-
-@pytest.mark.asyncio
 async def test_build_sql_query(migrated_db: Database):
     """Test the internal _build_sql_query method."""
     db = migrated_db

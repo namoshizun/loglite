@@ -87,9 +87,8 @@ async def register_database_vacuuming_task(db: Database, config: Config):
                 return
 
         # Remove logs older than `vacuum_max_days`
-        columns = await db.get_log_columns()
         has_timestamp_column = any(
-            column["name"] == config.log_timestamp_field for column in columns
+            column["name"] == config.log_timestamp_field for column in db.column_info
         )
         if not has_timestamp_column:
             logger.warning(

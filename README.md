@@ -4,17 +4,17 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
-⚡️ **Lightweight & Efficient**: Built with performance in mind:
-  - Fully async libraries, with orjson for fast JSON serialization.
-  - Supports incremental vacuuming to minimize IO / memory overhead.
+💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
 
 🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
 
-💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
-
 🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
 
-🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log streaming.
+🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log notifications.
+
+⚡️ **Lightweight & Efficient**: Built with performance in mind:
+  - Fully async libraries, with orjson for fast JSON serialization.
+  - Supports incremental vacuuming to minimize IO / memory overhead.
 
 ✨✨✨ **More cool features in my wishlist**:
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
@@ -42,6 +42,8 @@ host: 0.0.0.0
 port: 7788
 # More verbose logging when enabled
 debug: true
+# Whether to automatically apply pending migrations during server startup (default: false)
+auto_rollout: false
 # Name of the main log entry table in SQLite, **required**
 log_table_name: Log
 # Name of the column storing the log timestamp, used for removing logs older than N days (default: timestamp)
@@ -113,7 +115,7 @@ Other items are optional with sensible defaults.
 
 ### Running Migrations
 
-Before starting the server, you need to apply migrations to set up the database schema:
+Before starting the server, you may need to apply migrations to set up the database schema. You can skip this setup if `auto_rollout` is set to  `true`.
 
 ```bash
 loglite migrate rollout -c /path/to/config.yaml

@@ -1,5 +1,10 @@
 ## Changelog
 
+### 0.2.2
+
+- refactor: prefetch column info during database initialization.
+- feat: add `auto_rollout` option to control whether to automatically rollout migrations when initializing the database.
+
 ### 0.2.1
 
 - refactor: data vacuuming now supports  `auto_vacuum: INCREMENTAL` mode and removes freeable pages in batches. Switch to full vacuuming if configured the FULL vacuuming mode.

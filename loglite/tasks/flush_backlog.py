@@ -14,7 +14,10 @@ async def register_flushing_backlog_task(db: Database, config: Config):
     with suppress(asyncio.CancelledError):
         while True:
             backlog = BACKLOG.instance()
-            await backlog.full_signal.wait()
+            with suppress(asyncio.TimeoutError, TimeoutError):
+                await asyncio.wait_for(
+                    backlog.full_signal.wait(), timeout=config.task_backlog_flush_interval
+                )
 
             logs = await backlog.flush()
             if not logs:

@@ -3,6 +3,7 @@ import sys
 import orjson
 import aiosqlite
 from typing import Any, Literal, Sequence
+from pathlib import Path
 from loguru import logger
 from datetime import datetime
 from contextlib import suppress
@@ -10,6 +11,7 @@ from contextlib import suppress
 from loglite.config import Config
 from loglite.types import Column, PaginatedQueryResult, QueryFilter
 from loglite.column_dict import ColumnDictionary
+from loglite.migrations import MigrationManager
 from loglite.utils import bytes_to_mb
 
 
@@ -27,14 +29,28 @@ def _serialize_value(value: Any) -> Any:
 
 class Database:
     def __init__(self, config: Config):
-        self.db_path = config.db_path
-        self.log_table_name = config.log_table_name
-        self.sqlite_params = config.sqlite_params
+        self.config = config
         self._column_info: list[Column] = []
         self._connection: aiosqlite.Connection | None = None
         self._compressed_columns: set[str] = (
             set() if not config.compression["enabled"] else set(config.compression["columns"])
         )
+
+    @property
+    def db_path(self) -> Path:
+        return self.config.db_path
+
+    @property
+    def log_table_name(self) -> str:
+        return self.config.log_table_name
+
+    @property
+    def sqlite_params(self) -> dict[str, Any]:
+        return self.config.sqlite_params
+
+    @property
+    def auto_rollout(self) -> bool:
+        return self.config.auto_rollout
 
     @property
     def column_dict(self) -> ColumnDictionary:
@@ -45,6 +61,32 @@ class Database:
     @column_dict.setter
     def column_dict(self, value: ColumnDictionary):
         self._column_dict = value
+
+    @property
+    def column_info(self) -> list[Column]:
+        if self._column_info:
+            return self._column_info
+
+        raise RuntimeError("Database not initialized, please call initialize() first")
+
+    async def _fetch_columns_info(self) -> list[Column]:
+        conn = await self.get_connection()
+        async with conn.execute(f"PRAGMA table_info({self.log_table_name})") as cursor:
+            columns = await cursor.fetchall()
+
+            # SQLite PRAGMA table_info returns:
+            # (cid, name, type, notnull, dflt_value, pk)
+            self._column_info = [
+                {
+                    "name": col[1],
+                    "type": col[2],
+                    "not_null": bool(col[3]),
+                    "default": col[4],
+                    "primary_key": bool(col[5]),
+                }
+                for col in columns
+            ]
+            return self._column_info
 
     def _build_sql_query(self, filters: Sequence[QueryFilter]) -> tuple[str, list[Any]]:
         conditions = []
@@ -128,6 +170,8 @@ class Database:
     async def initialize(self):
         """Initialize the database connection and ensure versions table exists"""
         conn = await self.get_connection()
+
+        # [1] Create internal loglite tables
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS versions (
@@ -147,6 +191,14 @@ class Database:
         """
         )
         await conn.commit()
+
+        # [2] Apply pending migrations in auto mode
+        if self.auto_rollout:
+            migration_manager = MigrationManager(self, self.config.migrations)
+            await migration_manager.apply_pending_migrations()
+
+        # [3] Prefetching
+        await self._fetch_columns_info()
         self.column_dict = await ColumnDictionary.load(self)
 
     async def get_pragma(self, name: str) -> Any:
@@ -189,6 +241,8 @@ class Database:
             await conn.execute("INSERT INTO versions (version) VALUES (?)", (version,))
             await conn.commit()
             logger.info(f"🥷 Applied migration version {version}")
+            # Invalidate the column info cache in case the table schema changed
+            await self._fetch_columns_info()
             return True
         except Exception as e:
             logger.error(f"Failed to apply migration version {version}: {e}")
@@ -206,34 +260,11 @@ class Database:
             await conn.commit()
             logger.info(f"🚮 Rolled back migration version {version}")
             # Invalidate the column info cache in case the table schema changed
-            self._column_info = []
+            await self._fetch_columns_info()
             return True
         except Exception as e:
             logger.error(f"Failed to rollback migration version {version}: {e}")
             return False
-
-    async def get_log_columns(self) -> list[Column]:
-        """Get the current columns of the log table"""
-        if self._column_info:
-            return self._column_info
-
-        conn = await self.get_connection()
-        async with conn.execute(f"PRAGMA table_info({self.log_table_name})") as cursor:
-            columns = await cursor.fetchall()
-
-            # SQLite PRAGMA table_info returns:
-            # (cid, name, type, notnull, dflt_value, pk)
-            self._column_info = [
-                {
-                    "name": col[1],
-                    "type": col[2],
-                    "not_null": bool(col[3]),
-                    "default": col[4],
-                    "primary_key": bool(col[5]),
-                }
-                for col in columns
-            ]
-            return self._column_info
 
     async def get_max_log_id(self) -> int:
         conn = await self.get_connection()
@@ -275,7 +306,7 @@ class Database:
         log_data: dict[str, Any] | Sequence[dict[str, Any]],
     ) -> int:
         """Insert a new log entry into the database"""
-        columns = [col for col in await self.get_log_columns() if col["name"] != "id"]
+        columns = [col for col in self.column_info if col["name"] != "id"]
         if isinstance(log_data, dict):
             log_data = [log_data]
 
@@ -321,7 +352,7 @@ class Database:
         offset: int = 0,
     ) -> PaginatedQueryResult:
         if fields == ("*",):
-            fields = tuple(col["name"] for col in await self.get_log_columns())
+            fields = tuple(col["name"] for col in self.column_info)
 
         """Query logs based on provided filters without transforming results"""
         conn = await self.get_connection()

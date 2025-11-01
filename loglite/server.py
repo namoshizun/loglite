@@ -81,12 +81,8 @@ class LogLiteServer:
             tasks = web.AppKey("tasks", list[asyncio.Task])
             app[tasks] = [
                 asyncio.create_task(register_diagnostics_task(self.config)),
-                asyncio.create_task(
-                    register_flushing_backlog_task(self.db, self.config)
-                ),
-                asyncio.create_task(
-                    register_database_vacuuming_task(self.db, self.config)
-                ),
+                asyncio.create_task(register_flushing_backlog_task(self.db, self.config)),
+                asyncio.create_task(register_database_vacuuming_task(self.db, self.config)),
             ]
 
             yield
@@ -107,7 +103,6 @@ class LogLiteServer:
         """Set up the server"""
         # Initialize database
         self._setup_logging()
-        await self.db.initialize()
         await self._setup_globals()
         await self._setup_routes()
         await self._setup_tasks()

@@ -5,19 +5,23 @@ from loguru import logger
 from loglite.harvesters.base import Harvester
 
 
+from loglite.harvesters.config import ZMQHarvesterConfig
+
+
 class ZMQHarvester(Harvester):
-    def __init__(self, name: str, config: dict):
+    CONFIG_CLASS = ZMQHarvesterConfig
+
+    def __init__(self, name: str, config: ZMQHarvesterConfig):
         super().__init__(name, config)
+        self.config: ZMQHarvesterConfig = self.config
         self.context = zmq.asyncio.Context()
         self.socket = None
 
     async def run(self):
-        endpoint = self.config.get("endpoint")
-        if not endpoint:
-            logger.error(f"ZMQHarvester {self.name}: 'endpoint' is required")
-            return
+        endpoint = self.config.endpoint
+        # endpoint is required by model
 
-        socket_type_str = self.config.get("socket_type", "PULL").upper()
+        socket_type_str = self.config.socket_type
         socket_type = getattr(zmq, socket_type_str, zmq.PULL)
 
         self.socket = self.context.socket(socket_type)

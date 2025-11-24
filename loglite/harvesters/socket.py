@@ -5,9 +5,15 @@ from loguru import logger
 from loglite.harvesters.base import Harvester
 
 
+from loglite.harvesters.config import SocketHarvesterConfig
+
+
 class SocketHarvester(Harvester):
-    def __init__(self, name: str, config: dict):
+    CONFIG_CLASS = SocketHarvesterConfig
+
+    def __init__(self, name: str, config: SocketHarvesterConfig):
         super().__init__(name, config)
+        self.config: SocketHarvesterConfig = self.config
         self.server = None
 
     async def handle_client(self, reader, writer):
@@ -48,13 +54,11 @@ class SocketHarvester(Harvester):
         await writer.wait_closed()
 
     async def run(self):
-        host = self.config.get("host", "0.0.0.0")
-        port = self.config.get("port")
-        path = self.config.get("path")  # For Unix socket
+        host = self.config.host
+        port = self.config.port
+        path = self.config.path
 
-        if not port and not path:
-            logger.error(f"SocketHarvester {self.name}: 'port' or 'path' is required")
-            return
+        # validation handled by model
 
         try:
             if path:

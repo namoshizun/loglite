@@ -1,12 +1,19 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Type
 from loglite.globals import BACKLOG
+from loglite.harvesters.config import BaseHarvesterConfig
 
 
 class Harvester(ABC):
-    def __init__(self, name: str, config: dict[str, Any]):
+    CONFIG_CLASS: Type[BaseHarvesterConfig] = BaseHarvesterConfig
+
+    def __init__(self, name: str, config: BaseHarvesterConfig):
         self.name = name
+        if not isinstance(config, BaseHarvesterConfig):
+            raise TypeError(
+                f"Config must be an instance of BaseHarvesterConfig, got {type(config)}"
+            )
         self.config = config
         self._running = False
         self._task: asyncio.Task | None = None

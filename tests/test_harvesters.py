@@ -5,8 +5,9 @@ import os
 from loglite.harvesters.base import Harvester
 from loglite.harvesters.manager import HarvesterManager
 from loglite.harvesters.file import FileHarvester
-from loglite.harvesters.zmq import ZMQHarvester
+
 from loglite.harvesters.socket import SocketHarvester
+from loglite.harvesters.config import FileHarvesterConfig, SocketHarvesterConfig
 from loglite.globals import BACKLOG
 from loglite.backlog import Backlog
 
@@ -51,7 +52,7 @@ async def test_file_harvester(tmp_path, backlog):
     log_file = tmp_path / "test.log"
     log_file.touch()
 
-    harvester = FileHarvester("file_test", {"path": str(log_file)})
+    harvester = FileHarvester("file_test", FileHarvesterConfig(path=str(log_file)))
     await harvester.start()
 
     # Wait for harvester to be ready
@@ -76,7 +77,7 @@ async def test_file_harvester(tmp_path, backlog):
 @pytest.mark.asyncio
 async def test_socket_harvester(backlog):
     port = 9999
-    harvester = SocketHarvester("socket_test", {"port": port, "host": "127.0.0.1"})
+    harvester = SocketHarvester("socket_test", SocketHarvesterConfig(port=port, host="127.0.0.1"))
     await harvester.start()
 
     # Wait for server to start

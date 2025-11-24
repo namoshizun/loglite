@@ -6,16 +6,20 @@ from loguru import logger
 from loglite.harvesters.base import Harvester
 
 
+from loglite.harvesters.config import FileHarvesterConfig
+
+
 class FileHarvester(Harvester):
-    def __init__(self, name: str, config: dict):
+    CONFIG_CLASS = FileHarvesterConfig
+
+    def __init__(self, name: str, config: FileHarvesterConfig):
         super().__init__(name, config)
+        self.config: FileHarvesterConfig = self.config  # Type hint
         self.fd = None
 
     async def run(self):
-        path = self.config.get("path")
-        if not path:
-            logger.error(f"FileHarvester {self.name}: 'path' is required")
-            return
+        path = self.config.path
+        # path is required by model, so no need to check
 
         if not os.path.exists(path):
             logger.warning(f"FileHarvester {self.name}: file {path} does not exist, waiting...")

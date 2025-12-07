@@ -34,6 +34,7 @@ async def _shutdown(signal, loop: asyncio.AbstractEventLoop):
 async def _run_server(config_path: str):
     config = Config.from_file(config_path)
     async with Database(config) as db:
+        await db.initialize()
         server = LogLiteServer(db, config)
         await server.setup()
 
@@ -41,9 +42,7 @@ async def _run_server(config_path: str):
         loop = asyncio.get_event_loop()
         exit_signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
         for s in exit_signals:
-            loop.add_signal_handler(
-                s, lambda s=s: asyncio.create_task(_shutdown(s, loop))
-            )
+            loop.add_signal_handler(s, lambda s=s: asyncio.create_task(_shutdown(s, loop)))
 
         runner, _ = await server.start()
 
@@ -56,7 +55,7 @@ async def _run_server(config_path: str):
             await runner.cleanup()
 
 
-async def _migrate(config_path: str, start_version: int = -1):
+async def _rollout(config_path: str, start_version: int = -1):
     config = Config.from_file(config_path)
     async with Database(config) as db:
         await db.initialize()
@@ -82,7 +81,7 @@ def rollout(
     config: str = Option(..., "--config", "-c"),
     version_id: int = Option(-1, "--version-id", "-v"),
 ):
-    asyncio.run(_migrate(config, version_id))
+    asyncio.run(_rollout(config, version_id))
 
 
 @migration_app.command()

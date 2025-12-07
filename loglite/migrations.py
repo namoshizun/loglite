@@ -1,11 +1,14 @@
 from loguru import logger
+from typing import TYPE_CHECKING
 
-from .database import Database
-from .types import Migration
+from loglite.types import Migration
+
+if TYPE_CHECKING:
+    from loglite.database import Database
 
 
 class MigrationManager:
-    def __init__(self, db: Database, migrations_config: list[Migration]):
+    def __init__(self, db: "Database", migrations_config: list[Migration]):
         self.db = db
         self.migrations_config = migrations_config
 
@@ -14,18 +17,14 @@ class MigrationManager:
         applied_versions = await self.db.get_applied_versions()
 
         # Sort migrations by version
-        sorted_migrations = sorted(self.migrations_config, key=lambda m: m["version"])
-        if start_version != -1:
-            sorted_migrations = [
-                m for m in sorted_migrations if m["version"] >= start_version
-            ]
+        pending_migrations = [m for m in self.migrations_config if m["version"] > start_version]
+        pending_migrations = sorted(pending_migrations, key=lambda m: m["version"])
 
-        for migration in sorted_migrations:
+        for migration in pending_migrations:
             version = migration["version"]
             if version not in applied_versions:
                 logger.info(f" Applying migration version {version}...")
-                statements = migration.get("rollout", [])
-                if statements:
+                if statements := migration.get("rollout", []):
                     return await self.db.apply_migration(version, statements)
                 else:
                     logger.warning(f"🤔 No rollout statements for version {version}")
@@ -37,9 +36,7 @@ class MigrationManager:
         applied_versions = await self.db.get_applied_versions()
 
         if version not in applied_versions:
-            logger.warning(
-                f" 🤷‍♂️ Migration version {version} not applied, nothing to rollback"
-            )
+            logger.warning(f" 🤷‍♂️ Migration version {version} not applied, nothing to rollback")
             return False
 
         for migration in self.migrations_config:
@@ -52,9 +49,7 @@ class MigrationManager:
                             f"🤔 Are you sure you want to rollback migration version {version}? (y/n)"
                         )
                         if ans != "y":
-                            logger.warning(
-                                f"Migration version {version} not rolled back"
-                            )
+                            logger.warning(f"Migration version {version} not rolled back")
                             return False
 
                     return await self.db.rollback_migration(version, statements)

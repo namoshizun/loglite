@@ -1,20 +1,35 @@
+from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+from dataclasses import dataclass
+from typing import Type
 from loguru import logger
-from loglite.harvesters.base import Harvester
+from loglite.harvesters.base import Harvester, BaseHarvesterConfig
 
 
-from loglite.harvesters.config import SocketHarvesterConfig
+@dataclass
+class SocketHarvesterConfig(BaseHarvesterConfig):
+    """Configuration for SocketHarvester."""
+
+    host: str = "0.0.0.0"
+    port: int | None = None
+    path: str | None = None
+
+    def __post_init__(self):
+        if not self.port and not self.path:
+            raise ValueError("Either 'port' or 'path' must be provided")
 
 
 class SocketHarvester(Harvester):
-    CONFIG_CLASS = SocketHarvesterConfig
-
     def __init__(self, name: str, config: SocketHarvesterConfig):
         super().__init__(name, config)
         self.config: SocketHarvesterConfig = self.config
         self.server = None
+
+    @classmethod
+    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
+        return SocketHarvesterConfig
 
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info("peername")

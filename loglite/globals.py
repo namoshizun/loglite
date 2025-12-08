@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from contextlib import suppress
 from typing import Any, TypeVar, Generic, Optional
 from loglite.backlog import Backlog
 from loglite.utils import AtomicMutableValue, StatsTracker
@@ -30,9 +31,9 @@ class ObjectProxy(Generic[T]):
         self._instance = None
 
 
-OPERATION_LOCK = asyncio.Lock()
-
-LAST_INSERT_LOG_ID = AtomicMutableValue[int](0)
+with suppress(RuntimeError):
+    OPERATION_LOCK = asyncio.Lock()
+    LAST_INSERT_LOG_ID = AtomicMutableValue[int](0)
 
 INGESTION_STATS = StatsTracker(period_seconds=10)
 

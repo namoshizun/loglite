@@ -1,13 +1,14 @@
 import pytest
-from loglite.harvesters.config import FileHarvesterConfig, ZMQHarvesterConfig, SocketHarvesterConfig
 from loglite.harvesters.manager import HarvesterManager
-from loglite.harvesters.file import FileHarvester
+from loglite.harvesters.file import FileHarvesterConfig
+from loglite.harvesters.zmq import ZMQHarvesterConfig
+from loglite.harvesters.socket import SocketHarvesterConfig
 
 
 def test_file_harvester_config_validation():
     # Valid config
     config = FileHarvesterConfig(path="/tmp/test.log")
-    assert config.path == "/tmp/test.log"
+    assert str(config.path) == "/tmp/test.log"
 
     # Missing path
     # Dataclasses raise TypeError for missing arguments
@@ -43,10 +44,9 @@ def test_socket_harvester_config_validation():
 
 def test_manager_validation_error():
     manager = HarvesterManager()
-    manager.register("file", FileHarvester)
 
     # Invalid config passed to load_harvesters
     # It should log an error but not crash
-    manager.load_harvesters([{"type": "file", "name": "bad_file"}])
+    manager.load_harvesters([{"type": "nothing.here", "name": "bad_file"}])
 
     assert "bad_file" not in manager.harvesters

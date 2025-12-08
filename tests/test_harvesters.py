@@ -1,13 +1,15 @@
+from typing import Type
 import pytest
 import asyncio
 import json
 import os
-from loglite.harvesters.base import Harvester
+from loglite.harvesters.base import BaseHarvesterConfig, Harvester
 from loglite.harvesters.manager import HarvesterManager
 from loglite.harvesters.file import FileHarvester
 
 from loglite.harvesters.socket import SocketHarvester
-from loglite.harvesters.config import FileHarvesterConfig, SocketHarvesterConfig
+from loglite.harvesters.file import FileHarvesterConfig
+from loglite.harvesters.socket import SocketHarvesterConfig
 from loglite.globals import BACKLOG
 from loglite.backlog import Backlog
 
@@ -16,6 +18,10 @@ class MockHarvester(Harvester):
     async def run(self):
         while self._running:
             await asyncio.sleep(0.1)
+
+    @classmethod
+    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
+        return BaseHarvesterConfig
 
 
 @pytest.fixture
@@ -31,12 +37,13 @@ def backlog():
 
 
 @pytest.mark.asyncio
-async def test_harvester_lifecycle(manager):
-    manager.register("mock", MockHarvester)
-    manager.load_harvesters([{"type": "mock", "name": "test_harvester"}])
+async def test_harvester_lifecycle(manager: HarvesterManager):
+    manager.load_harvesters(
+        [{"type": "tests.test_harvesters.MockHarvester", "name": "mock harvester"}]
+    )
 
-    assert "test_harvester" in manager.harvesters
-    harvester = manager.harvesters["test_harvester"]
+    assert "mock harvester" in manager.harvesters
+    harvester = manager.harvesters["mock harvester"]
 
     await manager.start_all()
     assert harvester._running

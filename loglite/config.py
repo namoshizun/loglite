@@ -100,21 +100,24 @@ class Config:
         with config_path.open("r") as f:
             config_data = yaml.safe_load(f)
 
-        args = {}
+        cfg_args = {}
         env_args = _read_args_from_env()
 
         # Validate that required fields are present
         for field in dataclasses.fields(cls):
+            # Read from environment variables
             if field.name in env_args:
                 with suppress(Exception):
                     FieldTypeClass = eval(field.type)
-                    args[field.name] = FieldTypeClass(env_args[field.name])
+                    cfg_args[field.name] = FieldTypeClass(env_args[field.name])
                     continue
 
+            # Read from config file data
             if field.name in config_data:
-                args[field.name] = config_data[field.name]
+                cfg_args[field.name] = config_data[field.name]
                 continue
 
+            # No value provided, ensure it is an optional field
             is_required = (
                 field.default is dataclasses.MISSING
                 and field.default_factory is dataclasses.MISSING
@@ -123,4 +126,4 @@ class Config:
             if is_required:
                 raise ValueError(f"{field.name} is missing in config")
 
-        return cls(**args)
+        return cls(**cfg_args)

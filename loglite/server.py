@@ -22,9 +22,6 @@ from loglite.tasks import (
     register_database_vacuuming_task,
 )
 from loglite.harvesters import HarvesterManager
-from loglite.harvesters.file import FileHarvester
-from loglite.harvesters.zmq import ZMQHarvester
-from loglite.harvesters.socket import SocketHarvester
 
 
 class LogLiteServer:
@@ -33,13 +30,8 @@ class LogLiteServer:
         self.db = db
         self.app = web.Application()
         self.harvester_manager = HarvesterManager()
-        self._register_harvesters()
 
-    def _register_harvesters(self):
-        self.harvester_manager.register("file", FileHarvester)
-        self.harvester_manager.register("zmq", ZMQHarvester)
-        self.harvester_manager.register("socket", SocketHarvester)
-        
+    def _setup_harvesters(self):
         self.harvester_manager.load_harvesters(self.config.harvesters)
 
     def _setup_logging(self):
@@ -116,6 +108,7 @@ class LogLiteServer:
         """Set up the server"""
         # Initialize database
         self._setup_logging()
+        self._setup_harvesters()
         await self._setup_globals()
         await self._setup_routes()
         await self._setup_tasks()

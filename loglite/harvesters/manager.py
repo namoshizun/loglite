@@ -1,58 +1,62 @@
+import dataclasses
+import importlib
 from typing import Type
 from loguru import logger
-from loglite.harvesters.base import Harvester
-from loglite.globals import BACKLOG
+
+from loglite.harvesters.base import Harvester, BaseHarvesterConfig
+
+
+def import_class(fully_qualified_name: str) -> Type[Harvester]:
+    module_path, class_name = fully_qualified_name.rsplit(".", 1)
+
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+    except (ModuleNotFoundError, ImportError, AttributeError):
+        logger.error(f"Failed to import harvester class: {fully_qualified_name}")
+        return None
 
 
 class HarvesterManager:
     def __init__(self):
         self.harvesters: dict[str, Harvester] = {}
-        self._registry: dict[str, Type[Harvester]] = {}
-
-    def register(self, type_name: str, harvester_cls: Type[Harvester]):
-        self._registry[type_name] = harvester_cls
 
     def load_harvesters(self, configs: list[dict]):
         for config in configs:
-            type_name = config.get("type")
-            name = config.get("name", type_name)
-            if not type_name or type_name not in self._registry:
-                logger.warning(f"Unknown harvester type: {type_name}")
+            type_ = config.get("type")
+            name = config.get("name", type_)
+            config_data = config.get("config")
+
+            if not config_data:
+                logger.warning(f"Invalid harvester config: {config}")
                 continue
 
-            harvester_cls = self._registry[type_name]
+            HarvesterClass = import_class(type_)
+
+            if not HarvesterClass:
+                continue
+
+            ConfigClass = HarvesterClass.get_config_class()
+            if not ConfigClass:
+                logger.warning(
+                    f"Harvester {type_} does not define a valid get_config_class method. Ignoring..."
+                )
+                continue
+
+            if not issubclass(ConfigClass, BaseHarvesterConfig):
+                logger.warning(f"Harvester {type_} config class is invalid. Ignoring...")
+                continue
+
             try:
-                config_cls = getattr(harvester_cls, "CONFIG_CLASS", None)
-                if config_cls:
-                    # Dataclasses don't accept extra arguments, so we must filter the config dict
-                    # to only include fields defined in the dataclass.
-                    # Pydantic (v2) ignores extras by default, but dataclasses raise TypeError.
-                    import dataclasses
-
-                    if dataclasses.is_dataclass(config_cls):
-                        field_names = {f.name for f in dataclasses.fields(config_cls)}
-                        filtered_config = {k: v for k, v in config.items() if k in field_names}
-                        config_obj = config_cls(**filtered_config)
-                    else:
-                        # Fallback for non-dataclass config classes (if any remain)
-                        config_obj = config_cls(**config)
-                else:
-                    # Fallback or error if no config class defined (though we enforced it in base)
-                    # For now, let's assume it might be a dict if some legacy harvester exists,
-                    # but our base class forbids it. So we must have a config class.
-                    # However, to be safe against custom harvesters not inheriting correctly:
-                    from loglite.harvesters.config import BaseHarvesterConfig
-
-                    if not isinstance(config, BaseHarvesterConfig):
-                        # Try to use BaseHarvesterConfig if nothing else, but that won't have fields.
-                        # Better to raise error if CONFIG_CLASS is missing but config is dict.
-                        raise ValueError(f"Harvester {type_name} does not define CONFIG_CLASS")
-                    config_obj = config
-
-                harvester = harvester_cls(name, config_obj)
-                self.harvesters[name] = harvester
+                # Dataclasses don't accept extra arguments, so we must filter the config dict
+                # to only include fields defined in the dataclass.
+                field_names = {f.name for f in dataclasses.fields(ConfigClass)}
+                config_obj = ConfigClass(
+                    **{k: v for k, v in config_data.items() if k in field_names}
+                )
+                self.harvesters[name] = HarvesterClass(name, config_obj)
             except Exception as e:
-                logger.error(f"Failed to initialize harvester {name} ({type_name}): {e}")
+                logger.exception(f"Failed to initialize harvester {name} ({type_}): {e}")
 
     async def start_all(self):
         for name, harvester in self.harvesters.items():
@@ -63,6 +67,3 @@ class HarvesterManager:
         for name, harvester in self.harvesters.items():
             logger.info(f"Stopping harvester: {name}")
             await harvester.stop()
-
-    async def ingest(self, log: dict):
-        await BACKLOG.add(log)

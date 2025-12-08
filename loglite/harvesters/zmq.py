@@ -1,21 +1,41 @@
 import asyncio
 import zmq
 from datetime import datetime
+from dataclasses import dataclass
+from typing import Literal, Type, get_args
 from loguru import logger
-from loglite.harvesters.base import Harvester
+
+from loglite.harvesters.base import Harvester, BaseHarvesterConfig
 
 
-from loglite.harvesters.config import ZMQHarvesterConfig
+ZMQHarvesterSocketType = Literal["PULL", "SUB"]
+
+
+@dataclass
+class ZMQHarvesterConfig(BaseHarvesterConfig):
+    """Configuration for ZMQHarvester."""
+
+    endpoint: str
+    socket_type: ZMQHarvesterSocketType = "PULL"
+    bind: bool = False
+
+    def __post_init__(self):
+        if not self.endpoint:
+            raise ValueError("'endpoint' is required")
+        if self.socket_type not in get_args(ZMQHarvesterSocketType):
+            raise ValueError(f"Invalid socket_type: {self.socket_type}")
 
 
 class ZMQHarvester(Harvester):
-    CONFIG_CLASS = ZMQHarvesterConfig
-
     def __init__(self, name: str, config: ZMQHarvesterConfig):
         super().__init__(name, config)
         self.config: ZMQHarvesterConfig = self.config
         self.context = zmq.asyncio.Context()
         self.socket = None
+
+    @classmethod
+    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
+        return ZMQHarvesterConfig
 
     async def run(self):
         endpoint = self.config.endpoint

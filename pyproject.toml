@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "loglite"
-version = "0.2.2"
+version = "0.3.0"
 description = ""
 authors = ["namoshizun <dilu3100@gmail.com>"]
 readme = "README.md"
@@ -16,6 +16,11 @@ pyyaml = "^6.0.2"
 loguru = "^0.7.3"
 typer = "^0.15.2"
 python-dotenv = "^1.0.1"
+aiofiles = "^25.1.0"
+pyzmq = { version = "^26.0.0", optional = true }
+
+[tool.poetry.extras]
+zmq = ["pyzmq"]
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"

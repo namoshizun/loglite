@@ -4,26 +4,26 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
-💾 **SQLite Backend**: Store log messages in SQLite, enabling efficient and complex queries.
+**SQLite Backend** 💾 : Store log messages in SQLite, enabling efficient and complex queries.
 
-🔧 **Fully customizable table schema**: Make no assumptions about the log table structure, define your own schema to fit your needs.
+**Fully customizable table schema** 🔧 : Make no assumptions about the log table structure, define your own schema to fit your needs.
 
-🔄 **Database Migrations**: Built-in migration utilities to manage database schema changes.
+**Database Migrations** 🔄 : Built-in migration utilities to manage database schema changes.
 
-🌐 **Web API**: RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log notifications.
+**Web API** 🌐 : RESTful endpoint for log ingestion and query. Support server-sent events (SSE) for real-time log notifications.
 
-⚡️ **Lightweight & Efficient**: Built with performance in mind:
+**Lightweight & Efficient** ⚡️ : Built with performance in mind:
   - Fully async libraries, with orjson for fast JSON serialization.
   - Supports incremental vacuuming to minimize IO / memory overhead.
 
-✨✨✨ **More cool features in my wishlist**:
+**More cool features in my wishlist** ✨✨✨ :
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
   - [x] *Column based compression*: Store the canonical ids for enum columns instead of the original values, saving disk space and improves query performance. See [enable-compression.yaml](configs/enable-compression.yaml) for an example configuration.
+  - [x] *Harvester plugin system*: harvest logs from local files, ZeroMQ and TCP socket. Allow defining custom harvesters outside of the library.
   - [ ] *Time based partitioning*: One SQLite database per date or month.
   - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
   - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
   - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
-  - [ ] *More ingestion interfaces*: Support log ingestion through ZeroMQ, TCP socket and Unix socket.
 
 ## Installation
 
@@ -62,6 +62,14 @@ vacuum_max_days: 7
 vacuum_max_size: 500MB
 # When above triggered, remove the oldest logs until the db size is blow this value (default: 800GB)
 vacuum_target_size: 400MB
+
+# Optional: see the "Harvesters" for details
+harvesters:
+  - type: loglite.harvesters.FileHarvester
+    name: app logs
+    config:
+      path: /tmp/cool-stuff/app.log
+
 # You can set any SQLite parameters, no default values
 sqlite_params:
   auto_vacuum: INCREMENTAL
@@ -139,7 +147,7 @@ loglite migrate rollback -c /path/to/config.yaml -v 3
 
 Add the `-f` flag to force rollback without confirmation.
 
-## API Endpoints
+## HTTP Endpoints
 
 ### POST /logs
 
@@ -211,11 +219,103 @@ data: [{"timestamp": "2025-04-01T02:44:04.207515", "message": "first msg"}]
 data: [{"timestamp": "2025-04-01T02:44:10.207515", "message": "third msg"}, {"timestamp": "2025-04-01T01:44:05.207515", "message": "second msg"}]
 ```
 
-## TODO:
-- [x] Add basic documentation.
-- [x] Customize SQLite configuration.
-- [ ] Implement more features in the wishlist.
-- [ ] Add tests.
+## Harvesters
+
+LogLite comes with built-in harvesters to collect logs from various sources.
+
+### Built-in Harvesters
+
+#### FileHarvester
+
+Tails a local file and ingests new lines as they are written. It handles log rotation (by tracking inode) and truncation. Each log line must be a valid JSON conforming to your log table schema.
+
+```yaml
+harvesters:
+  - type: loglite.harvesters.FileHarvester
+    name: app-logs
+    config:
+      path: /var/log/app.log
+```
+
+#### ZMQHarvester
+
+Receives JSON logs via a ZeroMQ socket. Supports both PULL and SUB sockets, and can either bind or connect.
+
+```yaml
+harvesters:
+  - type: loglite.harvesters.ZMQHarvester
+    name: zmq-logs
+    config:
+      endpoint: tcp://127.0.0.1:5555
+      socket_type: PULL  # or SUB
+      bind: true         # or false to connect
+```
+
+#### SocketHarvester
+
+Starts a TCP or Unix domain socket server and listens for newline-delimited JSON logs.
+
+```yaml
+harvesters:
+  - type: loglite.harvesters.SocketHarvester
+    name: tcp-logs
+    config:
+      host: 0.0.0.0
+      port: 9000
+```
+
+### Custom Harvesters
+
+Implement your own harvester by inheriting from `loglite.harvesters.base.Harvester`.
+
+**Example: `my_harvester.py`**
+
+```python
+import asyncio
+from dataclasses import dataclass
+from typing import Type
+from datetime import datetime
+from loglite.harvesters.base import Harvester, BaseHarvesterConfig
+
+@dataclass
+class MyHarvesterConfig(BaseHarvesterConfig):
+    interval: int = 1
+
+class MyHarvester(Harvester):
+    @classmethod
+    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
+        # informs LogLite the config class for this harvester
+        return MyHarvesterConfig
+
+    async def run(self):
+        # Access config via self.config
+        interval = self.config.interval
+
+        while self._running:
+            # Call this to push logs to LogLite
+            await self.ingest({
+              "timestamp": datetime.utcnow().isoformat(),
+              "message": "hello from the outside 🎶",
+              "level": "INFO",
+              "service": "custom-harvester",
+              "extra": {"request_id": "12345"}
+            })
+
+            # **Remember not to block the event loop**
+            await asyncio.sleep(interval)
+```
+
+**Configuration:**
+
+Make sure `my_harvester.py` is in your `PYTHONPATH`, then configure it in `config.yaml`:
+
+```yaml
+harvesters:
+  - type: my_project.logger.MyHarvester
+    name: custom-harvester
+    config:
+      interval: 5
+```
 
 ## License
 

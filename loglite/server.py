@@ -21,6 +21,7 @@ from loglite.tasks import (
     register_flushing_backlog_task,
     register_database_vacuuming_task,
 )
+from loglite.harvesters import HarvesterManager
 
 
 class LogLiteServer:
@@ -28,6 +29,10 @@ class LogLiteServer:
         self.config = config
         self.db = db
         self.app = web.Application()
+        self.harvester_manager = HarvesterManager()
+
+    def _setup_harvesters(self):
+        self.harvester_manager.load_harvesters(self.config.harvesters)
 
     def _setup_logging(self):
         logger.remove()
@@ -103,9 +108,11 @@ class LogLiteServer:
         """Set up the server"""
         # Initialize database
         self._setup_logging()
+        self._setup_harvesters()
         await self._setup_globals()
         await self._setup_routes()
         await self._setup_tasks()
+        await self.harvester_manager.start_all()
 
     async def start(self):
         """Start the server"""

@@ -1,5 +1,11 @@
 ## Changelog
 
+### 0.3.0
+
+- feat: add harvester plugin system to collect logs from various sources.
+- feat: builtin harvesters: `FileHarvester` (tail files), `ZMQHarvester` (ZeroMQ PULL/SUB), `SocketHarvester` (TCP/Unix socket).
+- feat: allow implementing custom harvesters and loading them via configuration.
+
 ### 0.2.2
 
 - refactor: prefetch column info during database initialization.

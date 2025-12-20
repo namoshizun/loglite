@@ -1,12 +1,12 @@
 import dataclasses
 import importlib
-from typing import Type
+from typing import Type, Optional
 from loguru import logger
 
-from loglite.harvesters.base import Harvester, BaseHarvesterConfig
+from loglite.harvesters.base import Harvester
 
 
-def import_class(fully_qualified_name: str) -> Type[Harvester]:
+def import_class(fully_qualified_name: str) -> Optional[Type[Harvester]]:
     module_path, class_name = fully_qualified_name.rsplit(".", 1)
 
     try:
@@ -25,26 +25,17 @@ class HarvesterManager:
         for config in configs:
             type_ = config.get("type")
             name = config.get("name", type_)
-            config_data = config.get("config")
-
-            if not config_data:
-                logger.warning(f"Invalid harvester config: {config}")
-                continue
+            config_data = config.get("config", {})
 
             HarvesterClass = import_class(type_)
-
             if not HarvesterClass:
                 continue
 
-            ConfigClass = HarvesterClass.get_config_class()
+            ConfigClass = HarvesterClass.get_config_type()
             if not ConfigClass:
                 logger.warning(
                     f"Harvester {type_} does not define a valid get_config_class method. Ignoring..."
                 )
-                continue
-
-            if not issubclass(ConfigClass, BaseHarvesterConfig):
-                logger.warning(f"Harvester {type_} config class is invalid. Ignoring...")
                 continue
 
             try:

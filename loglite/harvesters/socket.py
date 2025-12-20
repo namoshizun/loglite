@@ -3,7 +3,6 @@ import asyncio
 import json
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Type
 from loguru import logger
 from loglite.harvesters.base import Harvester, BaseHarvesterConfig
 
@@ -21,15 +20,10 @@ class SocketHarvesterConfig(BaseHarvesterConfig):
             raise ValueError("Either 'port' or 'path' must be provided")
 
 
-class SocketHarvester(Harvester):
+class SocketHarvester(Harvester[SocketHarvesterConfig]):
     def __init__(self, name: str, config: SocketHarvesterConfig):
         super().__init__(name, config)
-        self.config: SocketHarvesterConfig = self.config
         self.server = None
-
-    @classmethod
-    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
-        return SocketHarvesterConfig
 
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info("peername")

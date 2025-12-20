@@ -26,10 +26,9 @@ class ZMQHarvesterConfig(BaseHarvesterConfig):
             raise ValueError(f"Invalid socket_type: {self.socket_type}")
 
 
-class ZMQHarvester(Harvester):
+class ZMQHarvester(Harvester[ZMQHarvesterConfig]):
     def __init__(self, name: str, config: ZMQHarvesterConfig):
         super().__init__(name, config)
-        self.config: ZMQHarvesterConfig = self.config
         self.context = zmq.asyncio.Context()
         self.socket = None
 

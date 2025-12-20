@@ -27,6 +27,8 @@
 
 ## Installation
 
+Supports Python 3.10+
+
 ```bash
 pip install loglite
 ```
@@ -281,11 +283,7 @@ from loglite.harvesters.base import Harvester, BaseHarvesterConfig
 class MyHarvesterConfig(BaseHarvesterConfig):
     interval: int = 1
 
-class MyHarvester(Harvester):
-    @classmethod
-    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
-        # informs LogLite the config class for this harvester
-        return MyHarvesterConfig
+class MyHarvester(Harvester[MyHarvesterConfig]):
 
     async def run(self):
         # Access config via self.config

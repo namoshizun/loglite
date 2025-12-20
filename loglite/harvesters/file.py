@@ -3,7 +3,6 @@ import asyncio
 import aiofiles
 from pathlib import Path
 from loguru import logger
-from typing import Type
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -24,16 +23,11 @@ class FileHarvesterConfig(BaseHarvesterConfig):
             self.path = Path(self.path)
 
 
-class FileHarvester(Harvester):
+class FileHarvester(Harvester[FileHarvesterConfig]):
     def __init__(self, name: str, config: FileHarvesterConfig):
         super().__init__(name, config)
-        self.config: FileHarvesterConfig = self.config
         self._current_inode = None
         self._offset = 0
-
-    @classmethod
-    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
-        return FileHarvesterConfig
 
     async def _harvest_file(self, path: Path):
         buffer = b""

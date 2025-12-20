@@ -19,10 +19,6 @@ class MockHarvester(Harvester):
         while self._running:
             await asyncio.sleep(0.1)
 
-    @classmethod
-    def get_config_class(cls) -> Type[BaseHarvesterConfig]:
-        return BaseHarvesterConfig
-
 
 @pytest.fixture
 def manager():
@@ -34,6 +30,14 @@ def backlog():
     b = Backlog(100)
     BACKLOG.set(b)
     return b
+
+
+@pytest.mark.asyncio
+async def test_invalid_harvester_config(manager: HarvesterManager):
+    with pytest.raises(TypeError):
+
+        class BadHarvester(Harvester[int]):
+            pass
 
 
 @pytest.mark.asyncio

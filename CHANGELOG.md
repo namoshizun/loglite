@@ -1,5 +1,13 @@
 ## Changelog
 
+### 0.4.0
+
+- deps: update aiohttp version to ^3.13.0, update aiohttp-cors version to ^0.8.0
+- fix: Harvester allows empty config
+
+**Breaking**:
+- drop Python 3.9 support, minimum required version is 3.10.
+
 ### 0.3.0
 
 - feat: add harvester plugin system to collect logs from various sources.

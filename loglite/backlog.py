@@ -1,5 +1,4 @@
 from __future__ import annotations
-import sys
 import asyncio
 from loguru import logger
 from collections import deque
@@ -17,10 +16,7 @@ class Backlog(AtomicMutableValue[deque[dict]]):
         if evt := self._full_signal:
             return evt
 
-        if sys.version_info >= (3, 10):
-            self._full_signal = asyncio.Event()
-        else:
-            self._full_signal = asyncio.Event(loop=asyncio.get_running_loop())
+        self._full_signal = asyncio.Event()
         return self._full_signal
 
     async def add(self, log: dict | list[dict]):

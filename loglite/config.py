@@ -1,16 +1,18 @@
 from __future__ import annotations
-import os
-import yaml
-import re
+
 import dataclasses
+import os
+import re
 from contextlib import suppress
-from typing import Any
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
 from dotenv import load_dotenv
 
-from loglite.utils import convert_size_to_bytes
 from loglite.types import CompressionConfig, Migration
+from loglite.utils import convert_size_to_bytes
 
 load_dotenv()
 
@@ -104,26 +106,26 @@ class Config:
         env_args = _read_args_from_env()
 
         # Validate that required fields are present
-        for field in dataclasses.fields(cls):
+        for _field in dataclasses.fields(cls):
             # Read from environment variables
-            if field.name in env_args:
+            if _field.name in env_args:
                 with suppress(Exception):
-                    FieldTypeClass = eval(field.type)
-                    cfg_args[field.name] = FieldTypeClass(env_args[field.name])
+                    field_type_class = eval(_field.type)  # pyright: ignore[reportArgumentType]
+                    cfg_args[_field.name] = field_type_class(env_args[_field.name])
                     continue
 
             # Read from config file data
-            if field.name in config_data:
-                cfg_args[field.name] = config_data[field.name]
+            if _field.name in config_data:
+                cfg_args[_field.name] = config_data[_field.name]
                 continue
 
             # No value provided, ensure it is an optional field
             is_required = (
-                field.default is dataclasses.MISSING
-                and field.default_factory is dataclasses.MISSING
-                and field.init
+                _field.default is dataclasses.MISSING
+                and _field.default_factory is dataclasses.MISSING
+                and _field.init
             )
             if is_required:
-                raise ValueError(f"{field.name} is missing in config")
+                raise ValueError(f"{_field.name} is missing in config")
 
         return cls(**cfg_args)

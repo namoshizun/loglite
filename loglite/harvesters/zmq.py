@@ -1,12 +1,13 @@
 import asyncio
-import zmq
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, Type, get_args
+
+import zmq
+import zmq.asyncio
 from loguru import logger
 
-from loglite.harvesters.base import Harvester, BaseHarvesterConfig
-
+from loglite.harvesters.base import BaseHarvesterConfig, Harvester
 
 ZMQHarvesterSocketType = Literal["PULL", "SUB"]
 
@@ -46,7 +47,7 @@ class ZMQHarvester(Harvester[ZMQHarvesterConfig]):
         self.socket = self.context.socket(socket_type)
 
         try:
-            if self.config.get("bind", False):
+            if self.config.bind:
                 self.socket.bind(endpoint)
                 logger.info(f"ZMQHarvester {self.name}: bound to {endpoint}")
             else:

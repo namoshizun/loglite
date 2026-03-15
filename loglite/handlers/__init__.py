@@ -1,20 +1,20 @@
 from __future__ import annotations
+
 import abc
-import orjson
 from typing import Any, Generic, TypeVar
-from loguru import logger
+
+import orjson
 from aiohttp import web
+from loguru import logger
 
 from loglite.config import Config
-from loglite.errors import RequestValidationError
 from loglite.database import Database
-
+from loglite.errors import RequestValidationError
 
 Data = TypeVar("Data", bound=Any)
 
 
 class Request(web.Request, Generic[Data]):
-
     @property
     def validated_data(self) -> Data | None:
         try:
@@ -69,7 +69,7 @@ class RequestHandler(abc.ABC, Generic[Data]):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def handle(self, request: Request[Data]) -> web.Response:
+    async def handle(self, request: Request[Data]) -> web.StreamResponse:
         raise NotImplementedError
 
     async def handle_request(self, request: web.Request) -> web.Response:
@@ -87,11 +87,17 @@ class RequestHandler(abc.ABC, Generic[Data]):
             return await self.handle(request)  # type: ignore
         except Exception as e:
             logger.exception("Error handling request")
-            return self.response_fail(
-                f"Unknown request handling error: {e}", status=500
-            )
+            return self.response_fail(f"Unknown request handling error: {e}", status=500)
 
 
 from .insert import InsertLogHandler
-from .query import QueryLogsHandler
 from .misc import HealthCheckHandler
+from .query import QueryLogsHandler
+
+__all__ = [
+    "InsertLogHandler",
+    "HealthCheckHandler",
+    "QueryLogsHandler",
+    "Request",
+    "RequestHandler",
+]

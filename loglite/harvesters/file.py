@@ -1,12 +1,13 @@
-import orjson
 import asyncio
-import aiofiles
-from pathlib import Path
-from loguru import logger
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
-from loglite.harvesters.base import Harvester, BaseHarvesterConfig
+import aiofiles
+import orjson
+from loguru import logger
+
+from loglite.harvesters.base import BaseHarvesterConfig, Harvester
 
 
 @dataclass

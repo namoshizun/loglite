@@ -1,13 +1,13 @@
 import asyncio
 import signal
-from loguru import logger
-from typer import Typer, Option
 
+from loguru import logger
+from typer import Option, Typer
+
+from loglite.config import Config
 from loglite.database import Database
 from loglite.migrations import MigrationManager
-from loglite.config import Config
 from loglite.server import LogLiteServer
-
 
 server_app = Typer()
 migration_app = Typer()
@@ -17,7 +17,7 @@ app.add_typer(server_app, name="server")
 app.add_typer(migration_app, name="migrate")
 
 
-async def _shutdown(signal, loop: asyncio.AbstractEventLoop):
+async def _shutdown(signal: signal.Signals, loop: asyncio.AbstractEventLoop):
     """Shutdown the server gracefully"""
     logger.info(f"Received exit signal {signal.name}...")
     logger.info("Gracefully shutting down...")

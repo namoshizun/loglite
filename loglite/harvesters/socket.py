@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import asyncio
 import json
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+
 from loguru import logger
-from loglite.harvesters.base import Harvester, BaseHarvesterConfig
+
+from loglite.harvesters.base import BaseHarvesterConfig, Harvester
 
 
 @dataclass
@@ -25,7 +28,7 @@ class SocketHarvester(Harvester[SocketHarvesterConfig]):
         super().__init__(name, config)
         self.server = None
 
-    async def handle_client(self, reader, writer):
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         logger.debug(f"SocketHarvester {self.name}: new connection from {addr}")
 

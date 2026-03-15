@@ -1,7 +1,8 @@
 import asyncio
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Any, Type, Generic, TypeVar, Optional, get_args
+from dataclasses import dataclass
+from typing import Any, Generic, Optional, TypeVar, get_args
+
 from loglite.globals import BACKLOG
 
 
@@ -15,7 +16,7 @@ class BaseHarvesterConfig:
 T = TypeVar("T", bound=BaseHarvesterConfig)
 
 
-def _get_param_type(cls: Type["Harvester"]) -> Optional[Type]:
+def _get_param_type(cls: type["Harvester"]) -> Optional[type]:
     for base in getattr(cls, "__orig_bases__", []):
         origin = getattr(base, "__origin__", None)
         if origin and issubclass(origin, Harvester):
@@ -31,7 +32,7 @@ class Harvester(ABC, Generic[T]):
         self._running = False
         self._task: asyncio.Task | None = None
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any):
         super().__init_subclass__(**kwargs)
         if _type := _get_param_type(cls):
             if not issubclass(_type, BaseHarvesterConfig):
@@ -41,14 +42,14 @@ class Harvester(ABC, Generic[T]):
                 )
 
     @classmethod
-    def get_config_type(cls) -> Type[T]:
+    def get_config_type(cls) -> type[T]:
         """Extracts the concrete type of T from the class hierarchy."""
         if _type := _get_param_type(cls):
             if issubclass(_type, BaseHarvesterConfig):
-                return _type
+                return _type  # pyright: ignore[reportReturnType]
 
         # Fallback if subclass didn't specify T (e.g. class MyHarvester(Harvester):)
-        return BaseHarvesterConfig
+        return BaseHarvesterConfig  # pyright: ignore[reportReturnType]
 
     @abstractmethod
     async def run(self):

@@ -1,42 +1,41 @@
-[tool.poetry]
+[project]
 name = "loglite"
 version = "0.4.0"
 description = ""
-authors = ["namoshizun <dilu3100@gmail.com>"]
+authors = [{ name = "namoshizun", email = "dilu3100@gmail.com" }]
 readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "orjson>=3.10.15",
+    "aiosqlite>=0.21.0",
+    "aiohttp>=3.13.0",
+    "aiohttp-sse>=2.2.0",
+    "aiohttp-cors>=0.8.0",
+    "pyyaml>=6.0.2",
+    "loguru>=0.7.3",
+    "typer>=0.15.2",
+    "python-dotenv>=1.0.1",
+    "aiofiles>=25.1.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-orjson = "^3.10.15"
-aiosqlite = "^0.21.0"
-aiohttp = "^3.13.0"
-aiohttp-sse = "^2.2.0"
-aiohttp-cors = "^0.8.0"
-pyyaml = "^6.0.2"
-loguru = "^0.7.3"
-typer = "^0.15.2"
-python-dotenv = "^1.0.1"
-aiofiles = "^25.1.0"
-pyzmq = { version = "^26.0.0", optional = true }
+[project.optional-dependencies]
+zmq = ["pyzmq>=26.0.0"]
 
-[tool.poetry.extras]
-zmq = ["pyzmq"]
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.3.5"
-pytest-cov = "^6.0.0"
-pytest-asyncio = "^0.26.0"
-
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.29.5"
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-ignore = ["E731", "E741", "F402", "E402"]
-
-[tool.poetry.scripts]
+[project.scripts]
 loglite = "loglite.cli:app"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "pre-commit>=4.5.1",
+    "pre-commit-hooks>=6.0.0",
+    "pyright>=1.1.400",
+]
+test = ["pytest>=8.3.5", "pytest-cov>=6.0.0", "pytest-asyncio>=0.26.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 filterwarnings = [
@@ -47,7 +46,3 @@ filterwarnings = [
 ]
 # addopts = "-s -v"
 addopts = "-v --cov=loglite --cov-report=term"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"

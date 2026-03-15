@@ -1,27 +1,28 @@
-import sys
 import asyncio
-import aiohttp_cors
+import sys
 from contextlib import suppress
+
+import aiohttp_cors
 from aiohttp import web
 from loguru import logger
 
 import loglite
 from loglite.backlog import Backlog
-from loglite.globals import BACKLOG, INGESTION_STATS, QUERY_STATS
-from loglite.handlers.query import SubscribeLogsSSEHandler
+from loglite.config import Config
 from loglite.database import Database
+from loglite.globals import BACKLOG, INGESTION_STATS, QUERY_STATS
 from loglite.handlers import (
+    HealthCheckHandler,
     InsertLogHandler,
     QueryLogsHandler,
-    HealthCheckHandler,
 )
-from loglite.config import Config
+from loglite.handlers.query import SubscribeLogsSSEHandler
+from loglite.harvesters import HarvesterManager
 from loglite.tasks import (
+    register_database_vacuuming_task,
     register_diagnostics_task,
     register_flushing_backlog_task,
-    register_database_vacuuming_task,
 )
-from loglite.harvesters import HarvesterManager
 
 
 class LogLiteServer:

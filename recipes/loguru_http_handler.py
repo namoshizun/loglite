@@ -1,9 +1,9 @@
 import sys
+from typing import Callable
+
 import orjson
 import requests as rq
-from typing import Callable
 from loguru import logger
-
 
 STDOUT_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level}</level> | <cyan>{module}:{function}</cyan> | {message} <dim>{extra}</dim>"
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"

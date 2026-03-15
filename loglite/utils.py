@@ -1,9 +1,12 @@
 from __future__ import annotations
-import time
+
 import asyncio
-from dataclasses import dataclass, asdict
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from functools import wraps
 from typing import Any, Generic, Literal, TypeVar, get_args
+
 from loguru import logger
 
 SizeUnit = Literal["B", "KB", "MB", "GB", "TB"]
@@ -26,8 +29,7 @@ def repeat_every(
     *,
     seconds: float,
     wait_first: float | None = None,
-    on_complete=None,
-    on_exception=logger.exception,
+    on_exception: Callable[[Exception], None] | None = logger.exception,
 ):
     """
     Copied and modified from:
@@ -44,20 +46,18 @@ def repeat_every(
         The number of seconds to wait between repeated calls
     wait_first: float (default None)
         If not None, the function will wait for the given duration before the first call
-    on_complete: Optional[Callable[[], None]] (default None)
-        A function to call after the final repetition of the decorated function.
     on_exception: Optional[Callable[[Exception], None]] (default None)
         A function to call when an exception is raised by the decorated function.
     """
 
-    async def _handle_exc(exc: Exception, on_exception) -> None:
+    async def _handle_exc(exc: Exception, on_exception: Callable[[Exception], None] | None) -> None:
         if on_exception:
             if asyncio.iscoroutinefunction(on_exception):
                 await on_exception(exc)
             else:
                 on_exception(exc)
 
-    def decorator(func):
+    def decorator(func: Any):
         """
         Converts the decorated function into a repeated, periodically-called version of itself.
         """
@@ -77,9 +77,6 @@ def repeat_every(
                         await _handle_exc(exc, on_exception)
 
                     await asyncio.sleep(seconds)
-
-                if on_complete:
-                    await on_complete()
 
             asyncio.ensure_future(loop())
 
@@ -143,14 +140,14 @@ class Timer:
         self.start()
         return self
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, *args: Any, **kwargs: Any):
         self.end()
 
     async def __aenter__(self):
         self.start()
         return self
 
-    async def __aexit__(self, *args, **kwargs):
+    async def __aexit__(self, *args: Any, **kwargs: Any):
         self.end()
 
 

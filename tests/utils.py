@@ -1,12 +1,14 @@
-import time
-import string
-import random
 import json
+import random
+import string
+import time
+from datetime import datetime
+from pathlib import Path
+
 import loguru
 from loguru import logger
-from pathlib import Path
+
 from loglite.database import Database
-from datetime import datetime
 
 
 async def bloat_db(count: int, db: Database):
@@ -31,7 +33,7 @@ async def bloat_db(count: int, db: Database):
 
 
 def mock_log_file(path: Path, count: int = 1000, duration: int = 5):
-    def loglite_serializer(record):
+    def loglite_serializer(record: dict):
         return (
             json.dumps(
                 {
@@ -49,7 +51,7 @@ def mock_log_file(path: Path, count: int = 1000, duration: int = 5):
     path.parent.mkdir(exist_ok=True, parents=True)
     logger.remove()
     logger.add(path, serialize=True)
-    loguru._handler.Handler._serialize_record = staticmethod(
+    loguru._handler.Handler._serialize_record = staticmethod(  # pyright: ignore[reportAttributeAccessIssue]
         lambda _, record: loglite_serializer(record)
     )
     entry_interval = duration / count

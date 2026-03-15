@@ -1,11 +1,12 @@
+from datetime import datetime, timedelta
+
 from loguru import logger
 
-from datetime import datetime, timedelta
 from loglite.config import Config
 from loglite.database import Database
+from loglite.globals import OPERATION_LOCK
 from loglite.types import QueryFilter
 from loglite.utils import Timer, bytes_to_mb, repeat_every
-from loglite.globals import OPERATION_LOCK
 
 
 async def _remove_stale_logs(db: Database, max_age_days: int) -> int:

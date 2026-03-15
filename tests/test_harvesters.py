@@ -1,17 +1,16 @@
-from typing import Type
-import pytest
 import asyncio
 import json
 import os
-from loglite.harvesters.base import BaseHarvesterConfig, Harvester
-from loglite.harvesters.manager import HarvesterManager
-from loglite.harvesters.file import FileHarvester
+from pathlib import Path
 
-from loglite.harvesters.socket import SocketHarvester
-from loglite.harvesters.file import FileHarvesterConfig
-from loglite.harvesters.socket import SocketHarvesterConfig
-from loglite.globals import BACKLOG
+import pytest
+
 from loglite.backlog import Backlog
+from loglite.globals import BACKLOG
+from loglite.harvesters.base import Harvester
+from loglite.harvesters.file import FileHarvester, FileHarvesterConfig
+from loglite.harvesters.manager import HarvesterManager
+from loglite.harvesters.socket import SocketHarvester, SocketHarvesterConfig
 
 
 class MockHarvester(Harvester):
@@ -36,7 +35,7 @@ def backlog():
 async def test_invalid_harvester_config(manager: HarvesterManager):
     with pytest.raises(TypeError):
 
-        class BadHarvester(Harvester[int]):
+        class BadHarvester(Harvester[int]):  # pyright: ignore[reportInvalidTypeArguments]
             pass
 
 
@@ -59,11 +58,11 @@ async def test_harvester_lifecycle(manager: HarvesterManager):
 
 
 @pytest.mark.asyncio
-async def test_file_harvester(tmp_path, backlog):
+async def test_file_harvester(tmp_path: Path, backlog: Backlog):
     log_file = tmp_path / "test.log"
     log_file.touch()
 
-    harvester = FileHarvester("file_test", FileHarvesterConfig(path=str(log_file)))
+    harvester = FileHarvester("file_test", FileHarvesterConfig(path=Path(log_file)))
     await harvester.start()
 
     # Wait for harvester to be ready
@@ -86,7 +85,7 @@ async def test_file_harvester(tmp_path, backlog):
 
 
 @pytest.mark.asyncio
-async def test_socket_harvester(backlog):
+async def test_socket_harvester(backlog: Backlog):
     port = 9999
     harvester = SocketHarvester("socket_test", SocketHarvesterConfig(port=port, host="127.0.0.1"))
     await harvester.start()

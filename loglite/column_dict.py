@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import operator
-from typing import Any, TYPE_CHECKING
+import sys
+from typing import TYPE_CHECKING, Any
+
 from loguru import logger
+
 from loglite.types import QueryFilter
 from loglite.utils import bytes_to_mb
 

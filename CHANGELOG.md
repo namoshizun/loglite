@@ -1,5 +1,11 @@
 ## Changelog
 
+### 0.4.1
+
+- chore: replace poetry with uv; add ruff and pyright to dev dependencies; enable pre-commit hooks
+- fix: compatibility with aiosqlite>0.21.0, see this [issue](https://github.com/omnilib/aiosqlite/issues/368)
+
+
 ### 0.4.0
 
 - deps: update aiohttp version to ^3.13.0, update aiohttp-cors version to ^0.8.0

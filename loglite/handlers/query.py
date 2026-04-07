@@ -1,18 +1,18 @@
 import asyncio
 import re
-import orjson
 import time
 from typing import get_args
-from loguru import logger
+
+import orjson
 from aiohttp import web
 from aiohttp.client import ClientError
 from aiohttp_sse import sse_response
+from loguru import logger
 
 from loglite.errors import RequestValidationError
-from loglite.handlers import RequestHandler
-from loglite.globals import LAST_INSERT_LOG_ID
+from loglite.globals import LAST_INSERT_LOG_ID, QUERY_STATS
+from loglite.handlers import Request, RequestHandler
 from loglite.types import QueryFilter, QueryOperator
-from loglite.globals import QUERY_STATS
 from loglite.utils import Timer
 
 
@@ -46,7 +46,7 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
 
         return query_filters
 
-    async def handle(self, request) -> web.Response:
+    async def handle(self, request: Request) -> web.Response:
         _fields = request.query.get("fields", "*")
         if _fields == "*":
             fields = ["*"]
@@ -62,6 +62,7 @@ class QueryLogsHandler(RequestHandler[list[QueryFilter]]):
             )
 
         try:
+            assert request.validated_data is not None
             with Timer(unit="ms") as timer:
                 result = await self.db.query(
                     fields, request.validated_data, offset=offset, limit=limit
@@ -86,7 +87,7 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
 
         return fields
 
-    async def handle(self, request) -> web.StreamResponse:
+    async def handle(self, request: Request) -> web.StreamResponse:
         assert request.validated_data is not None
         fields = request.validated_data
         pushed_log_id: int = (await LAST_INSERT_LOG_ID.get()) or (await self.db.get_max_log_id())
@@ -154,12 +155,12 @@ class SubscribeLogsSSEHandler(RequestHandler[list[str]]):
                     await resp.send(data)
                     pushed_log_id = last_log_id
                     pushed_timestamp = now
+
+                return resp
         except ClientError:
-            pass
+            return web.Response(status=400)
         finally:
             LAST_INSERT_LOG_ID.unsubscribe(new_log_event)
             logger.info(
                 f"Log subscriber disconnected. ID={id(new_log_event)}, Subscribers count={LAST_INSERT_LOG_ID.get_subscribers_count()}"
             )
-
-        return resp

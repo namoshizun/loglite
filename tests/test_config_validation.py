@@ -1,23 +1,26 @@
+from pathlib import Path
+
 import pytest
-from loglite.harvesters.manager import HarvesterManager
+
 from loglite.harvesters.file import FileHarvesterConfig
-from loglite.harvesters.zmq import ZMQHarvesterConfig
+from loglite.harvesters.manager import HarvesterManager
 from loglite.harvesters.socket import SocketHarvesterConfig
+from loglite.harvesters.zmq import ZMQHarvesterConfig
 
 
 def test_file_harvester_config_validation():
     # Valid config
-    config = FileHarvesterConfig(path="/tmp/test.log")
+    config = FileHarvesterConfig(path=Path("/tmp/test.log"))
     assert str(config.path) == "/tmp/test.log"
 
     # Missing path
     # Dataclasses raise TypeError for missing arguments
     with pytest.raises(TypeError):
-        FileHarvesterConfig()
+        FileHarvesterConfig()  # pyright: ignore[reportCallIssue]
 
     # Empty path (custom validation)
     with pytest.raises(ValueError):
-        FileHarvesterConfig(path="")
+        FileHarvesterConfig(path="")  # pyright: ignore[reportArgumentType]
 
 
 def test_zmq_harvester_config_validation():
@@ -28,7 +31,7 @@ def test_zmq_harvester_config_validation():
 
     # Invalid socket type
     with pytest.raises(ValueError):
-        ZMQHarvesterConfig(endpoint="tcp://...", socket_type="INVALID")
+        ZMQHarvesterConfig(endpoint="tcp://...", socket_type="INVALID")  # pyright: ignore[reportArgumentType]
 
 
 def test_socket_harvester_config_validation():

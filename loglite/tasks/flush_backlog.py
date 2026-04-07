@@ -1,10 +1,11 @@
 import asyncio
 from contextlib import suppress
+
 from loguru import logger
 
 from loglite.config import Config
 from loglite.database import Database
-from loglite.globals import INGESTION_STATS, BACKLOG, LAST_INSERT_LOG_ID, OPERATION_LOCK
+from loglite.globals import BACKLOG, INGESTION_STATS, LAST_INSERT_LOG_ID, OPERATION_LOCK
 from loglite.utils import Timer
 
 

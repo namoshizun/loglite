@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 import asyncio
 from contextlib import suppress
-from typing import Any, TypeVar, Generic, Optional
+from typing import Any, Generic, Optional, TypeVar
+
 from loglite.backlog import Backlog
 from loglite.utils import AtomicMutableValue, StatsTracker
-
 
 T = TypeVar("T")
 

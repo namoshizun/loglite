@@ -1,17 +1,21 @@
 from __future__ import annotations
-import sys
-import orjson
-import aiosqlite
-from typing import Any, Literal, Sequence
-from pathlib import Path
-from loguru import logger
-from datetime import datetime
-from contextlib import suppress
 
-from loglite.config import Config
-from loglite.types import Column, PaginatedQueryResult, QueryFilter
+import sys
+from collections.abc import Sequence
+from contextlib import suppress
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
+
+import aiosqlite
+import orjson
+from loguru import logger
+
+from loglite._connection import ConnectionInstance
 from loglite.column_dict import ColumnDictionary
+from loglite.config import Config
 from loglite.migrations import MigrationManager
+from loglite.types import Column, PaginatedQueryResult, QueryFilter
 from loglite.utils import bytes_to_mb
 
 
@@ -31,7 +35,6 @@ class Database:
     def __init__(self, config: Config):
         self.config = config
         self._column_info: list[Column] = []
-        self._connection: aiosqlite.Connection | None = None
         self._compressed_columns: set[str] = (
             set() if not config.compression["enabled"] else set(config.compression["columns"])
         )
@@ -122,50 +125,8 @@ class Database:
         return where_clause, params
 
     async def get_connection(self) -> aiosqlite.Connection:
-        async def connect():
-            conn = await aiosqlite.connect(self.db_path)
-
-            # NOTE: changing auto_vacuuming requires a full VACUUM operation.
-            res = await conn.execute("PRAGMA auto_vacuum")
-            current_vacuuming_mode = {
-                0: "NONE",
-                1: "FULL",
-                2: "INCREMENTAL",
-            }[(await res.fetchone())[0]]
-            set_vacuuming_mode = self.sqlite_params.pop(
-                "auto_vacuum", current_vacuuming_mode
-            ).upper()
-
-            if set_vacuuming_mode != current_vacuuming_mode:
-                logger.info(
-                    f"Changing auto_vacuuming mode: {current_vacuuming_mode} => {set_vacuuming_mode}"
-                )
-                await conn.execute(statement := f"PRAGMA auto_vacuum={set_vacuuming_mode}")
-                await conn.execute("VACUUM")
-                logger.info(statement)
-
-            # Set other params
-            for param, value in self.sqlite_params.items():
-                statement = f"PRAGMA {param}={value}"
-                logger.info(statement)
-                try:
-                    await conn.execute(statement)
-                except Exception as e:
-                    logger.error(f"Failed to set SQLite parameter {param}: {e}")
-
-            conn.row_factory = aiosqlite.Row
-            return conn
-
-        if self._connection is None:
-            self._connection = await connect()
-            logger.info(f"🔌 Connected to {self.db_path}")
-
-        if not self._connection.is_alive():
-            logger.info(f"👀 Reconnecting to {self.db_path}")
-            await self._connection.close()
-            self._connection = await connect()
-            logger.info(f"🔌 Reconnected to {self.db_path}")
-        return self._connection
+        instance = await ConnectionInstance.get(self.db_path, self.sqlite_params)
+        return instance.conn
 
     async def initialize(self):
         """Initialize the database connection and ensure versions table exists"""
@@ -271,7 +232,7 @@ class Database:
         async with conn.execute(f"SELECT MAX(id) FROM {self.log_table_name}") as cursor:
             res = await cursor.fetchone()
             with suppress(Exception):
-                return res[0] or 0
+                return res[0] or 0  # pyright: ignore[reportOptionalSubscript]
             return 0
 
     async def get_min_log_id(self) -> int:
@@ -279,7 +240,7 @@ class Database:
         async with conn.execute(f"SELECT MIN(id) FROM {self.log_table_name}") as cursor:
             res = await cursor.fetchone()
             with suppress(Exception):
-                return res[0] or 0
+                return res[0] or 0  # pyright: ignore[reportOptionalSubscript]
             return 0
 
     async def get_min_timestamp(self) -> datetime:
@@ -367,7 +328,11 @@ class Database:
             WHERE {where_clause}
         """
         async with conn.execute(count_query, params) as cursor:
-            total = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            if not row:
+                total = 0
+            else:
+                total = row[0]
 
         if total == 0:
             return PaginatedQueryResult(total=total, offset=offset, limit=limit, results=[])
@@ -453,14 +418,11 @@ class Database:
             return False
 
     async def close(self):
-        if self._connection:
-            await self._connection.close()
-            logger.info(f"👋 Closed connection to {self.db_path}")
-            self._connection = None
+        await ConnectionInstance.close()
 
     async def __aenter__(self):
         await self.get_connection()
         return self
 
-    async def __aexit__(self, exc_type, exc_value, traceback):
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any):
         await self.close()

@@ -1,0 +1,57 @@
+repos:
+  # Basic sanity checks
+  - repo: local
+    hooks:
+      - id: check-added-large-files
+        name: check added large files
+        entry: uv run check-added-large-files
+        args: [--maxkb=10240] # 10MB
+        language: system
+        pass_filenames: true
+
+      - id: check-json
+        name: check JSON file syntax
+        entry: uv run check-json
+        language: system
+        pass_filenames: false
+
+      - id: check-toml
+        name: check TOML file syntax
+        entry: uv run check-toml
+        language: system
+        pass_filenames: false
+
+      - id: check-yaml
+        name: check YAML file syntax
+        entry: uv run check-yaml
+        language: system
+        pass_filenames: false
+
+      - id: detect-private-key
+        name: check if private key is uploaded
+        entry: uv run detect-private-key
+        language: system
+        pass_filenames: true
+
+      - id: ruff-check
+        name: Ruff static analysis
+        entry: uv run ruff check
+        language: system
+        types_or: [python, pyi]
+        args: [--fix]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: Ruff auto formatiing
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+      - id: type-checking
+        name: Pyright type checking
+        entry: uv run pyright
+        args: [--level=error]
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false

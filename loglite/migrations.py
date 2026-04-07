@@ -1,5 +1,6 @@
-from loguru import logger
 from typing import TYPE_CHECKING
+
+from loguru import logger
 
 from loglite.types import Migration
 

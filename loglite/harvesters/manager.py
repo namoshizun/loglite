@@ -1,6 +1,7 @@
 import dataclasses
 import importlib
-from typing import Type, Optional
+from typing import Optional, Type
+
 from loguru import logger
 
 from loglite.harvesters.base import Harvester
@@ -24,15 +25,19 @@ class HarvesterManager:
     def load_harvesters(self, configs: list[dict]):
         for config in configs:
             type_ = config.get("type")
+            if not type_:
+                logger.warning("Harvester type is required")
+                continue
+
             name = config.get("name", type_)
             config_data = config.get("config", {})
 
-            HarvesterClass = import_class(type_)
-            if not HarvesterClass:
+            haverster_class = import_class(type_)
+            if not haverster_class:
                 continue
 
-            ConfigClass = HarvesterClass.get_config_type()
-            if not ConfigClass:
+            config_class = haverster_class.get_config_type()
+            if not config_class:
                 logger.warning(
                     f"Harvester {type_} does not define a valid get_config_class method. Ignoring..."
                 )
@@ -41,11 +46,11 @@ class HarvesterManager:
             try:
                 # Dataclasses don't accept extra arguments, so we must filter the config dict
                 # to only include fields defined in the dataclass.
-                field_names = {f.name for f in dataclasses.fields(ConfigClass)}
-                config_obj = ConfigClass(
+                field_names = {f.name for f in dataclasses.fields(config_class)}
+                config_obj = config_class(
                     **{k: v for k, v in config_data.items() if k in field_names}
                 )
-                self.harvesters[name] = HarvesterClass(name, config_obj)
+                self.harvesters[name] = haverster_class(name, config_obj)  # pyright: ignore[reportArgumentType]
             except Exception as e:
                 logger.exception(f"Failed to initialize harvester {name} ({type_}): {e}")
 

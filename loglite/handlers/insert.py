@@ -1,9 +1,9 @@
 import orjson
-from loguru import logger
 from aiohttp import web
+from loguru import logger
 
-from loglite.handlers import RequestHandler
 from loglite.globals import BACKLOG
+from loglite.handlers import RequestHandler
 
 
 class InsertLogHandler(RequestHandler):

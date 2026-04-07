@@ -1,11 +1,13 @@
-import pytest
 import asyncio
 import os
-import orjson
 from pathlib import Path
-from loglite.harvesters.file import FileHarvester, FileHarvesterConfig
-from loglite.globals import BACKLOG
+
+import orjson
+import pytest
+
 from loglite.backlog import Backlog
+from loglite.globals import BACKLOG
+from loglite.harvesters.file import FileHarvester, FileHarvesterConfig
 
 
 @pytest.fixture
@@ -16,7 +18,7 @@ def backlog():
 
 
 @pytest.mark.asyncio
-async def test_file_harvester_rotation(tmp_path, backlog):
+async def test_file_harvester_rotation(tmp_path: Path, backlog: Backlog):
     log_file: Path = tmp_path / "test.log"
     log_file.touch()
 
@@ -61,7 +63,7 @@ async def test_file_harvester_rotation(tmp_path, backlog):
 
 
 @pytest.mark.asyncio
-async def test_file_harvester_truncation(tmp_path, backlog):
+async def test_file_harvester_truncation(tmp_path: Path, backlog: Backlog):
     log_file: Path = tmp_path / "test_trunc.log"
     log_file.touch()
 

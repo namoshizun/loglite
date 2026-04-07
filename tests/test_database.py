@@ -1,14 +1,15 @@
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import orjson
 import pytest
 import pytest_asyncio
-import orjson
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from typing import AsyncIterator
 
+from loglite._connection import ConnectionInstance
 from loglite.config import Config
 from loglite.database import Database
-from loglite.types import CompressionConfig, QueryFilter, Migration
-
+from loglite.types import CompressionConfig, Migration, QueryFilter
 
 # --- Test Configuration ---
 LOG_TABLE_NAME = "test_logs"
@@ -105,7 +106,6 @@ async def test_initialize(db_no_init: Database):
 
     # After initialization, the internal tables should exist
     await db_no_init.initialize()
-    assert db_no_init._connection is not None
     conn = await db_no_init.get_connection()  # Re-get potentially new connection
     for table in internal_tables:
         cursor = await conn.execute(
@@ -121,20 +121,15 @@ async def test_initialize(db_no_init: Database):
 
 @pytest.mark.asyncio
 async def test_ping(initialized_db: Database):
-    """Test the ping method returns True for an active connection."""
     assert await initialized_db.ping() is True
 
 
 @pytest.mark.asyncio
 async def test_close(initialized_db: Database):
-    """Test the close method closes the connection and ping fails afterwards."""
     assert await initialized_db.ping() is True
-    assert initialized_db._connection is not None
-
     await initialized_db.close()
 
-    assert initialized_db._connection is None
-    assert await initialized_db.ping() is True
+    assert ConnectionInstance._instance is None
 
 
 @pytest.mark.asyncio

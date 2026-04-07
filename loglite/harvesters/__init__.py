@@ -1,6 +1,6 @@
 from .base import Harvester
-from .manager import HarvesterManager
 from .file import FileHarvester
+from .manager import HarvesterManager
 from .socket import SocketHarvester
 from .zmq import ZMQHarvester
 

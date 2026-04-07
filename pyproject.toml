@@ -1,6 +1,6 @@
 [project]
 name = "loglite"
-version = "0.4.0"
+version = "0.4.1"
 description = ""
 authors = [{ name = "namoshizun", email = "dilu3100@gmail.com" }]
 readme = "README.md"

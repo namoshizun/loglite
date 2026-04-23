@@ -12,6 +12,6 @@
   "reportUnusedCallResult": "hint",
   "deprecateTypingAliases": true,
   "ignore": [".venv"],
-  "exclude": [".venv", "recipes", "**/node_modules", "**/__pycache__"],
+  "exclude": [".venv", "recipes", "**/node_modules", "**/__pycache__", "docs"],
   "pythonPlatform": "Linux"
 }

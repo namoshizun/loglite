@@ -4,6 +4,12 @@
 ### A lightweight, high-performance logging service with SQLite and async RESTful API.
 </div>
 
+<p float="left">
+  <img src="https://github.com/namoshizun/loglite/actions/workflows/deploy-docs.yml/badge.svg?branch=main" />
+  <img src="https://github.com/namoshizun/loglite/actions/workflows/tests.yml/badge.svg?branch=main&event=push" />
+  <a href="https://codecov.io/gh/namoshizun/loglite"><img src="https://codecov.io/gh/namoshizun/loglite/graph/badge.svg?branch=main" alt="codecov coverage" /></a>
+</p>
+
 **SQLite Backend** 💾 : Store log messages in SQLite, enabling efficient and complex queries.
 
 **Fully customizable table schema** 🔧 : Make no assumptions about the log table structure, define your own schema to fit your needs.

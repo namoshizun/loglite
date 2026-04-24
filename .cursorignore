@@ -1,0 +1,8 @@
+*.ipynb
+*.pyc
+.venv
+.ruff_cache
+.pytest_cache
+.ipynb_checkpoints
+docs/_build
+

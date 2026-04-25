@@ -1,0 +1,34 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "loglite (C++23 / macOS)",
+      "compilerPath": "/opt/homebrew/opt/llvm/bin/clang++",
+      "cppStandard": "c++23",
+      "intelliSenseMode": "macos-clang-arm64",
+
+      // Point at the CMake-generated database so IntelliSense automatically
+      // picks up every -I, -D, and -isystem flag without manual maintenance.
+      "compileCommands": "${workspaceFolder}/cpp/build/compile_commands.json",
+
+      // Fallback include paths used only when compile_commands.json is absent
+      // (i.e. before the first build.sh run).
+      "includePath": [
+        "${workspaceFolder}/cpp/src",
+        "${workspaceFolder}/cpp/src/**",
+        "/opt/homebrew/include",
+        "/opt/homebrew/opt/sqlite/include",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include",
+        "${workspaceFolder}/cpp/build/_deps/nlohmann_json-src/include",
+        "${workspaceFolder}/cpp/build/_deps/yaml-cpp-src/include",
+        "${workspaceFolder}/cpp/build/_deps/cli11-src/include"
+      ],
+
+      "defines": [
+        "BOOST_ASIO_HAS_CO_AWAIT",
+        "BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT",
+        "YAML_CPP_STATIC_DEFINE"
+      ]
+    }
+  ]
+}

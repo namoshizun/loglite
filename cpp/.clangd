@@ -1,0 +1,12 @@
+CompileFlags:
+  # clangd searches for compile_commands.json by walking up from the source
+  # file's directory.  Pointing it at build/ resolves every header regardless
+  # of which sub-folder the file lives in.
+  CompilationDatabase: build
+
+  # Suppress noise from third-party headers (mirrors the -isystem behaviour
+  # that cmake uses at compile time).
+  Add: [-Wno-unknown-warning-option]
+
+Diagnostics:
+  UnusedIncludes: None

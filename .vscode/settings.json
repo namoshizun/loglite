@@ -1,3 +1,10 @@
 {
-  "cSpell.words": ["Loglite"]
+  "cSpell.words": [
+    "Loglite"
+  ],
+  "files.associations": {
+    "*.dbclient-js": "javascript",
+    "cstdlib": "cpp",
+    "stdexcept": "cpp"
+  }
 }

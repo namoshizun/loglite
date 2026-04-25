@@ -9,7 +9,7 @@ namespace loglite {
 class Database;
 
 class MigrationManager {
-public:
+   public:
     MigrationManager(Database& db, std::span<const Migration> migrations);
 
     // Apply the first unapplied migration with version > start_version.
@@ -21,9 +21,9 @@ public:
     // Rollback a specific version.  Prompts confirmation unless force=true.
     bool rollback_migration(int version, bool force = false);
 
-private:
-    Database&              db_;
-    std::vector<Migration> migrations_; // sorted by version asc
+   private:
+    Database& db_;
+    std::vector<Migration> migrations_;  // sorted by version asc
 };
 
-} // namespace loglite
+}  // namespace loglite

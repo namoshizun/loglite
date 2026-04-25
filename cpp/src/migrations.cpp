@@ -30,9 +30,8 @@ bool MigrationManager::apply_pending_migrations(int start_version) {
 }
 
 bool MigrationManager::rollback_migration(int version, bool force) {
-    auto it = std::ranges::find_if(migrations_, [version](const Migration& m) {
-        return m.version == version;
-    });
+    auto it = std::ranges::find_if(migrations_,
+                                   [version](const Migration& m) { return m.version == version; });
     if (it == migrations_.end())
         throw std::runtime_error(std::format("Migration v{} not found in config", version));
 
@@ -49,4 +48,4 @@ bool MigrationManager::rollback_migration(int version, bool force) {
     return db_.rollback_migration(version, it->rollback);
 }
 
-} // namespace loglite
+}  // namespace loglite

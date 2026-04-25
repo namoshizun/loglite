@@ -17,7 +17,7 @@ namespace loglite::harvesters {
 // and pushed to the Backlog.
 
 class FileHarvester final : public Harvester {
-public:
+   public:
     FileHarvester(std::string name, std::filesystem::path path, Backlog& backlog)
         : Harvester(std::move(name), backlog), path_(std::move(path)) {}
 
@@ -32,7 +32,7 @@ public:
         log::info(std::format("FileHarvester '{}' stopped", name_));
     }
 
-private:
+   private:
     void run(std::stop_token st) {
         // Wait for the file to exist.
         while (!std::filesystem::exists(path_)) {
@@ -42,9 +42,9 @@ private:
         }
 
         // Seek to end of current file.
-        auto stat    = std::filesystem::status(path_);
-        auto inode   = get_inode(path_);
-        auto offset  = std::filesystem::file_size(path_);
+        auto stat = std::filesystem::status(path_);
+        auto inode = get_inode(path_);
+        auto offset = std::filesystem::file_size(path_);
 
         while (!st.stop_requested()) {
             if (!std::filesystem::exists(path_)) {
@@ -53,11 +53,11 @@ private:
             }
 
             auto new_inode = get_inode(path_);
-            auto new_size  = std::filesystem::file_size(path_);
+            auto new_size = std::filesystem::file_size(path_);
 
             if (new_inode != inode) {
                 log::info(std::format("FileHarvester '{}': file rotated, reopening", name_));
-                inode  = new_inode;
+                inode = new_inode;
                 offset = 0;
             } else if (new_size < offset) {
                 log::warn(std::format("FileHarvester '{}': file truncated, resetting", name_));
@@ -98,7 +98,7 @@ private:
 
     static std::uintmax_t get_inode(const std::filesystem::path& p) {
 #if defined(_WIN32)
-        return 0; // inodes not meaningful on Windows
+        return 0;  // inodes not meaningful on Windows
 #else
         struct stat st{};
         ::stat(p.c_str(), &st);
@@ -107,7 +107,7 @@ private:
     }
 
     std::filesystem::path path_;
-    std::jthread          thread_;
+    std::jthread thread_;
 };
 
-} // namespace loglite::harvesters
+}  // namespace loglite::harvesters

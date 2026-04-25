@@ -27,15 +27,15 @@ namespace loglite {
 // io_context), so it's correct to call from the flush task's thread.
 
 class LogNotifier {
-public:
+   public:
     struct Subscription {
         // Shared so the notifier can cancel safely even if the handler is gone.
         std::shared_ptr<asio::steady_timer> timer;
     };
 
     [[nodiscard]] std::shared_ptr<Subscription> subscribe(asio::any_io_executor ex) {
-        auto sub = std::make_shared<Subscription>(
-            std::make_shared<asio::steady_timer>(std::move(ex)));
+        auto sub =
+            std::make_shared<Subscription>(std::make_shared<asio::steady_timer>(std::move(ex)));
         std::lock_guard lk(mtx_);
         subs_.push_back(sub);
         return sub;
@@ -50,22 +50,20 @@ public:
         last_id_.store(id, std::memory_order_release);
         std::lock_guard lk(mtx_);
         for (auto& sub : subs_)
-            sub->timer->cancel(); // posts cancellation through io_context – thread-safe
+            sub->timer->cancel();  // posts cancellation through io_context – thread-safe
     }
 
-    int64_t last_id() const noexcept {
-        return last_id_.load(std::memory_order_acquire);
-    }
+    int64_t last_id() const noexcept { return last_id_.load(std::memory_order_acquire); }
 
     size_t subscriber_count() const {
         std::lock_guard lk(mtx_);
         return subs_.size();
     }
 
-private:
-    std::atomic<int64_t>                              last_id_{0};
-    mutable std::mutex                                mtx_;
-    std::vector<std::shared_ptr<Subscription>>        subs_;
+   private:
+    std::atomic<int64_t> last_id_{0};
+    mutable std::mutex mtx_;
+    std::vector<std::shared_ptr<Subscription>> subs_;
 };
 
 // ── Server context ─────────────────────────────────────────────────────────────
@@ -74,15 +72,15 @@ private:
 // Passed by reference; must outlive all coroutines.
 
 struct ServerContext {
-    Config&        config;
-    Database&      db;
-    Backlog&       backlog;
-    LogNotifier&   notifier;
-    StatsTracker&  ingest_stats;
-    StatsTracker&  query_stats;
+    Config& config;
+    Database& db;
+    Backlog& backlog;
+    LogNotifier& notifier;
+    StatsTracker& ingest_stats;
+    StatsTracker& query_stats;
 
     // Strand serialising all mutating DB operations.
     asio::strand<asio::thread_pool::executor_type> write_strand;
 };
 
-} // namespace loglite
+}  // namespace loglite

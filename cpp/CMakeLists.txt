@@ -28,14 +28,14 @@ set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
     SYSTEM
 )
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(CLI11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG        v2.4.2
+    GIT_TAG        v2.6.2
     SYSTEM
 )
 
@@ -71,6 +71,56 @@ target_compile_definitions(loglite_lib PUBLIC
 
 add_executable(loglite src/main.cpp)
 target_link_libraries(loglite PRIVATE loglite_lib)
+
+# ── Release hardening ─────────────────────────────────────────────────────────
+#
+# Enabled automatically when build.sh --release is used.
+# Can also be set manually: cmake -DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON ...
+
+option(LOGLITE_LTO   "Enable link-time optimisation"          OFF)
+option(LOGLITE_STRIP "Strip debug symbols from the binary"    OFF)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Hide all non-exported symbols: shrinks the binary and prevents internal
+    # function / variable names from appearing in nm / strings output.
+    target_compile_options(loglite_lib PUBLIC
+        -fvisibility=hidden
+        -fvisibility-inlines-hidden
+    )
+    # Eliminate unreachable code and data at link time (macOS linker flag).
+    if(APPLE)
+        target_link_options(loglite PRIVATE -Wl,-dead_strip)
+    else()
+        target_compile_options(loglite_lib PUBLIC -ffunction-sections -fdata-sections)
+        target_link_options(loglite PRIVATE -Wl,--gc-sections)
+    endif()
+endif()
+
+if(LOGLITE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT _ipo_ok OUTPUT _ipo_msg)
+    if(_ipo_ok)
+        set_property(TARGET loglite     PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        set_property(TARGET loglite_lib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        message(STATUS "LTO enabled")
+    else()
+        message(WARNING "LTO requested but not supported: ${_ipo_msg}")
+    endif()
+endif()
+
+if(LOGLITE_STRIP)
+    if(APPLE)
+        # -x  remove local (non-exported) symbols
+        # -S  remove debug symbol table (STABS / DWARF)
+        add_custom_command(TARGET loglite POST_BUILD
+            COMMAND strip -x -S $<TARGET_FILE:loglite>
+            COMMENT "Stripping debug symbols from loglite")
+    else()
+        add_custom_command(TARGET loglite POST_BUILD
+            COMMAND strip --strip-all $<TARGET_FILE:loglite>
+            COMMENT "Stripping loglite")
+    endif()
+endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 

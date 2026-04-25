@@ -10,22 +10,22 @@
 
 namespace loglite::handlers {
 
-template<class Body>
-http::response<http::string_body>
-handle_query(const http::request<Body>& req, ServerContext& ctx) {
+template <class Body>
+http::response<http::string_body> handle_query(const http::request<Body>& req, ServerContext& ctx) {
     auto [path, qs] = split_target(req.target());
-    auto params     = parse_query_string(qs);
+    auto params = parse_query_string(qs);
 
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"fields", "limit", "offset"}) {
         if (!params.contains(p))
-            return fail(400, std::format("Required parameter '{}' is missing", p), req, ctx.config.allow_origin);
+            return fail(400, std::format("Required parameter '{}' is missing", p), req,
+                        ctx.config.allow_origin);
     }
 
     // ── Extract pagination / field selection ──────────────────────────────────
     auto fields_str = params.find("fields")->second;
-    auto limit      = std::stoi(params.find("limit")->second);
-    auto offset     = std::stoi(params.find("offset")->second);
+    auto limit = std::stoi(params.find("limit")->second);
+    auto offset = std::stoi(params.find("offset")->second);
 
     std::vector<std::string> fields;
     if (fields_str == "*") {
@@ -44,14 +44,14 @@ handle_query(const http::request<Body>& req, ServerContext& ctx) {
         if (reserved.contains(key)) continue;
         auto key_filters = parse_filter_expr(key, value);
         if (key_filters.empty())
-            return fail(400, std::format("Invalid filter expression for field '{}'", key),
-                        req, ctx.config.allow_origin);
+            return fail(400, std::format("Invalid filter expression for field '{}'", key), req,
+                        ctx.config.allow_origin);
         for (auto& f : key_filters) filters.push_back(std::move(f));
     }
 
     if (ctx.config.debug)
-        log::debug(std::format("Query fields={} limit={} offset={} filters={}",
-                               fields_str, limit, offset, filters.size()));
+        log::debug(std::format("Query fields={} limit={} offset={} filters={}", fields_str, limit,
+                               offset, filters.size()));
 
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
@@ -65,4 +65,4 @@ handle_query(const http::request<Body>& req, ServerContext& ctx) {
     }
 }
 
-} // namespace loglite::handlers
+}  // namespace loglite::handlers

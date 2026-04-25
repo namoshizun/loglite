@@ -13,14 +13,13 @@ ColumnDictionary::ColumnDictionary(LookupTable lookup, PersistFn persist)
 ValueId ColumnDictionary::get_or_create(const std::string& col, const std::string& value) {
     auto& col_map = lookup_[col];
 
-    if (auto it = col_map.find(value); it != col_map.end())
-        return it->second;
+    if (auto it = col_map.find(value); it != col_map.end()) return it->second;
 
     // New value: assign next sequential id within this column.
     ValueId new_id = 1;
     if (!col_map.empty()) {
-        auto max_it = std::ranges::max_element(
-            col_map, {}, [](const auto& kv) { return kv.second; });
+        auto max_it =
+            std::ranges::max_element(col_map, {}, [](const auto& kv) { return kv.second; });
         new_id = max_it->second + 1;
     }
 
@@ -45,11 +44,10 @@ std::vector<ValueId> ColumnDictionary::query_candidates(const QueryFilter& filte
     if (col_it == lookup_.end()) return {};
 
     const auto& col_map = col_it->second;
-    const auto& op      = filter.op;
+    const auto& op = filter.op;
     // Value from the filter as a string for comparison.
-    std::string fval = filter.value.is_string()
-                           ? filter.value.get<std::string>()
-                           : filter.value.dump();
+    std::string fval =
+        filter.value.is_string() ? filter.value.get<std::string>() : filter.value.dump();
 
     std::vector<ValueId> ids;
     for (const auto& [v, id] : col_map) {
@@ -57,16 +55,23 @@ std::vector<ValueId> ColumnDictionary::query_candidates(const QueryFilter& filte
         if (op == "~=") {
             // Substring match (both directions, mirroring the Python implementation).
             match = v.find(fval) != std::string::npos || fval.find(v) != std::string::npos;
-        } else if (op == "=")  { match = v == fval; }
-        else if (op == "!=")   { match = v != fval; }
-        else if (op == ">")    { match = v > fval; }
-        else if (op == ">=")   { match = v >= fval; }
-        else if (op == "<")    { match = v < fval; }
-        else if (op == "<=")   { match = v <= fval; }
+        } else if (op == "=") {
+            match = v == fval;
+        } else if (op == "!=") {
+            match = v != fval;
+        } else if (op == ">") {
+            match = v > fval;
+        } else if (op == ">=") {
+            match = v >= fval;
+        } else if (op == "<") {
+            match = v < fval;
+        } else if (op == "<=") {
+            match = v <= fval;
+        }
 
         if (match) ids.push_back(id);
     }
     return ids;
 }
 
-} // namespace loglite
+}  // namespace loglite

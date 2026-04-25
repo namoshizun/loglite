@@ -14,10 +14,10 @@
 #include <boost/beast.hpp>
 #include <format>
 
-namespace asio  = boost::asio;
+namespace asio = boost::asio;
 namespace beast = boost::beast;
-namespace http  = beast::http;
-namespace ip    = asio::ip;
+namespace http = beast::http;
+namespace ip = asio::ip;
 
 namespace loglite {
 
@@ -26,22 +26,25 @@ namespace {
 // Log and swallow exceptions from detached coroutines.
 void on_coro_error(std::exception_ptr eptr) {
     if (!eptr) return;
-    try { std::rethrow_exception(eptr); }
-    catch (const std::exception& e) { log::error(std::format("Coroutine error: {}", e.what())); }
-    catch (...)                      { log::error("Coroutine: unknown exception"); }
+    try {
+        std::rethrow_exception(eptr);
+    } catch (const std::exception& e) {
+        log::error(std::format("Coroutine error: {}", e.what()));
+    } catch (...) {
+        log::error("Coroutine: unknown exception");
+    }
 }
 
-} // namespace
+}  // namespace
 
 Server::Server(ServerContext& ctx, unsigned int thread_count)
     : ctx_(ctx),
       pool_(thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency())),
-      acceptor_(pool_)
-{}
+      acceptor_(pool_) {}
 
 void Server::run() {
     auto& cfg = ctx_.config;
-    auto  ex  = pool_.get_executor();
+    auto ex = pool_.get_executor();
 
     // ── Bind TCP acceptor ─────────────────────────────────────────────────────
     ip::tcp::endpoint endpoint{ip::make_address(cfg.host), cfg.port};
@@ -53,13 +56,13 @@ void Server::run() {
 
     // ── Background tasks ──────────────────────────────────────────────────────
     asio::co_spawn(ex, tasks::flush_backlog_task(ctx_), on_coro_error);
-    asio::co_spawn(ex, tasks::vacuum_task(ctx_),        on_coro_error);
-    asio::co_spawn(ex, tasks::diagnostics_task(ctx_),   on_coro_error);
+    asio::co_spawn(ex, tasks::vacuum_task(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::diagnostics_task(ctx_), on_coro_error);
 
     // ── Accept loop ───────────────────────────────────────────────────────────
     asio::co_spawn(ex, accept_loop(acceptor_), on_coro_error);
 
-    pool_.join(); // blocks until stop() is called
+    pool_.join();  // blocks until stop() is called
 }
 
 void Server::stop() {
@@ -80,9 +83,7 @@ asio::awaitable<void> Server::accept_loop(ip::tcp::acceptor& acceptor) {
         stream.expires_after(std::chrono::seconds(60));
 
         auto ex = co_await asio::this_coro::executor;
-        asio::co_spawn(ex,
-            handle_connection(std::move(stream)),
-            on_coro_error);
+        asio::co_spawn(ex, handle_connection(std::move(stream)), on_coro_error);
     }
 }
 
@@ -92,17 +93,19 @@ asio::awaitable<void> Server::handle_connection(beast::tcp_stream stream) {
 
     try {
         co_await http::async_read(stream, buf, req, asio::use_awaitable);
-    } catch (...) { co_return; }
+    } catch (...) {
+        co_return;
+    }
 
     auto target = std::string(req.target());
     auto [path, _] = handlers::split_target(target);
-    auto method    = req.method();
-    auto& cfg      = ctx_.config;
+    auto method = req.method();
+    auto& cfg = ctx_.config;
 
     // ── CORS preflight ────────────────────────────────────────────────────────
     if (method == http::verb::options) {
         http::response<http::string_body> res{http::status::no_content, req.version()};
-        res.set(http::field::access_control_allow_origin,  cfg.allow_origin);
+        res.set(http::field::access_control_allow_origin, cfg.allow_origin);
         res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
         res.set(http::field::access_control_allow_headers, "Content-Type");
         res.prepare_payload();
@@ -131,10 +134,11 @@ asio::awaitable<void> Server::handle_connection(beast::tcp_stream stream) {
 
     try {
         co_await http::async_write(stream, res, asio::use_awaitable);
-    } catch (...) {}
+    } catch (...) {
+    }
 
     beast::error_code ec;
     stream.socket().shutdown(asio::ip::tcp::socket::shutdown_send, ec);
 }
 
-} // namespace loglite
+}  // namespace loglite

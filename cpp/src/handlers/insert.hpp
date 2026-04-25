@@ -6,15 +6,14 @@
 
 namespace loglite::handlers {
 
-template<class Body>
-http::response<http::string_body>
-handle_insert(const http::request<Body>& req, ServerContext& ctx) {
+template <class Body>
+http::response<http::string_body> handle_insert(const http::request<Body>& req,
+                                                ServerContext& ctx) {
     try {
         auto body = nlohmann::json::parse(req.body());
 
         if (body.is_array()) {
-            for (auto& entry : body)
-                ctx.backlog.add(std::move(entry));
+            for (auto& entry : body) ctx.backlog.add(std::move(entry));
         } else if (body.is_object()) {
             ctx.backlog.add(std::move(body));
         } else {
@@ -27,4 +26,4 @@ handle_insert(const http::request<Body>& req, ServerContext& ctx) {
     }
 }
 
-} // namespace loglite::handlers
+}  // namespace loglite::handlers

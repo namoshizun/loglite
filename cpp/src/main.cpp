@@ -21,18 +21,23 @@ using namespace loglite;
 static int cmd_server_run(const fs::path& config_path) {
     auto cfg = Config::from_file(config_path);
 
-    Database    db{cfg};
+    Database db{cfg};
     db.open();
     db.initialize();
 
-    Backlog      backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
-    LogNotifier  notifier;
+    Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
+    LogNotifier notifier;
     StatsTracker ingest_stats, query_stats;
 
     asio::thread_pool pool{std::max(1u, std::thread::hardware_concurrency())};
 
     ServerContext ctx{
-        cfg, db, backlog, notifier, ingest_stats, query_stats,
+        cfg,
+        db,
+        backlog,
+        notifier,
+        ingest_stats,
+        query_stats,
         asio::make_strand(pool.get_executor()),
     };
 
@@ -56,11 +61,11 @@ static int cmd_server_run(const fs::path& config_path) {
     // ── Signal handling ───────────────────────────────────────────────────────
     Server server{ctx};
 
-    std::signal(SIGINT,  [](int) { std::exit(0); });
+    std::signal(SIGINT, [](int) { std::exit(0); });
     std::signal(SIGTERM, [](int) { std::exit(0); });
 
     log::info(std::format("loglite server starting on {}:{}", cfg.host, cfg.port));
-    server.run(); // blocks until stop() or SIGINT
+    server.run();  // blocks until stop() or SIGINT
 
     for (auto& h : active_harvesters) h->stop();
     db.close();
@@ -71,15 +76,14 @@ static int cmd_server_run(const fs::path& config_path) {
 
 static int cmd_migrate_rollout(const fs::path& config_path, int start_version) {
     auto cfg = Config::from_file(config_path);
-    cfg.auto_rollout = false; // manual control
+    cfg.auto_rollout = false;  // manual control
     Database db{cfg};
     db.open();
     db.create_internal_tables();
 
     MigrationManager mgr{db, cfg.migrations};
     bool applied = mgr.apply_pending_migrations(start_version);
-    if (!applied)
-        log::info("No pending migrations to apply.");
+    if (!applied) log::info("No pending migrations to apply.");
 
     db.close();
     return 0;
@@ -109,7 +113,7 @@ int main(int argc, char** argv) {
     auto* server_cmd = app.add_subcommand("server", "Server commands");
     server_cmd->require_subcommand(1);
 
-    auto*       server_run = server_cmd->add_subcommand("run", "Start the server");
+    auto* server_run = server_cmd->add_subcommand("run", "Start the server");
     std::string server_config;
     server_run->add_option("-c,--config", server_config, "Path to config YAML")->required();
 
@@ -117,28 +121,28 @@ int main(int argc, char** argv) {
     auto* migrate_cmd = app.add_subcommand("migrate", "Migration commands");
     migrate_cmd->require_subcommand(1);
 
-    auto*       rollout_cmd = migrate_cmd->add_subcommand("rollout", "Apply pending migrations");
+    auto* rollout_cmd = migrate_cmd->add_subcommand("rollout", "Apply pending migrations");
     std::string rollout_config;
-    int         rollout_version{-1};
-    rollout_cmd->add_option("-c,--config",     rollout_config,  "Path to config YAML")->required();
-    rollout_cmd->add_option("-v,--version-id", rollout_version, "Apply migrations with version > this");
+    int rollout_version{-1};
+    rollout_cmd->add_option("-c,--config", rollout_config, "Path to config YAML")->required();
+    rollout_cmd->add_option("-v,--version-id", rollout_version,
+                            "Apply migrations with version > this");
 
-    auto*       rollback_cmd = migrate_cmd->add_subcommand("rollback", "Roll back a migration");
+    auto* rollback_cmd = migrate_cmd->add_subcommand("rollback", "Roll back a migration");
     std::string rollback_config;
-    int         rollback_version{};
-    bool        rollback_force{false};
-    rollback_cmd->add_option("-c,--config",     rollback_config,  "Path to config YAML")->required();
-    rollback_cmd->add_option("-v,--version-id", rollback_version, "Version to roll back")->required();
-    rollback_cmd->add_flag("-f,--force",        rollback_force,   "Skip confirmation prompt");
+    int rollback_version{};
+    bool rollback_force{false};
+    rollback_cmd->add_option("-c,--config", rollback_config, "Path to config YAML")->required();
+    rollback_cmd->add_option("-v,--version-id", rollback_version, "Version to roll back")
+        ->required();
+    rollback_cmd->add_flag("-f,--force", rollback_force, "Skip confirmation prompt");
 
     CLI11_PARSE(app, argc, argv);
 
     try {
-        if (server_run->parsed())
-            return cmd_server_run(server_config);
+        if (server_run->parsed()) return cmd_server_run(server_config);
 
-        if (rollout_cmd->parsed())
-            return cmd_migrate_rollout(rollout_config, rollout_version);
+        if (rollout_cmd->parsed()) return cmd_migrate_rollout(rollout_config, rollout_version);
 
         if (rollback_cmd->parsed())
             return cmd_migrate_rollback(rollback_config, rollback_version, rollback_force);

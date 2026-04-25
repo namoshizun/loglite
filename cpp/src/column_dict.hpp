@@ -19,18 +19,17 @@ class Database;
 // keeps the on-disk representation compact for low-cardinality columns (e.g.
 // log level, service name).
 
-using ValueId    = int;
+using ValueId = int;
 using ColumnName = std::string;
 // column → { value_string → value_id }
 using LookupTable = std::unordered_map<ColumnName, std::unordered_map<std::string, ValueId>>;
 
 class ColumnDictionary {
-public:
+   public:
     // Callback used to persist a new (column, value, id) entry to the DB.
     // Called asynchronously (fire-and-forget) so it must be thread-safe.
-    using PersistFn = std::function<void(const std::string& col,
-                                         const std::string& value,
-                                         ValueId            id)>;
+    using PersistFn =
+        std::function<void(const std::string& col, const std::string& value, ValueId id)>;
 
     explicit ColumnDictionary(LookupTable lookup, PersistFn persist);
 
@@ -47,9 +46,9 @@ public:
 
     const LookupTable& lookup() const { return lookup_; }
 
-private:
+   private:
     LookupTable lookup_;
-    PersistFn   persist_;
+    PersistFn persist_;
 };
 
-} // namespace loglite
+}  // namespace loglite

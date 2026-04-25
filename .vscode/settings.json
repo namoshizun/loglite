@@ -6,5 +6,6 @@
     "*.dbclient-js": "javascript",
     "cstdlib": "cpp",
     "stdexcept": "cpp"
-  }
+  },
+  "cmake.sourceDirectory": "${workspaceFolder}/loglite/cpp"
 }

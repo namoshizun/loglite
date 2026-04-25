@@ -12,10 +12,10 @@
 #include <chrono>
 #include <format>
 
-namespace asio  = boost::asio;
+namespace asio = boost::asio;
 namespace beast = boost::beast;
-namespace http  = beast::http;
-namespace net   = boost::asio;
+namespace http = beast::http;
+namespace net = boost::asio;
 
 namespace loglite::handlers {
 
@@ -30,19 +30,16 @@ namespace loglite::handlers {
 //   4. Queries DB for id > pushed_id AND id <= current_id and sends SSE chunk.
 //   5. On write error (client disconnect), returns.
 
-inline asio::awaitable<void>
-handle_sse(beast::tcp_stream                    stream,
-           http::request<http::string_body>     req,
-           ServerContext&                       ctx)
-{
-    auto ex       = co_await asio::this_coro::executor;
-    auto& cfg     = ctx.config;
-    auto  origin  = cfg.allow_origin;
-    auto  debounce = std::chrono::milliseconds(cfg.sse_debounce_ms);
+inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
+                                        http::request<http::string_body> req, ServerContext& ctx) {
+    auto ex = co_await asio::this_coro::executor;
+    auto& cfg = ctx.config;
+    auto origin = cfg.allow_origin;
+    auto debounce = std::chrono::milliseconds(cfg.sse_debounce_ms);
 
     // ── Parse fields param ────────────────────────────────────────────────────
     auto [path, qs] = split_target(req.target());
-    auto params     = parse_query_string(qs);
+    auto params = parse_query_string(qs);
     std::vector<std::string> fields;
     if (auto it = params.find("fields"); it != params.end() && it->second != "*") {
         for (auto sv : std::views::split(it->second, ','))
@@ -53,7 +50,7 @@ handle_sse(beast::tcp_stream                    stream,
 
     // ── Send response headers ─────────────────────────────────────────────────
     http::response<http::empty_body> res{http::status::ok, req.version()};
-    res.set(http::field::content_type,  "text/event-stream");
+    res.set(http::field::content_type, "text/event-stream");
     res.set(http::field::cache_control, "no-cache");
     res.set(http::field::access_control_allow_origin, origin);
     res.chunked(true);
@@ -61,20 +58,21 @@ handle_sse(beast::tcp_stream                    stream,
     http::response_serializer<http::empty_body> sr{res};
     try {
         co_await http::async_write_header(stream, sr, asio::use_awaitable);
-    } catch (...) { co_return; }
+    } catch (...) {
+        co_return;
+    }
 
     // ── Subscribe ─────────────────────────────────────────────────────────────
     auto sub = ctx.notifier.subscribe(ex);
     auto unsub = std::unique_ptr<LogNotifier, std::function<void(LogNotifier*)>>(
-        &ctx.notifier,
-        [&sub](LogNotifier* n) { n->unsubscribe(sub); });
+        &ctx.notifier, [&sub](LogNotifier* n) { n->unsubscribe(sub); });
 
-    int64_t pushed_id    = ctx.notifier.last_id();
-    auto    last_push_tp = std::chrono::steady_clock::time_point{};
+    int64_t pushed_id = ctx.notifier.last_id();
+    auto last_push_tp = std::chrono::steady_clock::time_point{};
 
     auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
-    log::info(std::format("SSE subscriber {} connected (subscribers={})",
-                          subscriber_id, ctx.notifier.subscriber_count()));
+    log::info(std::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
+                          ctx.notifier.subscriber_count()));
 
     // ── Event loop ────────────────────────────────────────────────────────────
     while (true) {
@@ -85,16 +83,16 @@ handle_sse(beast::tcp_stream                    stream,
         // ec == operation_aborted → cancelled by notify() (new logs available)
 
         int64_t current_id = ctx.notifier.last_id();
-        if (current_id <= pushed_id) continue; // nothing new
+        if (current_id <= pushed_id) continue;  // nothing new
 
         // Apply debounce: do not push more than once per debounce window.
-        auto now     = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_push_tp);
         if (last_push_tp.time_since_epoch().count() != 0 && elapsed < debounce) continue;
 
         // ── Query new logs ────────────────────────────────────────────────────
         std::vector<QueryFilter> id_filters{
-            {"id", ">",  pushed_id},
+            {"id", ">", pushed_id},
             {"id", "<=", current_id},
         };
         PaginatedQueryResult result;
@@ -112,29 +110,31 @@ handle_sse(beast::tcp_stream                    stream,
 
         // ── Write SSE event chunk ─────────────────────────────────────────────
         nlohmann::json arr = result.results;
-        std::string event  = std::format("data: {}\r\n\r\n", arr.dump());
-        auto        chunk  = http::make_chunk(net::buffer(event));
+        std::string event = std::format("data: {}\r\n\r\n", arr.dump());
+        auto chunk = http::make_chunk(net::buffer(event));
 
         try {
             co_await net::async_write(stream, chunk, asio::use_awaitable);
         } catch (...) {
-            break; // client disconnected
+            break;  // client disconnected
         }
 
-        pushed_id    = current_id;
+        pushed_id = current_id;
         last_push_tp = now;
 
         if (cfg.debug)
-            log::debug(std::format("SSE {} pushed {} log(s)", subscriber_id, result.results.size()));
+            log::debug(
+                std::format("SSE {} pushed {} log(s)", subscriber_id, result.results.size()));
     }
 
     // Send chunked terminator (best-effort; client may already be gone).
     try {
         co_await net::async_write(stream, http::make_chunk_last(), asio::use_awaitable);
-    } catch (...) {}
+    } catch (...) {
+    }
 
-    log::info(std::format("SSE subscriber {} disconnected (subscribers={})",
-                          subscriber_id, ctx.notifier.subscriber_count()));
+    log::info(std::format("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
+                          ctx.notifier.subscriber_count()));
 }
 
-} // namespace loglite::handlers
+}  // namespace loglite::handlers

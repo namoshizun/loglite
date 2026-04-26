@@ -1,4 +1,7 @@
-#pragma once
+#ifndef LOGLITE_CONFIG_HPP_
+#define LOGLITE_CONFIG_HPP_
+
+#include <boost/describe.hpp>
 
 #include "types.hpp"
 #include "utils.hpp"
@@ -65,4 +68,17 @@ struct Config {
     static Config from_file(const std::filesystem::path& path);
 };
 
+// Boost.Describe: every public data member is listed (order matches the struct).
+BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
+BOOST_DESCRIBE_STRUCT(Config, (),
+                      (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,
+                       auto_rollout, log_table_name, log_timestamp_field, sse_limit,
+                       sse_debounce_ms, vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes,
+                       vacuum_target_size, vacuum_target_size_bytes, vacuum_delete_batch_size,
+                       task_diagnostics_interval, task_backlog_flush_interval,
+                       task_backlog_max_size, task_vacuum_interval, task_vacuum_max_size,
+                       compression, harvesters, migrations))
+
 }  // namespace loglite
+
+#endif  // LOGLITE_CONFIG_HPP_

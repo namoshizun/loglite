@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_MIGRATIONS_HPP_
+#define LOGLITE_MIGRATIONS_HPP_
 
 #include "types.hpp"
 
@@ -27,3 +28,5 @@ class MigrationManager {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_MIGRATIONS_HPP_

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_UTILS_HPP_
+#define LOGLITE_UTILS_HPP_
 
 #include <chrono>
 #include <cstdint>
@@ -113,3 +114,5 @@ inline std::string url_decode(std::string_view s) {
 }
 
 }  // namespace loglite
+
+#endif  // LOGLITE_UTILS_HPP_

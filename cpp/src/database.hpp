@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_DATABASE_HPP_
+#define LOGLITE_DATABASE_HPP_
 
 #include "column_dict.hpp"
 #include "config.hpp"
@@ -115,3 +116,5 @@ class Database {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_DATABASE_HPP_

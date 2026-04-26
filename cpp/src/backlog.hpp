@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_BACKLOG_HPP_
+#define LOGLITE_BACKLOG_HPP_
 
 #include <atomic>
 #include <deque>
@@ -51,3 +52,5 @@ class Backlog {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_BACKLOG_HPP_

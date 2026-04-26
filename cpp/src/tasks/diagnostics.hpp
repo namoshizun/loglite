@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_TASKS_DIAGNOSTICS_HPP_
+#define LOGLITE_TASKS_DIAGNOSTICS_HPP_
 
 #include "../globals.hpp"
 #include "../log.hpp"
@@ -40,3 +41,5 @@ inline asio::awaitable<void> diagnostics_task(ServerContext& ctx) {
 }
 
 }  // namespace loglite::tasks
+
+#endif  // LOGLITE_TASKS_DIAGNOSTICS_HPP_

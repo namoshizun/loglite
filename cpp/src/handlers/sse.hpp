@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_HANDLERS_SSE_HPP_
+#define LOGLITE_HANDLERS_SSE_HPP_
 
 #include "common.hpp"
 #include "../globals.hpp"
@@ -138,3 +139,5 @@ inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
 }
 
 }  // namespace loglite::handlers
+
+#endif  // LOGLITE_HANDLERS_SSE_HPP_

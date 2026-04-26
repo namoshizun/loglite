@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_HARVESTERS_BASE_HPP_
+#define LOGLITE_HARVESTERS_BASE_HPP_
 
 #include "../backlog.hpp"
 #include "../log.hpp"
@@ -32,3 +33,5 @@ class Harvester {
 };
 
 }  // namespace loglite::harvesters
+
+#endif  // LOGLITE_HARVESTERS_BASE_HPP_

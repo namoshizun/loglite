@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_HANDLERS_COMMON_HPP_
+#define LOGLITE_HANDLERS_COMMON_HPP_
 
 #include "../types.hpp"
 #include "../utils.hpp"
@@ -101,3 +102,5 @@ inline std::vector<QueryFilter> parse_filter_expr(std::string_view field, std::s
 }
 
 }  // namespace loglite::handlers
+
+#endif  // LOGLITE_HANDLERS_COMMON_HPP_

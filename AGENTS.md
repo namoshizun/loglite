@@ -18,5 +18,5 @@
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
 - Use C++ 23. Prefer modern features over legacy ones.
-- Use CMake
-- Use GTest
+- Follow the Google C++ Style Guide.
+- Use CMake and GTest

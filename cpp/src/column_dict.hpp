@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_COLUMN_DICT_HPP_
+#define LOGLITE_COLUMN_DICT_HPP_
 
 #include "types.hpp"
 
@@ -52,3 +53,5 @@ class ColumnDictionary {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_COLUMN_DICT_HPP_

@@ -1,8 +1,12 @@
-#pragma once
+#ifndef LOGLITE_TYPES_HPP_
+#define LOGLITE_TYPES_HPP_
+
+#include <boost/describe.hpp>
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
 #include <nlohmann/json.hpp>
 
 namespace loglite {
@@ -61,4 +65,10 @@ struct PaginatedQueryResult {
     }
 };
 
+// Boost.Describe — metadata for (de)serialization and config loading (see config.cpp).
+BOOST_DESCRIBE_STRUCT(Migration, (), (version, rollout, rollback))
+BOOST_DESCRIBE_STRUCT(CompressionConfig, (), (enabled, columns))
+
 }  // namespace loglite
+
+#endif  // LOGLITE_TYPES_HPP_

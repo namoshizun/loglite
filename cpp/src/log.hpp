@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_LOG_HPP_
+#define LOGLITE_LOG_HPP_
 
 #include <chrono>
 #include <format>
@@ -27,3 +28,5 @@ inline void debug(std::string_view msg, bool enabled = true) {
 }
 
 }  // namespace loglite::log
+
+#endif  // LOGLITE_LOG_HPP_

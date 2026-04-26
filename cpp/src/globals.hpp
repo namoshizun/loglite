@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_GLOBALS_HPP_
+#define LOGLITE_GLOBALS_HPP_
 
 #include "backlog.hpp"
 #include "database.hpp"
@@ -84,3 +85,5 @@ struct ServerContext {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_GLOBALS_HPP_

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_HARVESTERS_FILE_HPP_
+#define LOGLITE_HARVESTERS_FILE_HPP_
 
 #include "base.hpp"
 
@@ -111,3 +112,5 @@ class FileHarvester final : public Harvester {
 };
 
 }  // namespace loglite::harvesters
+
+#endif  // LOGLITE_HARVESTERS_FILE_HPP_

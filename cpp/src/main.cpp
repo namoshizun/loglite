@@ -10,11 +10,28 @@
 #include <csignal>
 #include <filesystem>
 #include <format>
+#include <iostream>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
 using namespace loglite;
+
+// -- Helper
+template <class F>
+    requires std::is_invocable_r_v<int, F, MigrationManager&>
+static int with_migrations(const fs::path& config_path, F&& f) {
+    auto cfg = Config::from_file(config_path);
+    cfg.auto_rollout = false;
+
+    Database db{cfg};
+    db.open();
+    db.create_internal_tables();
+    MigrationManager mgr{db, cfg.migrations};
+    return std::forward<F>(f)(mgr);
+}
 
 // ── Server command ─────────────────────────────────────────────────────────────
 
@@ -73,34 +90,19 @@ static int cmd_server_run(const fs::path& config_path) {
 }
 
 // ── Migration commands ─────────────────────────────────────────────────────────
-
 static int cmd_migrate_rollout(const fs::path& config_path, int start_version) {
-    auto cfg = Config::from_file(config_path);
-    cfg.auto_rollout = false;  // manual control
-    Database db{cfg};
-    db.open();
-    db.create_internal_tables();
-
-    MigrationManager mgr{db, cfg.migrations};
-    bool applied = mgr.apply_pending_migrations(start_version);
-    if (!applied) log::info("No pending migrations to apply.");
-
-    db.close();
-    return 0;
+    return with_migrations(config_path, [start_version](MigrationManager& mgr) -> int {
+        bool applied = mgr.apply_pending_migrations(start_version);
+        if (!applied) log::info("No pending migrations to apply.");
+        return 0;
+    });
 }
 
 static int cmd_migrate_rollback(const fs::path& config_path, int version, bool force) {
-    auto cfg = Config::from_file(config_path);
-    cfg.auto_rollout = false;
-    Database db{cfg};
-    db.open();
-    db.create_internal_tables();
-
-    MigrationManager mgr{db, cfg.migrations};
-    mgr.rollback_migration(version, force);
-
-    db.close();
-    return 0;
+    return with_migrations(config_path, [version, force](MigrationManager& mgr) -> int {
+        mgr.rollback_migration(version, force);
+        return 0;
+    });
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -121,6 +123,7 @@ int main(int argc, char** argv) {
     auto* migrate_cmd = app.add_subcommand("migrate", "Migration commands");
     migrate_cmd->require_subcommand(1);
 
+    // [1] rollout
     auto* rollout_cmd = migrate_cmd->add_subcommand("rollout", "Apply pending migrations");
     std::string rollout_config;
     int rollout_version{-1};
@@ -128,6 +131,7 @@ int main(int argc, char** argv) {
     rollout_cmd->add_option("-v,--version-id", rollout_version,
                             "Apply migrations with version > this");
 
+    // [2] rollback
     auto* rollback_cmd = migrate_cmd->add_subcommand("rollback", "Roll back a migration");
     std::string rollback_config;
     int rollback_version{};
@@ -139,6 +143,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(app, argc, argv);
 
+    // Execute
     try {
         if (server_run->parsed()) return cmd_server_run(server_config);
 

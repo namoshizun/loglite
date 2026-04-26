@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_HANDLERS_HEALTH_HPP_
+#define LOGLITE_HANDLERS_HEALTH_HPP_
 
 #include "common.hpp"
 #include "../globals.hpp"
@@ -14,3 +15,5 @@ http::response<http::string_body> handle_health(const http::request<Body>& req,
 }
 
 }  // namespace loglite::handlers
+
+#endif  // LOGLITE_HANDLERS_HEALTH_HPP_

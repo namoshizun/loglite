@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_SERVER_HPP_
+#define LOGLITE_SERVER_HPP_
 
 #include "globals.hpp"
 
@@ -31,3 +32,5 @@ class Server {
 };
 
 }  // namespace loglite
+
+#endif  // LOGLITE_SERVER_HPP_

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
+#define LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
 
 #include "../globals.hpp"
 #include "../log.hpp"
@@ -60,3 +61,5 @@ inline asio::awaitable<void> flush_backlog_task(ServerContext& ctx) {
 }
 
 }  // namespace loglite::tasks
+
+#endif  // LOGLITE_TASKS_FLUSH_BACKLOG_HPP_

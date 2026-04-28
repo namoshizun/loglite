@@ -471,7 +471,6 @@ void Database::InsertColumnDictValue(const std::string& col, const std::string& 
     sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
     sqlite3_step(stmt);
-    sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr);
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

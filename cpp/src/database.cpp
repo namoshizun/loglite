@@ -178,13 +178,31 @@ void Database::RefreshColumnInfo() {
     }
 }
 
+// ── Field / operator validation ───────────────────────────────────────────────
+
+void Database::validate_field(std::string_view name) const {
+    for (const auto& ci : column_info_)
+        if (ci.name == name) return;
+    throw std::runtime_error(std::format("Unknown field name: '{}'", name));
+}
+
 // ── WHERE clause builder ──────────────────────────────────────────────────────
+
+// Operators that may appear in a filter.  Keeping a tight allowlist prevents
+// operator-injection even if a filter reaches this function by a path other
+// than the HTTP query-string parser.
+static constexpr std::string_view kAllowedOps[] = {"=", "!=", ">", ">=", "<", "<=", "~="};
 
 Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter>& filters) const {
     std::string sql_parts;
     std::vector<nlohmann::json> params;
 
     for (const auto& ft : filters) {
+        // Reject unknown field names and operators before they touch any SQL string.
+        validate_field(ft.field);
+        if (!std::ranges::contains(kAllowedOps, ft.op))
+            throw std::runtime_error(std::format("Unknown query operator: '{}'", ft.op));
+
         if (!sql_parts.empty()) sql_parts += " AND ";
 
         if (compressed_columns_.contains(ft.field)) {
@@ -286,7 +304,10 @@ PaginatedQueryResult Database::Query(const std::vector<std::string>& fields,
     if (fields.size() == 1 && fields[0] == "*") {
         for (const auto& ci : column_info_) effective_fields.push_back(ci.name);
     } else {
+        // Validate every caller-supplied field name against the live schema before
+        // it is interpolated into the SELECT list.
         effective_fields.assign(fields.begin(), fields.end());
+        for (const auto& f : effective_fields) validate_field(f);
     }
 
     auto [where, params] = build_where_clause(filters);

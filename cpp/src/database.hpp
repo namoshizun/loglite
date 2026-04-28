@@ -105,6 +105,9 @@ class Database {
     };
     WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
 
+    // Throws std::runtime_error if `name` is not a known column in column_info_.
+    void validate_field(std::string_view name) const;
+
     const Config& cfg_;
     sqlite3* db_{};
     mutable std::vector<ColumnInfo> column_info_;

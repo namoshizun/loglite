@@ -1,8 +1,5 @@
-add_executable(loglite_tests
-    test_config.cpp
-    test_database.cpp
-    test_query_filters.cpp
-)
+file(GLOB test_sources CONFIGURE_DEPENDS "test_*.cpp")
+add_executable(loglite_tests ${test_sources})
 
 target_link_libraries(loglite_tests PRIVATE loglite_lib GTest::gtest_main)
 

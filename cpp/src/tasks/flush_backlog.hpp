@@ -33,12 +33,12 @@ inline asio::awaitable<void> flush_backlog_task(ServerContext& ctx) {
         // Poll every 100 ms; break early when the backlog is full.
         auto deadline = std::chrono::steady_clock::now() +
                         std::chrono::seconds(cfg.task_backlog_flush_interval);
-        while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.is_full()) {
+        while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.IsFull()) {
             timer.expires_after(std::chrono::milliseconds(100));
             co_await timer.async_wait(asio::use_awaitable);
         }
 
-        auto logs = ctx.backlog.flush();
+        auto logs = ctx.backlog.Flush();
         if (logs.empty()) continue;
 
         if (cfg.debug) log::debug(std::format("Flushing {} log(s) from backlog", logs.size()));
@@ -47,14 +47,14 @@ inline asio::awaitable<void> flush_backlog_task(ServerContext& ctx) {
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
         Timer t;
-        int count = ctx.db.insert(logs);
-        int64_t max = ctx.db.get_max_log_id();
+        int count = ctx.db.Insert(logs);
+        int64_t max = ctx.db.GetMaxLogId();
 
         // Leave the strand by posting back to the generic pool executor.
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
         ctx.ingest_stats.collect(count, t.elapsed_ms());
-        ctx.notifier.notify(max);
+        ctx.notifier.Notify(max);
 
         if (cfg.debug) log::debug(std::format("Inserted {} row(s), max_log_id={}", count, max));
     }

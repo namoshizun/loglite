@@ -36,7 +36,7 @@ inline asio::awaitable<void> diagnostics_task(ServerContext& ctx) {
                         "query: count={} total={:.1f}ms avg={:.1f}ms max={:.1f}ms | "
                         "sse_subscribers={}",
                         ing.count, ing.total_ms, ing.avg_ms, ing.max_ms, qry.count, qry.total_ms,
-                        qry.avg_ms, qry.max_ms, ctx.notifier.subscriber_count()));
+                        qry.avg_ms, qry.max_ms, ctx.notifier.SubscriberCount()));
     }
 }
 

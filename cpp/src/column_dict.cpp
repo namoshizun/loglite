@@ -10,7 +10,7 @@ namespace loglite {
 ColumnDictionary::ColumnDictionary(LookupTable lookup, PersistFn persist)
     : lookup_(std::move(lookup)), persist_(std::move(persist)) {}
 
-ValueId ColumnDictionary::get_or_create(const std::string& col, const std::string& value) {
+ValueId ColumnDictionary::GetOrCreate(const std::string& col, const std::string& value) {
     auto& col_map = lookup_[col];
 
     if (auto it = col_map.find(value); it != col_map.end()) return it->second;
@@ -28,7 +28,7 @@ ValueId ColumnDictionary::get_or_create(const std::string& col, const std::strin
     return new_id;
 }
 
-std::string ColumnDictionary::get_value(const std::string& col, ValueId id) const {
+std::string ColumnDictionary::GetValue(const std::string& col, ValueId id) const {
     auto col_it = lookup_.find(col);
     if (col_it == lookup_.end())
         throw std::runtime_error(std::format("Unknown compressed column: '{}'", col));
@@ -39,7 +39,7 @@ std::string ColumnDictionary::get_value(const std::string& col, ValueId id) cons
     throw std::runtime_error(std::format("No value for id={} in column '{}'", id, col));
 }
 
-std::vector<ValueId> ColumnDictionary::query_candidates(const QueryFilter& filter) const {
+std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter) const {
     auto col_it = lookup_.find(filter.field);
     if (col_it == lookup_.end()) return {};
 

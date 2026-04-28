@@ -15,21 +15,21 @@ MigrationManager::MigrationManager(Database& db, std::span<const Migration> migr
     std::ranges::sort(migrations_, {}, &Migration::version);
 }
 
-bool MigrationManager::apply_pending_migrations(int start_version) {
-    auto applied = db_.get_applied_versions();
+bool MigrationManager::ApplyPendingMigrations(int start_version) {
+    auto applied = db_.GetAppliedVersions();
 
     for (const auto& mg : migrations_) {
         if (mg.version <= start_version) continue;
         if (std::ranges::contains(applied, mg.version)) continue;
 
-        bool ok = db_.apply_migration(mg.version, mg.rollout);
+        bool ok = db_.ApplyMigration(mg.version, mg.rollout);
         // Mirror Python: apply ONE migration per call and return.
         return ok;
     }
     return false;
 }
 
-bool MigrationManager::rollback_migration(int version, bool force) {
+bool MigrationManager::RollbackMigration(int version, bool force) {
     auto it = std::ranges::find_if(migrations_,
                                    [version](const Migration& m) { return m.version == version; });
     if (it == migrations_.end())
@@ -45,7 +45,7 @@ bool MigrationManager::rollback_migration(int version, bool force) {
         }
     }
 
-    return db_.rollback_migration(version, it->rollback);
+    return db_.RollbackMigration(version, it->rollback);
 }
 
 }  // namespace loglite

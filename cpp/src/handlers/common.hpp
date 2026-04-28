@@ -20,10 +20,10 @@ namespace loglite::handlers {
 // ── Response helpers ──────────────────────────────────────────────────────────
 
 template <class Body>
-inline http::response<http::string_body> make_json_response(http::status status,
-                                                            const nlohmann::json& body,
-                                                            const http::request<Body>& req,
-                                                            std::string_view allow_origin = "*") {
+inline http::response<http::string_body> MakeJSONResponse(http::status status,
+                                                          const nlohmann::json& body,
+                                                          const http::request<Body>& req,
+                                                          std::string_view allow_origin = "*") {
     http::response<http::string_body> res{status, req.version()};
     res.set(http::field::content_type, "application/json");
     res.set(http::field::access_control_allow_origin, allow_origin);
@@ -36,25 +36,31 @@ inline http::response<http::string_body> make_json_response(http::status status,
 }
 
 template <class Body>
-inline http::response<http::string_body> ok(const nlohmann::json& body,
-                                            const http::request<Body>& req,
-                                            std::string_view origin = "*") {
-    return make_json_response(http::status::ok, body, req, origin);
+inline http::response<http::string_body> MakeOKResp(const nlohmann::json& body,
+                                                    const http::request<Body>& req,
+                                                    std::string_view origin = "*") {
+    return MakeJSONResponse(http::status::ok, body, req, origin);
 }
 
 template <class Body>
-inline http::response<http::string_body> fail(int status_code, std::string_view msg,
-                                              const http::request<Body>& req,
-                                              std::string_view origin = "*") {
-    return make_json_response(static_cast<http::status>(status_code), {{"error", msg}}, req,
-                              origin);
+inline http::response<http::string_body> MakeFailResp(int status_code, std::string_view msg,
+                                                      const http::request<Body>& req,
+                                                      std::string_view origin = "*") {
+    return MakeJSONResponse(static_cast<http::status>(status_code), {{"error", msg}}, req, origin);
+}
+
+template <class Body>
+inline http::response<http::string_body> MakeNotAvailableResp(const nlohmann::json& body,
+                                                              const http::request<Body>& req,
+                                                              std::string_view origin = "*") {
+    return MakeJSONResponse(http::status::service_unavailable, body, req, origin);
 }
 
 // ── Query-string parsing ──────────────────────────────────────────────────────
 
 // Parse a raw query string ("k1=v1&k2=v2") into a multimap.
 // Values are URL-decoded.
-inline std::unordered_multimap<std::string, std::string> parse_query_string(std::string_view qs) {
+inline std::unordered_multimap<std::string, std::string> ParseQueryString(std::string_view qs) {
     std::unordered_multimap<std::string, std::string> out;
     while (!qs.empty()) {
         auto amp = qs.find('&');
@@ -71,7 +77,7 @@ inline std::unordered_multimap<std::string, std::string> parse_query_string(std:
 }
 
 // Split the target into (path, query_string).
-inline std::pair<std::string, std::string> split_target(std::string_view target) {
+inline std::pair<std::string, std::string> SplitURLTarget(std::string_view target) {
     auto q = target.find('?');
     if (q == std::string_view::npos) return {std::string(target), ""};
     return {std::string(target.substr(0, q)), std::string(target.substr(q + 1))};
@@ -81,10 +87,7 @@ inline std::pair<std::string, std::string> split_target(std::string_view target)
 //
 // Each query param value is one or more "<op><value>" tokens, comma-separated.
 // e.g. ">=2024-01-01T00:00:00,<=2024-01-02T00:00:00"
-// Mirroring the Python regex: r"(>=|<=|!=|~=|=|>|<)([^,]+)"
-
-inline std::vector<QueryFilter> parse_filter_expr(std::string_view field, std::string_view expr) {
-    // Compile once: operators ordered longest-first to avoid partial matches.
+inline std::vector<QueryFilter> ParseQueryFilters(std::string_view field, std::string_view expr) {
     static const std::regex re{R"((>=|<=|!=|~=|=|>|<)([^,]+))"};
 
     std::vector<QueryFilter> filters;

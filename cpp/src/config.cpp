@@ -61,15 +61,11 @@ template <class T>
 T from_string(const std::string& s) {
     if constexpr (std::is_same_v<T, std::string>) {
         return s;
-    }
-
-    if constexpr (std::is_same_v<T, bool>) {
+    } else if constexpr (std::is_same_v<T, bool>) {
         std::string lc = s;
         std::ranges::transform(lc, lc.begin(), ::tolower);
         return lc == "true" || lc == "1" || lc == "yes";
-    }
-
-    if constexpr (std::is_integral_v<T>) {
+    } else if constexpr (std::is_integral_v<T>) {
         return static_cast<T>(std::stoll(s));
     } else if constexpr (std::is_same_v<T, std::filesystem::path>) {
         return std::filesystem::path(s);
@@ -86,8 +82,10 @@ StringMap read_env_overrides() {
     for (char** p = ::environ; *p; ++p) {
         std::string_view entry{*p};
         if (!entry.starts_with(prefix)) continue;
+
         auto eq = entry.find('=');
         if (eq == std::string_view::npos) continue;
+
         std::string key(entry.substr(prefix.size(), eq - prefix.size()));
         std::ranges::transform(key, key.begin(), ::tolower);
         out[key] = std::string(entry.substr(eq + 1));
@@ -108,21 +106,13 @@ template <class T>
 T from_yaml(const YAML::Node& node) {
     if constexpr (std::is_same_v<T, std::string>) {
         return node.as<std::string>();
-    }
-
-    if constexpr (std::is_same_v<T, bool>) {
+    } else if constexpr (std::is_same_v<T, bool>) {
         return node.as<bool>();
-    }
-
-    if constexpr (std::is_same_v<T, std::filesystem::path>) {
+    } else if constexpr (std::is_same_v<T, std::filesystem::path>) {
         return std::filesystem::path(node.as<std::string>());
-    }
-
-    if constexpr (std::is_integral_v<T>) {
+    } else if constexpr (std::is_integral_v<T>) {
         return static_cast<T>(node.as<int64_t>());
-    }
-
-    if constexpr (std::is_same_v<T, StringMap>) {
+    } else if constexpr (std::is_same_v<T, StringMap>) {
         StringMap m;
         // Populate the map from the YAML node.
         if (node.IsMap()) {
@@ -131,9 +121,7 @@ T from_yaml(const YAML::Node& node) {
             }
         }
         return m;
-    }
-
-    if constexpr (is_vector_v<T>) {
+    } else if constexpr (is_vector_v<T>) {
         T v;
         if (node.IsSequence()) {
             for (const auto& e : node) {
@@ -141,15 +129,13 @@ T from_yaml(const YAML::Node& node) {
             }
         }
         return v;
-    }
-
-    if constexpr (is_described_v<T>) {
+    } else if constexpr (is_described_v<T>) {
         T s{};
         load_yaml_map(s, node);
         return s;
+    } else {
+        static_assert(always_false_v<T>, "extend from_yaml<T> for this type");
     }
-
-    static_assert(always_false_v<T>, "extend from_yaml<T> for this type");
 }
 
 /// Populate a Boost.Describe struct from a YAML map node, one member at a time.
@@ -198,6 +184,7 @@ Config Config::from_file(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path))
         throw std::runtime_error(std::format("Config file not found: {}", path.string()));
 
+    // Load config
     YAML::Node yaml = YAML::LoadFile(path.string());
     auto env = read_env_overrides();
     Config cfg;

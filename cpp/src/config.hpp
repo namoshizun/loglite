@@ -68,7 +68,7 @@ struct Config {
     static Config from_file(const std::filesystem::path& path);
 };
 
-// Boost.Describe: every public data member is listed (order matches the struct).
+// Boost.Describe: every public data member is listed.
 BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
 BOOST_DESCRIBE_STRUCT(Config, (),
                       (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,

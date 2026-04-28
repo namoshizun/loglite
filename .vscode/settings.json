@@ -72,7 +72,17 @@
     "valarray": "cpp",
     "variant": "cpp",
     "memory": "cpp",
-    "algorithm": "cpp"
+    "algorithm": "cpp",
+    "*.ipp": "cpp",
+    "__assert": "cpp",
+    "__availability": "cpp"
   },
-  "cmake.sourceDirectory": "/Users/dilu/Desktop/Software/loglite/cpp"
+  "search.exclude": {
+    "**/build": true,
+  },
+  "C_Cpp.files.exclude": {
+    "**/build": true,
+    "${workspaceFolder}/cpp/build": true
+  },
+  "cmake.sourceDirectory": "${workspaceFolder}/cpp"
 }

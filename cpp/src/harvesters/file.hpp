@@ -22,12 +22,12 @@ class FileHarvester final : public Harvester {
     FileHarvester(std::string name, std::filesystem::path path, Backlog& backlog)
         : Harvester(std::move(name), backlog), path_(std::move(path)) {}
 
-    void start() override {
+    void Start() override {
         thread_ = std::jthread{[this](std::stop_token st) { run(st); }};
         log::info(std::format("FileHarvester '{}' started: tailing {}", name_, path_.string()));
     }
 
-    void stop() override {
+    void Stop() override {
         thread_.request_stop();
         thread_.join();
         log::info(std::format("FileHarvester '{}' stopped", name_));
@@ -49,7 +49,7 @@ class FileHarvester final : public Harvester {
 
         while (!st.stop_requested()) {
             if (!std::filesystem::exists(path_)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 continue;
             }
 
@@ -91,7 +91,7 @@ class FileHarvester final : public Harvester {
                 auto now = std::chrono::system_clock::now();
                 entry["timestamp"] = std::format("{:%Y-%m-%dT%H:%M:%SZ}", now);
             }
-            ingest(std::move(entry));
+            Ingest(std::move(entry));
         } catch (const nlohmann::json::parse_error&) {
             log::warn(std::format("FileHarvester '{}': failed to parse line: {}", name_, line));
         }

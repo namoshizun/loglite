@@ -43,13 +43,14 @@ FetchContent_MakeAvailable(yaml-cpp nlohmann_json CLI11)
 
 # ── Main library target ───────────────────────────────────────────────────────
 
-add_library(loglite_lib STATIC
-    src/config.cpp
-    src/database.cpp
-    src/column_dict.cpp
-    src/migrations.cpp
-    src/server.cpp
+file(GLOB LOGLITE_LIB_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
+list(REMOVE_ITEM LOGLITE_LIB_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+)
+
+add_library(loglite_lib STATIC ${LOGLITE_LIB_SOURCES})
 
 target_include_directories(loglite_lib PUBLIC src)
 target_link_libraries(loglite_lib PUBLIC

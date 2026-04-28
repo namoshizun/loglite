@@ -17,10 +17,10 @@ class MigrationManager {
     // Mirrors Python's behaviour: one migration per call.
     // Call repeatedly (e.g. at startup) until all are applied.
     // Returns true if any migration was applied.
-    bool apply_pending_migrations(int start_version = -1);
+    bool ApplyPendingMigrations(int start_version = -1);
 
     // Rollback a specific version.  Prompts confirmation unless force=true.
-    bool rollback_migration(int version, bool force = false);
+    bool RollbackMigration(int version, bool force = false);
 
    private:
     Database& db_;

@@ -24,11 +24,11 @@ struct Statement {
     Statement(sqlite3* db, std::string_view sql);
     ~Statement() { sqlite3_finalize(raw); }
 
+    Statement(Statement&& o) noexcept : raw(std::exchange(o.raw, nullptr)) {}
+    operator sqlite3_stmt*() const noexcept { return raw; }
+
     Statement(const Statement&) = delete;
     Statement& operator=(const Statement&) = delete;
-    Statement(Statement&& o) noexcept : raw(std::exchange(o.raw, nullptr)) {}
-
-    operator sqlite3_stmt*() const noexcept { return raw; }
 };
 
 // ── Database ──────────────────────────────────────────────────────────────────
@@ -42,61 +42,58 @@ class Database {
     Database& operator=(const Database&) = delete;
 
     // Open the connection and apply PRAGMAs.
-    void open();
-    void close();
+    void Open();
+    void Close();
 
     // Create only the internal loglite tables (versions, column_dictionary).
-    // Idempotent.  Called by both initialize() and the migration CLI commands.
-    void create_internal_tables();
+    // Idempotent.  Called by both Initialize() and the migration CLI commands.
+    void CreateInternalTables();
 
     // Create internal tables, apply auto-migrations, load schema + dict.
-    void initialize();
+    void Initialize();
 
     // ── Schema ────────────────────────────────────────────────────────────────
-
-    [[nodiscard]] const std::vector<ColumnInfo>& column_info() const;
-    void refresh_column_info();
+    [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
+    void RefreshColumnInfo();
 
     // ── CRUD ──────────────────────────────────────────────────────────────────
 
     // Returns number of rows actually inserted.
-    int insert(const std::vector<nlohmann::json>& logs);
+    int Insert(const std::vector<nlohmann::json>& logs);
 
-    PaginatedQueryResult query(const std::vector<std::string>& fields,
+    PaginatedQueryResult Query(const std::vector<std::string>& fields,
                                const std::vector<QueryFilter>& filters, int limit,
                                int offset) const;
 
-    int delete_logs(const std::vector<QueryFilter>& filters);
+    int DeleteLogs(const std::vector<QueryFilter>& filters);
 
     // ── Aggregate helpers ─────────────────────────────────────────────────────
-
-    int64_t get_max_log_id() const;
-    int64_t get_min_log_id() const;
-    std::string get_min_timestamp() const;  // ISO-8601 string
+    int64_t GetMaxLogId() const;
+    int64_t GetMinLogId() const;
+    std::string GetMinTimestamp() const;  // ISO-8601 string
 
     // ── SQLite PRAGMAs ────────────────────────────────────────────────────────
-
-    std::string get_pragma(std::string_view name) const;
-    void set_pragma(std::string_view name, std::string_view value);
-    void incremental_vacuum(int page_count);
-    void vacuum();
-    void wal_checkpoint(std::string_view mode = "TRUNCATE");
-    double get_size_mb() const;
+    std::string GetPragma(std::string_view name) const;
+    void SetPragma(std::string_view name, std::string_view value);
+    void IncrementalVacuum(int page_count);
+    void Vacuum();
+    void WALCheckpoint(std::string_view mode = "TRUNCATE");
+    double GetSizeMB() const;
 
     // ── Migrations ────────────────────────────────────────────────────────────
 
-    std::vector<int> get_applied_versions() const;
-    bool apply_migration(int version, const std::vector<std::string>& statements);
-    bool rollback_migration(int version, const std::vector<std::string>& statements);
+    std::vector<int> GetAppliedVersions() const;
+    bool ApplyMigration(int version, const std::vector<std::string>& statements);
+    bool RollbackMigration(int version, const std::vector<std::string>& statements);
 
     // ── Column dictionary ─────────────────────────────────────────────────────
 
-    std::vector<std::tuple<std::string, std::string, ValueId>> get_column_dict_rows() const;
-    void insert_column_dict_value(const std::string& col, const std::string& value, ValueId id);
+    std::vector<std::tuple<std::string, std::string, ValueId>> GetColumnDictRows() const;
+    void InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
 
     // ── Health ────────────────────────────────────────────────────────────────
 
-    bool ping() const;
+    bool Ping() const;
 
    private:
     // Build the WHERE clause + params vector from a filter list.

@@ -2,9 +2,11 @@
 #define LOGLITE_BACKLOG_HPP_
 
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <mutex>
 #include <vector>
+
 #include <nlohmann/json.hpp>
 
 namespace loglite {
@@ -14,35 +16,21 @@ namespace loglite {
 // Thread-safe in-memory buffer for incoming log entries.
 // Logs are batched here and flushed to SQLite by a background task.
 //
-// The `is_full()` flag is polled by the flush task so it can force an early
+// The `IsFull()` flag is polled by the flush task so it can force an early
 // flush when the backlog reaches capacity (task_backlog_max_size).
 
 class Backlog {
    public:
-    explicit Backlog(size_t max_size) : max_size_(max_size) {}
+    explicit Backlog(size_t max_size);
 
-    void add(nlohmann::json log) {
-        std::lock_guard<std::mutex> lk(mtx_);
-        queue_.push_back(std::move(log));
-        if (queue_.size() >= max_size_) is_full_.store(true, std::memory_order_release);
-    }
+    void Add(nlohmann::json log);
 
     // Move all pending entries out of the backlog in one critical section.
-    std::vector<nlohmann::json> flush() {
-        std::lock_guard lk(mtx_);
-        is_full_.store(false, std::memory_order_relaxed);
-        std::vector<nlohmann::json> out(std::make_move_iterator(queue_.begin()),
-                                        std::make_move_iterator(queue_.end()));
-        queue_.clear();
-        return out;
-    }
+    std::vector<nlohmann::json> Flush();
 
-    bool is_full() const noexcept { return is_full_.load(std::memory_order_acquire); }
+    bool IsFull() const noexcept;
 
-    size_t size() const {
-        std::lock_guard lk(mtx_);
-        return queue_.size();
-    }
+    size_t Size() const;
 
    private:
     mutable std::mutex mtx_;

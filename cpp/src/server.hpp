@@ -17,14 +17,14 @@ class Server {
     Server(ServerContext& ctx, unsigned int thread_count = 0);
 
     // Start listening and run the thread pool (blocks until shutdown).
-    void run();
+    void Run();
 
     // Signal shutdown; may be called from any thread (e.g. signal handler).
-    void stop();
+    void Stop();
 
    private:
-    asio::awaitable<void> accept_loop(asio::ip::tcp::acceptor& acceptor);
-    asio::awaitable<void> handle_connection(beast::tcp_stream stream);
+    asio::awaitable<void> AcceptLoop(asio::ip::tcp::acceptor& acceptor);
+    asio::awaitable<void> HandleConnection(beast::tcp_stream stream);
 
     ServerContext& ctx_;
     asio::thread_pool pool_;

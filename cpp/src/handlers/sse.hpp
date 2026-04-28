@@ -31,16 +31,16 @@ namespace loglite::handlers {
 //   4. Queries DB for id > pushed_id AND id <= current_id and sends SSE chunk.
 //   5. On write error (client disconnect), returns.
 
-inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
-                                        http::request<http::string_body> req, ServerContext& ctx) {
+inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
+                                       http::request<http::string_body> req, ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
     auto origin = cfg.allow_origin;
     auto debounce = std::chrono::milliseconds(cfg.sse_debounce_ms);
 
     // ── Parse fields param ────────────────────────────────────────────────────
-    auto [path, qs] = split_target(req.target());
-    auto params = parse_query_string(qs);
+    auto [path, qs] = SplitURLTarget(req.target());
+    auto params = ParseQueryString(qs);
     std::vector<std::string> fields;
     if (auto it = params.find("fields"); it != params.end() && it->second != "*") {
         for (auto sv : std::views::split(it->second, ','))
@@ -64,16 +64,16 @@ inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
     }
 
     // ── Subscribe ─────────────────────────────────────────────────────────────
-    auto sub = ctx.notifier.subscribe(ex);
+    auto sub = ctx.notifier.Subscribe(ex);
     auto unsub = std::unique_ptr<LogNotifier, std::function<void(LogNotifier*)>>(
-        &ctx.notifier, [&sub](LogNotifier* n) { n->unsubscribe(sub); });
+        &ctx.notifier, [&sub](LogNotifier* n) { n->Unsubscribe(sub); });
 
-    int64_t pushed_id = ctx.notifier.last_id();
+    int64_t pushed_id = ctx.notifier.GetLastId();
     auto last_push_tp = std::chrono::steady_clock::time_point{};
 
     auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
     log::info(std::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
-                          ctx.notifier.subscriber_count()));
+                          ctx.notifier.SubscriberCount()));
 
     // ── Event loop ────────────────────────────────────────────────────────────
     while (true) {
@@ -83,7 +83,7 @@ inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
 
-        int64_t current_id = ctx.notifier.last_id();
+        int64_t current_id = ctx.notifier.GetLastId();
         if (current_id <= pushed_id) continue;  // nothing new
 
         // Apply debounce: do not push more than once per debounce window.
@@ -98,7 +98,7 @@ inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
         };
         PaginatedQueryResult result;
         try {
-            result = ctx.db.query(fields, id_filters, cfg.sse_limit, 0);
+            result = ctx.db.Query(fields, id_filters, cfg.sse_limit, 0);
         } catch (const std::exception& e) {
             log::error(std::format("SSE query error: {}", e.what()));
             continue;
@@ -135,7 +135,7 @@ inline asio::awaitable<void> handle_sse(beast::tcp_stream stream,
     }
 
     log::info(std::format("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
-                          ctx.notifier.subscriber_count()));
+                          ctx.notifier.SubscriberCount()));
 }
 
 }  // namespace loglite::handlers

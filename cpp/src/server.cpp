@@ -1,6 +1,8 @@
 #include "server.hpp"
 #include "log.hpp"
 
+#include <csignal>
+
 #include "handlers/health.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
@@ -38,11 +40,9 @@ void on_coro_error(std::exception_ptr eptr) {
 }  // namespace
 
 Server::Server(ServerContext& ctx, unsigned int thread_count)
-    : ctx_(ctx),
-      pool_(thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency())),
-      acceptor_(pool_) {}
+    : ctx_(ctx), pool_(thread_count), acceptor_(pool_) {}
 
-void Server::run() {
+void Server::Run() {
     auto& cfg = ctx_.config;
     auto ex = pool_.get_executor();
 
@@ -54,23 +54,35 @@ void Server::run() {
     acceptor_.listen();
     log::info(std::format("Listening on {}:{}", cfg.host, cfg.port));
 
+    // ── Signal handling ───────────────────────────────────────────────────────
+    asio::signal_set signals{ex, SIGINT, SIGTERM};
+    signals.async_wait([this](const boost::system::error_code& ec, int signo) {
+        if (!ec) {
+            log::info(std::format("Received signal {}, shutting down gracefully", signo));
+            Stop();
+        }
+    });
+
     // ── Background tasks ──────────────────────────────────────────────────────
     asio::co_spawn(ex, tasks::flush_backlog_task(ctx_), on_coro_error);
     asio::co_spawn(ex, tasks::vacuum_task(ctx_), on_coro_error);
     asio::co_spawn(ex, tasks::diagnostics_task(ctx_), on_coro_error);
 
     // ── Accept loop ───────────────────────────────────────────────────────────
-    asio::co_spawn(ex, accept_loop(acceptor_), on_coro_error);
+    asio::co_spawn(ex, AcceptLoop(acceptor_), on_coro_error);
 
     pool_.join();  // blocks until stop() is called
 }
 
-void Server::stop() {
-    acceptor_.close();
+void Server::Stop() {
+    // Use the error_code overload so closing an already-closed acceptor is a
+    // no-op rather than an exception (stop() may be called more than once).
+    boost::system::error_code ec;
+    acceptor_.close(ec);
     pool_.stop();
 }
 
-asio::awaitable<void> Server::accept_loop(ip::tcp::acceptor& acceptor) {
+asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
     while (true) {
         auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
         if (ec) {
@@ -83,11 +95,11 @@ asio::awaitable<void> Server::accept_loop(ip::tcp::acceptor& acceptor) {
         stream.expires_after(std::chrono::seconds(60));
 
         auto ex = co_await asio::this_coro::executor;
-        asio::co_spawn(ex, handle_connection(std::move(stream)), on_coro_error);
+        asio::co_spawn(ex, HandleConnection(std::move(stream)), on_coro_error);
     }
 }
 
-asio::awaitable<void> Server::handle_connection(beast::tcp_stream stream) {
+asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
     beast::flat_buffer buf;
     http::request<http::string_body> req;
 
@@ -98,7 +110,7 @@ asio::awaitable<void> Server::handle_connection(beast::tcp_stream stream) {
     }
 
     auto target = std::string(req.target());
-    auto [path, _] = handlers::split_target(target);
+    auto [path, _] = handlers::SplitURLTarget(target);
     auto method = req.method();
     auto& cfg = ctx_.config;
 
@@ -116,20 +128,20 @@ asio::awaitable<void> Server::handle_connection(beast::tcp_stream stream) {
     // ── Route dispatch ────────────────────────────────────────────────────────
     if (path == "/logs/sse" && method == http::verb::get) {
         // Long-lived; hands off the stream.
-        co_await handlers::handle_sse(std::move(stream), std::move(req), ctx_);
+        co_await handlers::HandleSSE(std::move(stream), std::move(req), ctx_);
         co_return;
     }
 
     http::response<http::string_body> res;
 
     if (path == "/logs" && method == http::verb::post) {
-        res = handlers::handle_insert(req, ctx_);
+        res = handlers::HandleInsert(req, ctx_);
     } else if (path == "/logs" && method == http::verb::get) {
-        res = handlers::handle_query(req, ctx_);
+        res = handlers::HandleQuery(req, ctx_);
     } else if (path == "/health" && method == http::verb::get) {
-        res = handlers::handle_health(req, ctx_);
+        res = handlers::HandleHealth(req, ctx_);
     } else {
-        res = handlers::fail(404, "not found", req, cfg.allow_origin);
+        res = handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
     }
 
     try {

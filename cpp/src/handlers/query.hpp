@@ -12,15 +12,15 @@
 namespace loglite::handlers {
 
 template <class Body>
-http::response<http::string_body> handle_query(const http::request<Body>& req, ServerContext& ctx) {
-    auto [path, qs] = split_target(req.target());
-    auto params = parse_query_string(qs);
+http::response<http::string_body> HandleQuery(const http::request<Body>& req, ServerContext& ctx) {
+    auto [path, qs] = SplitURLTarget(req.target());
+    auto params = ParseQueryString(qs);
 
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"fields", "limit", "offset"}) {
         if (!params.contains(p))
-            return fail(400, std::format("Required parameter '{}' is missing", p), req,
-                        ctx.config.allow_origin);
+            return MakeFailResp(400, std::format("Required parameter '{}' is missing", p), req,
+                                ctx.config.allow_origin);
     }
 
     // ── Extract pagination / field selection ──────────────────────────────────
@@ -43,10 +43,10 @@ http::response<http::string_body> handle_query(const http::request<Body>& req, S
 
     for (const auto& [key, value] : params) {
         if (reserved.contains(key)) continue;
-        auto key_filters = parse_filter_expr(key, value);
+        auto key_filters = ParseQueryFilters(key, value);
         if (key_filters.empty())
-            return fail(400, std::format("Invalid filter expression for field '{}'", key), req,
-                        ctx.config.allow_origin);
+            return MakeFailResp(400, std::format("Invalid filter expression for field '{}'", key),
+                                req, ctx.config.allow_origin);
         for (auto& f : key_filters) filters.push_back(std::move(f));
     }
 
@@ -57,12 +57,12 @@ http::response<http::string_body> handle_query(const http::request<Body>& req, S
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
         Timer t;
-        auto result = ctx.db.query(fields, filters, limit, offset);
+        auto result = ctx.db.Query(fields, filters, limit, offset);
         ctx.query_stats.collect(1, t.elapsed_ms());
-        return ok(result.to_json(), req, ctx.config.allow_origin);
+        return MakeOKResp(result.to_json(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::error(std::format("Query error: {}", e.what()));
-        return fail(500, e.what(), req, ctx.config.allow_origin);
+        return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }
 

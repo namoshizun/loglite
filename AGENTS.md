@@ -1,7 +1,6 @@
 ## General coding style
 
 - Prefer iteration and modularization over code duplication.
-- Use descriptive variable names with auxiliary verbs (e.g., is_active, has_permission).
 - Follow the "let it crash" principle: avoid excessive error handling and edge case checks, especially when implementing experimental solutions or features. Don't let the main intent of functions and classes be obscured by boilerplate exception handling.
 - **Important**: try to fix things at the cause, not the symptom.
 

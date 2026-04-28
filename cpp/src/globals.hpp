@@ -34,32 +34,15 @@ class LogNotifier {
         std::shared_ptr<asio::steady_timer> timer;
     };
 
-    [[nodiscard]] std::shared_ptr<Subscription> subscribe(asio::any_io_executor ex) {
-        auto sub =
-            std::make_shared<Subscription>(std::make_shared<asio::steady_timer>(std::move(ex)));
-        std::lock_guard lk(mtx_);
-        subs_.push_back(sub);
-        return sub;
-    }
+    [[nodiscard]] std::shared_ptr<Subscription> Subscribe(asio::any_io_executor ex);
 
-    void unsubscribe(const std::shared_ptr<Subscription>& sub) {
-        std::lock_guard lk(mtx_);
-        std::erase(subs_, sub);
-    }
+    void Unsubscribe(const std::shared_ptr<Subscription>& sub);
 
-    void notify(int64_t id) {
-        last_id_.store(id, std::memory_order_release);
-        std::lock_guard lk(mtx_);
-        for (auto& sub : subs_)
-            sub->timer->cancel();  // posts cancellation through io_context – thread-safe
-    }
+    void Notify(int64_t id);
 
-    int64_t last_id() const noexcept { return last_id_.load(std::memory_order_acquire); }
+    int64_t GetLastId() const noexcept;
 
-    size_t subscriber_count() const {
-        std::lock_guard lk(mtx_);
-        return subs_.size();
-    }
+    size_t SubscriberCount() const;
 
    private:
     std::atomic<int64_t> last_id_{0};

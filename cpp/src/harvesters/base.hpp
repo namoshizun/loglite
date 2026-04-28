@@ -20,13 +20,13 @@ class Harvester {
 
     virtual ~Harvester() = default;
 
-    virtual void start() = 0;
-    virtual void stop() = 0;
+    virtual void Start() = 0;
+    virtual void Stop() = 0;
 
-    std::string_view name() const { return name_; }
+    std::string_view Name() const { return name_; }
 
    protected:
-    void ingest(nlohmann::json entry) { backlog_.add(std::move(entry)); }
+    void Ingest(nlohmann::json entry) { backlog_.Add(std::move(entry)); }
 
     std::string name_;
     Backlog& backlog_;

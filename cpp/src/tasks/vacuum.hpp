@@ -19,7 +19,7 @@ namespace detail {
 inline int remove_stale_logs(Database& db, const Config& cfg) {
     using namespace std::chrono;
 
-    auto min_ts = db.get_min_timestamp();
+    auto min_ts = db.GetMinTimestamp();
     if (min_ts.empty()) return 0;
 
     // Build cutoff ISO timestamp string (UTC).
@@ -33,7 +33,7 @@ inline int remove_stale_logs(Database& db, const Config& cfg) {
     if (min_ts >= std::string{buf}) return 0;
 
     std::vector<QueryFilter> flt{{cfg.log_timestamp_field, "<=", std::string{buf}}};
-    int n = db.delete_logs(flt);
+    int n = db.DeleteLogs(flt);
     if (n > 0)
         log::info(std::format("[vacuum] removed {} stale log(s) older than {} days", n,
                               cfg.vacuum_max_days));
@@ -42,14 +42,14 @@ inline int remove_stale_logs(Database& db, const Config& cfg) {
 
 // Delete oldest logs until DB size is below target; returns deleted count.
 inline int remove_excessive_logs(Database& db, const Config& cfg) {
-    double db_mb = db.get_size_mb();
+    double db_mb = db.GetSizeMB();
     double max_mb = bytes_to_mb(cfg.vacuum_max_size_bytes);
     double target_mb = bytes_to_mb(cfg.vacuum_target_size_bytes);
 
     if (db_mb <= max_mb) return 0;
 
-    int64_t min_id = db.get_min_log_id();
-    int64_t max_id = db.get_max_log_id();
+    int64_t min_id = db.GetMinLogId();
+    int64_t max_id = db.GetMaxLogId();
     int64_t rowcnt = max_id - min_id + 1;
 
     double ratio = (db_mb - target_mb) / db_mb;
@@ -63,27 +63,27 @@ inline int remove_excessive_logs(Database& db, const Config& cfg) {
     for (int64_t start = min_id; start <= remove_max_id; start += cfg.vacuum_delete_batch_size) {
         int64_t end_id = std::min(start + cfg.vacuum_delete_batch_size - 1, remove_max_id);
         std::vector<QueryFilter> flt{{"id", "<=", end_id}};
-        removed += db.delete_logs(flt);
+        removed += db.DeleteLogs(flt);
         log::info(std::format("[vacuum] ... removed {} entries so far", removed));
     }
     return removed;
 }
 
 inline int incremental_vacuum_pass(Database& db, int max_size_mb) {
-    auto freelist = db.get_pragma("freelist_count");
+    auto freelist = db.GetPragma("freelist_count");
     if (freelist.empty() || freelist == "0") return 0;
 
     int64_t fl = std::stoll(freelist);
-    int64_t pgsz = std::stoll(db.get_pragma("page_size"));
+    int64_t pgsz = std::stoll(db.GetPragma("page_size"));
     int64_t budget = static_cast<int64_t>(max_size_mb) * 1024 * 1024 / pgsz;
     int64_t pages = std::min(budget, fl);
 
     Timer t;
-    db.incremental_vacuum(static_cast<int>(pages));
+    db.IncrementalVacuum(static_cast<int>(pages));
     log::info(
-        std::format("[vacuum] incremental_vacuum({}) pages in {:.1f}s", pages, t.elapsed_s()));
+        std::format("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, t.elapsed_s()));
 
-    return static_cast<int>(std::stoll(db.get_pragma("freelist_count")));
+    return static_cast<int>(std::stoll(db.GetPragma("freelist_count")));
 }
 
 }  // namespace detail
@@ -104,9 +104,9 @@ inline asio::awaitable<void> vacuum_task(ServerContext& ctx) {
         // All vacuum operations mutate the DB → run on write strand.
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
-        ctx.db.wal_checkpoint("TRUNCATE");
+        ctx.db.WALCheckpoint("TRUNCATE");
 
-        auto vacuum_mode_str = ctx.db.get_pragma("auto_vacuum");
+        auto vacuum_mode_str = ctx.db.GetPragma("auto_vacuum");
         int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
 
         if (vacuum_mode == 2) {  // INCREMENTAL
@@ -117,7 +117,7 @@ inline asio::awaitable<void> vacuum_task(ServerContext& ctx) {
             }
         }
 
-        bool has_ts = std::ranges::any_of(ctx.db.column_info(), [&](const ColumnInfo& ci) {
+        bool has_ts = std::ranges::any_of(ctx.db.GetColumnInfo(), [&](const ColumnInfo& ci) {
             return ci.name == cfg.log_timestamp_field;
         });
 
@@ -127,8 +127,8 @@ inline asio::awaitable<void> vacuum_task(ServerContext& ctx) {
 
         if (vacuum_mode == 1) {  // FULL
             Timer t;
-            ctx.db.vacuum();
-            ctx.db.wal_checkpoint("FULL");
+            ctx.db.Vacuum();
+            ctx.db.WALCheckpoint("FULL");
             log::info(std::format("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s()));
         }
 

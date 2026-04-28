@@ -7,7 +7,6 @@
 #include "server.hpp"
 
 #include <CLI/CLI.hpp>
-#include <csignal>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -27,8 +26,8 @@ static int with_migrations(const fs::path& config_path, F&& f) {
     cfg.auto_rollout = false;
 
     Database db{cfg};
-    db.open();
-    db.create_internal_tables();
+    db.Open();
+    db.CreateInternalTables();
     MigrationManager mgr{db, cfg.migrations};
     return std::forward<F>(f)(mgr);
 }
@@ -39,15 +38,14 @@ static int cmd_server_run(const fs::path& config_path) {
     auto cfg = Config::from_file(config_path);
 
     Database db{cfg};
-    db.open();
-    db.initialize();
+    db.Open();
+    db.Initialize();
 
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
     StatsTracker ingest_stats, query_stats;
 
-    asio::thread_pool pool{std::max(1u, std::thread::hardware_concurrency())};
-
+    asio::thread_pool db_ops_pool{1u};
     ServerContext ctx{
         cfg,
         db,
@@ -55,7 +53,7 @@ static int cmd_server_run(const fs::path& config_path) {
         notifier,
         ingest_stats,
         query_stats,
-        asio::make_strand(pool.get_executor()),
+        asio::make_strand(db_ops_pool.get_executor()),
     };
 
     // ── Start harvesters ──────────────────────────────────────────────────────
@@ -68,31 +66,27 @@ static int cmd_server_run(const fs::path& config_path) {
                 continue;
             }
             auto h = std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog);
-            h->start();
+            h->Start();
             active_harvesters.push_back(std::move(h));
         } else {
             log::warn(std::format("Unknown harvester type '{}', skipping", hdef.type));
         }
     }
 
-    // ── Signal handling ───────────────────────────────────────────────────────
-    Server server{ctx};
-
-    std::signal(SIGINT, [](int) { std::exit(0); });
-    std::signal(SIGTERM, [](int) { std::exit(0); });
-
+    auto thread_count = std::max(1u, std::thread::hardware_concurrency());
+    Server server{ctx, thread_count};
     log::info(std::format("loglite server starting on {}:{}", cfg.host, cfg.port));
-    server.run();  // blocks until stop() or SIGINT
+    server.run();
 
-    for (auto& h : active_harvesters) h->stop();
-    db.close();
+    for (auto& h : active_harvesters) h->Stop();
+    db.Close();
     return 0;
 }
 
 // ── Migration commands ─────────────────────────────────────────────────────────
 static int cmd_migrate_rollout(const fs::path& config_path, int start_version) {
     return with_migrations(config_path, [start_version](MigrationManager& mgr) -> int {
-        bool applied = mgr.apply_pending_migrations(start_version);
+        bool applied = mgr.ApplyPendingMigrations(start_version);
         if (!applied) log::info("No pending migrations to apply.");
         return 0;
     });
@@ -100,7 +94,7 @@ static int cmd_migrate_rollout(const fs::path& config_path, int start_version) {
 
 static int cmd_migrate_rollback(const fs::path& config_path, int version, bool force) {
     return with_migrations(config_path, [version, force](MigrationManager& mgr) -> int {
-        mgr.rollback_migration(version, force);
+        mgr.RollbackMigration(version, force);
         return 0;
     });
 }

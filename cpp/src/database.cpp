@@ -235,41 +235,47 @@ int Database::Insert(const std::vector<nlohmann::json>& logs) {
     Statement stmt{db_, sql};
 
     exec_sql(db_, "BEGIN");
-    int inserted = 0;
-    for (const auto& log : logs) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+    try {
+        int inserted = 0;
+        for (const auto& log : logs) {
+            sqlite3_reset(stmt);
+            sqlite3_clear_bindings(stmt);
 
-        bool valid = true;
-        for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
-            const auto& ci = cols[i];
-            auto it = log.find(ci.name);
-            nlohmann::json raw = (it != log.end()) ? *it : nlohmann::json(nullptr);
+            bool valid = true;
+            for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
+                const auto& ci = cols[i];
+                auto it = log.find(ci.name);
+                nlohmann::json raw = (it != log.end()) ? *it : nlohmann::json(nullptr);
 
-            if (ci.not_null && raw.is_null()) {
-                log::warn(std::format("Skipping log: column '{}' required but missing", ci.name));
-                valid = false;
-                break;
+                if (ci.not_null && raw.is_null()) {
+                    log::warn(
+                        std::format("Skipping log: column '{}' required but missing", ci.name));
+                    valid = false;
+                    break;
+                }
+
+                nlohmann::json serialized = serialize_value(raw);
+                if (compressed_columns_.contains(ci.name) && !serialized.is_null()) {
+                    std::string sv =
+                        serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
+                    serialized = col_dict_->GetOrCreate(ci.name, sv);
+                }
+                bind_param(stmt, i + 1, serialized);
             }
 
-            nlohmann::json serialized = serialize_value(raw);
-            if (compressed_columns_.contains(ci.name) && !serialized.is_null()) {
-                std::string sv =
-                    serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
-                serialized = col_dict_->GetOrCreate(ci.name, sv);
-            }
-            bind_param(stmt, i + 1, serialized);
+            if (!valid) continue;
+            int rc = sqlite3_step(stmt);
+            if (rc == SQLITE_DONE)
+                ++inserted;
+            else
+                log::error(std::format("Insert step failed: {}", sqlite3_errmsg(db_)));
         }
-
-        if (!valid) continue;
-        int rc = sqlite3_step(stmt);
-        if (rc == SQLITE_DONE)
-            ++inserted;
-        else
-            log::error(std::format("Insert step failed: {}", sqlite3_errmsg(db_)));
+        exec_sql(db_, "COMMIT");
+        return inserted;
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        throw;
     }
-    exec_sql(db_, "COMMIT");
-    return inserted;
 }
 
 PaginatedQueryResult Database::Query(const std::vector<std::string>& fields,

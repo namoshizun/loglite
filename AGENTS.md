@@ -3,6 +3,7 @@
 - Prefer iteration and modularization over code duplication.
 - Follow the "let it crash" principle: avoid excessive error handling and edge case checks, especially when implementing experimental solutions or features. Don't let the main intent of functions and classes be obscured by boilerplate exception handling.
 - **Important**: try to fix things at the cause, not the symptom.
+- When asked to review the code, GO BY THE BOOK! As if you are a reviewer in bad mood.
 
 
 ## Python coding guide

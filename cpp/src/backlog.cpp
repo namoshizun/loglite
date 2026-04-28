@@ -8,6 +8,9 @@ Backlog::Backlog(size_t max_size) : max_size_(max_size) {}
 
 void Backlog::Add(nlohmann::json log) {
     std::lock_guard<std::mutex> lk(mtx_);
+    if (queue_.size() >= max_size_) {
+        queue_.pop_front();
+    }
     queue_.push_back(std::move(log));
     if (queue_.size() >= max_size_) is_full_.store(true, std::memory_order_release);
 }

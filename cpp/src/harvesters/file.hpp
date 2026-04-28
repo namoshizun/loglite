@@ -9,6 +9,8 @@
 #include <format>
 #include <thread>
 
+using namespace std::literals::chrono_literals;
+
 namespace loglite::harvesters {
 
 // ── FileHarvester ──────────────────────────────────────────────────────────────
@@ -39,17 +41,16 @@ class FileHarvester final : public Harvester {
         while (!std::filesystem::exists(path_)) {
             if (st.stop_requested()) return;
             log::debug(std::format("FileHarvester '{}': waiting for {}", name_, path_.string()));
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(5s);
         }
 
         // Seek to end of current file.
-        auto stat = std::filesystem::status(path_);
         auto inode = get_inode(path_);
         auto offset = std::filesystem::file_size(path_);
 
         while (!st.stop_requested()) {
             if (!std::filesystem::exists(path_)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                std::this_thread::sleep_for(500ms);
                 continue;
             }
 
@@ -66,7 +67,7 @@ class FileHarvester final : public Harvester {
             }
 
             if (new_size == offset) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                std::this_thread::sleep_for(500ms);
                 continue;
             }
 
@@ -79,7 +80,14 @@ class FileHarvester final : public Harvester {
                 if (!line.empty() && line.back() == '\r') line.pop_back();
                 if (!line.empty()) process_line(line);
             }
-            offset = static_cast<std::uintmax_t>(file.tellg());
+            // std::getline leaves eofbit|failbit set after exhausting the file,
+            // which makes tellg() return -1. Clear those bits first so that
+            // tellg() reports the actual stream position (= end of new data).
+            // But if if the seek truly failed, leave offset
+            // unchanged rather than wrapping it to SIZE_MAX.
+            file.clear();
+            if (auto pos = file.tellg(); pos != std::streampos{-1})
+                offset = static_cast<std::uintmax_t>(pos);
         }
     }
 

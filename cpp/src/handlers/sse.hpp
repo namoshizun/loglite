@@ -50,6 +50,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     }
 
     // ── Send response headers ─────────────────────────────────────────────────
+    stream.expires_never();
     http::response<http::empty_body> res{http::status::ok, req.version()};
     res.set(http::field::content_type, "text/event-stream");
     res.set(http::field::cache_control, "no-cache");

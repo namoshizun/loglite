@@ -13,8 +13,12 @@ namespace loglite {
 
 // ── Backlog ────────────────────────────────────────────────────────────────────
 //
-// Thread-safe in-memory buffer for incoming log entries.
+// Thread-safe, bounded in-memory buffer for incoming log entries.
 // Logs are batched here and flushed to SQLite by a background task.
+//
+// When the queue is at capacity, Add() evicts the oldest entry before
+// inserting the new one (drop-oldest policy), so memory use is bounded
+// even if the flush task falls behind or dies.
 //
 // The `IsFull()` flag is polled by the flush task so it can force an early
 // flush when the backlog reaches capacity (task_backlog_max_size).

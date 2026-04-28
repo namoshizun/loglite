@@ -229,3 +229,51 @@ TEST(MigrationLoopTest, AllMigrationsAppliedOnInitialize) {
     db.Close();
     fs::remove_all(tmp);
 }
+
+// ── SQL-injection prevention ───────────────────────────────────────────────────
+
+// Helper: insert a row so the table is non-empty (Query short-circuits on empty).
+static void seed_one_row(Database& db) {
+    db.Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "seed"}, {"level", "INFO"}}});
+}
+
+TEST_F(DatabaseTest, QueryRejectsUnknownFieldInSelectList) {
+    seed_one_row(*db_);
+    EXPECT_THROW(db_->Query({"__injected--field"}, {}, 10, 0), std::runtime_error);
+}
+
+TEST_F(DatabaseTest, QueryAllowsWildcard) {
+    seed_one_row(*db_);
+    EXPECT_NO_THROW(db_->Query({"*"}, {}, 10, 0));
+}
+
+TEST_F(DatabaseTest, QueryAllowsKnownFields) {
+    seed_one_row(*db_);
+    EXPECT_NO_THROW(db_->Query({"id", "timestamp", "message", "level"}, {}, 10, 0));
+}
+
+TEST_F(DatabaseTest, QueryRejectsUnknownFieldInFilter) {
+    seed_one_row(*db_);
+    QueryFilter bad{.field = "'; DROP TABLE TestLog; --", .op = "=", .value = "x"};
+    EXPECT_THROW(db_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
+}
+
+TEST_F(DatabaseTest, QueryRejectsUnknownOperator) {
+    seed_one_row(*db_);
+    QueryFilter bad{.field = "level", .op = "LIKE", .value = "%INFO%"};
+    EXPECT_THROW(db_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
+}
+
+TEST_F(DatabaseTest, DeleteLogsRejectsUnknownField) {
+    seed_one_row(*db_);
+    QueryFilter bad{.field = "evil_field", .op = "=", .value = "x"};
+    EXPECT_THROW(db_->DeleteLogs({bad}), std::runtime_error);
+}
+
+TEST_F(DatabaseTest, AllQueryOperatorsAreAccepted) {
+    seed_one_row(*db_);
+    for (auto op : {"=", "!=", ">", ">=", "<", "<=", "~="}) {
+        QueryFilter f{.field = "level", .op = op, .value = "INFO"};
+        EXPECT_NO_THROW(db_->Query({"*"}, {f}, 10, 0)) << "operator: " << op;
+    }
+}

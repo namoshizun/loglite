@@ -6,57 +6,87 @@ target_link_libraries(loglite_tests PRIVATE loglite_lib GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(loglite_tests)
 
-# ── Optional coverage (lcov) ────────────────────────────────────────────────────
+# ── Optional coverage report (lcov) ───────────────────────────────────────────
 #
-# Configure with: cmake -B build -DLOGLITE_COVERAGE=ON
-# Build & report: cmake --build build --target loglite_coverage
-# After toggling LOGLITE_COVERAGE or changing sources, prefer a clean rebuild
-# so .gcno/.gcda match (avoids stale line-range noise under Clang/lcov).
+# Controlled by -DLOGLITE_COVERAGE=ON, which is set in the parent CMakeLists.
+# The parent already instruments loglite_lib; here we only instrument the test
+# binary itself and define the loglite_coverage reporting target.
 #
-# Runs tests, collects gcda data, filters out system deps and unit-test harness
-# sources, then prints a summary plus per-file coverage for library code under
-# src/.
+# Two-pass capture (--initial baseline + actual run) ensures every instrumented
+# source file appears in the report — even TUs whose symbols are not linked into
+# loglite_tests (e.g. globals.cpp) show up at 0% instead of being absent.
 #
-# lcov is picky about Clang/LLVM gcov data; the suppress flags below keep the
-# target usable without noisy failures.
-
-option(LOGLITE_COVERAGE "Instrument loglite_lib + tests; use target loglite_coverage" OFF)
+# lcov -q -q suppresses the "Reading tracefile …" / "Message summary" noise
+# lines without needing a helper script or shell pipe.
 
 if(LOGLITE_COVERAGE)
-    target_compile_options(loglite_lib PRIVATE --coverage)
     target_compile_options(loglite_tests PRIVATE --coverage)
-    target_link_options(loglite_tests PRIVATE --coverage)
-    target_link_options(loglite PRIVATE --coverage)
+    target_link_options(loglite_tests    PRIVATE --coverage)
 
     find_program(LOGLITE_LCOV_EXECUTABLE lcov REQUIRED)
 
-    set(_cov_raw "${CMAKE_BINARY_DIR}/coverage_raw.info")
-    set(_cov_info "${CMAKE_BINARY_DIR}/coverage.info")
+    set(_cov_baseline "${CMAKE_BINARY_DIR}/coverage_baseline.info")
+    set(_cov_raw      "${CMAKE_BINARY_DIR}/coverage_raw.info")
+    set(_cov_merged   "${CMAKE_BINARY_DIR}/coverage_merged.info")
+    set(_cov_info     "${CMAKE_BINARY_DIR}/coverage.info")
+
+    # Common ignore-errors flags reused across steps.
+    set(_lcov_ignore
+        --ignore-errors inconsistent,inconsistent,unsupported,unsupported,mismatch,mismatch,range,range,format,format
+    )
 
     add_custom_target(loglite_coverage
-        COMMAND ${CMAKE_COMMAND} -E rm -f "${_cov_raw}" "${_cov_info}"
-        COMMAND ${LOGLITE_LCOV_EXECUTABLE} --zerocounters --directory "${CMAKE_BINARY_DIR}"
+        # 1. Wipe stale intermediate files and zero all counters.
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+                "${_cov_baseline}" "${_cov_raw}" "${_cov_merged}" "${_cov_info}"
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
+                --zerocounters --directory "${CMAKE_BINARY_DIR}"
+
+        # 2. Baseline from .gcno files — every instrumented line starts at 0%
+        #    so source files not exercised by any test still appear in the report.
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
+                --capture --initial
+                --directory "${CMAKE_BINARY_DIR}"
+                ${_lcov_ignore} --keep-going
+                --output-file "${_cov_baseline}"
+
+        # 3. Run the full test suite (writes .gcda execution counters).
         COMMAND $<TARGET_FILE:loglite_tests>
-        COMMAND ${LOGLITE_LCOV_EXECUTABLE}
+
+        # 4. Capture actual execution counters.
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
                 --capture
                 --directory "${CMAKE_BINARY_DIR}"
-                --ignore-errors inconsistent,unsupported,mismatch,range,format
-                --keep-going
+                ${_lcov_ignore} --keep-going
                 --output-file "${_cov_raw}"
-        COMMAND ${LOGLITE_LCOV_EXECUTABLE}
-                --remove "${_cov_raw}"
-                "/usr/*"
-                "/Library/*"
-                "/opt/homebrew/*"
-                "*/_deps/*"
+
+        # 5. Merge baseline + actual.
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
+                --add-tracefile "${_cov_baseline}"
+                --add-tracefile "${_cov_raw}"
+                --ignore-errors inconsistent,inconsistent,range,range,format,format
+                --keep-going
+                --output-file "${_cov_merged}"
+
+        # 6. Strip system headers, vendored deps, and test-harness sources.
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
+                --remove "${_cov_merged}"
+                "/usr/*" "/Library/*" "/opt/homebrew/*" "*/_deps/*"
                 "${CMAKE_CURRENT_SOURCE_DIR}/*"
-                --ignore-errors unused,inconsistent,unsupported,range,format
+                --ignore-errors unused,unused,inconsistent,inconsistent,unsupported,range,format
                 --keep-going
                 --output-file "${_cov_info}"
-        COMMAND ${LOGLITE_LCOV_EXECUTABLE} --ignore-errors inconsistent,corrupt
+
+        # 7. Print summary + per-file table.
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE}
+                -q -q
+                --ignore-errors inconsistent,inconsistent,corrupt,corrupt
                 --summary "${_cov_info}"
-        COMMAND ${LOGLITE_LCOV_EXECUTABLE} --ignore-errors inconsistent,corrupt
+        COMMAND ${LOGLITE_LCOV_EXECUTABLE}
+                -q -q
+                --ignore-errors inconsistent,inconsistent,corrupt,corrupt
                 --list "${_cov_info}"
+
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
         DEPENDS loglite_tests
         COMMENT "Running tests and printing lcov coverage to the terminal..."

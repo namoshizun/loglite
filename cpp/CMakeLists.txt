@@ -123,8 +123,19 @@ if(LOGLITE_STRIP)
     endif()
 endif()
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
+# ── Coverage instrumentation ──────────────────────────────────────────────────
+#
+# Applies gcov instrumentation to loglite_lib so run-tests.sh --cov can produce
+# a complete lcov report.  Owned here because loglite_lib is defined here.
+# build.sh always passes -DLOGLITE_COVERAGE=OFF to guarantee a clean binary.
 
+option(LOGLITE_COVERAGE "Instrument loglite_lib with gcov (--coverage)" OFF)
+if(LOGLITE_COVERAGE)
+    target_compile_options(loglite_lib PRIVATE --coverage)
+    target_link_options(loglite        PRIVATE --coverage)
+endif()
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
 FetchContent_Declare(googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG        v1.15.2

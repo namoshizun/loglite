@@ -8,19 +8,12 @@ JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}"
 # ── Parse flags ───────────────────────────────────────────────────────────────
 
 RELEASE=0
-COVERAGE=0
 for arg in "$@"; do
     case "$arg" in
         --release) RELEASE=1 ;;
-        --coverage) COVERAGE=1 ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
-
-if [[ $COVERAGE -eq 1 && $RELEASE -eq 1 ]]; then
-    echo "build.sh: --coverage cannot be combined with --release (LTO/strip conflict with gcov)." >&2
-    exit 1
-fi
 
 if [[ $RELEASE -eq 1 ]]; then
     BUILD_TYPE=Release
@@ -32,13 +25,8 @@ else
     echo "Mode: DEBUG  (unoptimised · debug symbols · fast recompile)"
 fi
 
-if [[ $COVERAGE -eq 1 ]]; then
-    echo "Coverage: ON   (--coverage · LOGLITE_COVERAGE=ON · lcov report after build)"
-fi
-
 # ── Compiler ──────────────────────────────────────────────────────────────────
-
-# Prefer the Homebrew clang, which is required for full C++23 support on macOS.
+# MacOS.
 if [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
     export CC=/opt/homebrew/opt/llvm/bin/clang
     export CXX=/opt/homebrew/opt/llvm/bin/clang++
@@ -48,29 +36,20 @@ fi
 
 echo ""
 echo "── Configure ────────────────────────────────────────────────────────────────"
-COVERAGE_CMAKE=()
-[[ $COVERAGE -eq 1 ]] && COVERAGE_CMAKE=(-DLOGLITE_COVERAGE=ON)
-
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DLOGLITE_COVERAGE=OFF \
     ${CXX:+-DCMAKE_CXX_COMPILER="$CXX"} \
     ${CC:+-DCMAKE_C_COMPILER="$CC"} \
-    ${EXTRA_CMAKE_FLAGS[@]+"${EXTRA_CMAKE_FLAGS[@]}"} \
-    "${COVERAGE_CMAKE[@]}"
+    ${EXTRA_CMAKE_FLAGS[@]+"${EXTRA_CMAKE_FLAGS[@]}"}
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "── Build (jobs=$JOBS) ───────────────────────────────────────────────────────"
-cmake --build "$BUILD_DIR" -j"$JOBS"
-
-if [[ $COVERAGE -eq 1 ]]; then
-    echo ""
-    echo "── Coverage (lcov) ───────────────────────────────────────────────────────────"
-    cmake --build "$BUILD_DIR" --target loglite_coverage -j"$JOBS"
-fi
+cmake --build "$BUILD_DIR" --target loglite -j"$JOBS"
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
@@ -81,8 +60,4 @@ SIZE_KB=$(( SIZE_BYTES / 1024 ))
 echo ""
 echo "── Artifacts ────────────────────────────────────────────────────────────────"
 printf "  %-8s %s  (%s KB)\n" "binary"  "$BINARY"                        "$SIZE_KB"
-printf "  %-8s %s\n"          "tests"   "$BUILD_DIR/tests/loglite_tests"
 printf "  %-8s %s\n"          "compdb"  "$BUILD_DIR/compile_commands.json"
-if [[ $COVERAGE -eq 1 ]]; then
-    printf "  %-8s %s\n"      "coverage" "$BUILD_DIR/coverage.info"
-fi

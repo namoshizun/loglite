@@ -45,9 +45,11 @@ class ColumnDictionary {
     // Used to convert a filter into an IN(?) clause.
     std::vector<ValueId> QueryCandidates(const QueryFilter& filter) const;
 
-    const LookupTable& GetLookUp() const { return lookup_; }
+    // Returns a snapshot copy of the lookup table (thread-safe).
+    LookupTable GetLookUp() const;
 
    private:
+    mutable std::shared_mutex mtx_;
     LookupTable lookup_;
     PersistFn persist_;
 };

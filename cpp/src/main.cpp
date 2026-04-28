@@ -76,7 +76,7 @@ static int cmd_server_run(const fs::path& config_path) {
     auto thread_count = std::max(1u, std::thread::hardware_concurrency());
     Server server{ctx, thread_count};
     log::info(std::format("loglite server starting on {}:{}", cfg.host, cfg.port));
-    server.run();
+    server.Run();
 
     for (auto& h : active_harvesters) h->Stop();
     db.Close();

@@ -1,0 +1,13 @@
+FROM ubuntu:26.04
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc-13 \
+        g++-13 \
+        make \
+        libc6-dev \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

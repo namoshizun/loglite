@@ -1,0 +1,156 @@
+#include "server.hpp"
+#include "log.hpp"
+
+#include <csignal>
+
+#include "handlers/health.hpp"
+#include "handlers/insert.hpp"
+#include "handlers/query.hpp"
+#include "handlers/sse.hpp"
+
+#include "tasks/diagnostics.hpp"
+#include "tasks/flush_backlog.hpp"
+#include "tasks/vacuum.hpp"
+
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
+#include <format>
+
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace ip = asio::ip;
+
+namespace loglite {
+
+namespace {
+
+// Log and swallow exceptions from detached coroutines.
+void on_coro_error(std::exception_ptr eptr) {
+    if (!eptr) return;
+    try {
+        std::rethrow_exception(eptr);
+    } catch (const std::exception& e) {
+        log::error(std::format("Coroutine error: {}", e.what()));
+    } catch (...) {
+        log::error("Coroutine: unknown exception");
+    }
+}
+
+}  // namespace
+
+Server::Server(ServerContext& ctx, unsigned int thread_count)
+    : ctx_(ctx), pool_(thread_count), acceptor_(pool_) {}
+
+void Server::Run() {
+    auto& cfg = ctx_.config;
+    auto ex = pool_.get_executor();
+
+    // ── Bind TCP acceptor ─────────────────────────────────────────────────────
+    ip::tcp::endpoint endpoint{ip::make_address(cfg.host), cfg.port};
+    acceptor_.open(endpoint.protocol());
+    acceptor_.set_option(ip::tcp::acceptor::reuse_address{true});
+    acceptor_.bind(endpoint);
+    acceptor_.listen();
+    log::info(std::format("Listening on {}:{}", cfg.host, cfg.port));
+
+    // ── Signal handling ───────────────────────────────────────────────────────
+    asio::signal_set signals{ex, SIGINT, SIGTERM};
+    signals.async_wait([this](const boost::system::error_code& ec, int signo) {
+        if (!ec) {
+            log::info(std::format("Received signal {}, shutting down gracefully", signo));
+            Stop();
+        }
+    });
+
+    // ── Background tasks ──────────────────────────────────────────────────────
+    asio::co_spawn(ex, tasks::FlushBacklogTask(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::VacuumTask(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_coro_error);
+
+    // ── Accept loop ───────────────────────────────────────────────────────────
+    asio::co_spawn(ex, AcceptLoop(acceptor_), on_coro_error);
+
+    pool_.join();  // blocks until stop() is called
+}
+
+void Server::Stop() {
+    // Use the error_code overload so closing an already-closed acceptor is a
+    // no-op rather than an exception (stop() may be called more than once).
+    boost::system::error_code ec;
+    acceptor_.close(ec);
+    pool_.stop();
+}
+
+asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
+    while (true) {
+        auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
+        if (ec) {
+            if (ec != asio::error::operation_aborted)
+                log::error(std::format("accept error: {}", ec.message()));
+            co_return;
+        }
+
+        beast::tcp_stream stream{std::move(socket)};
+        stream.expires_after(std::chrono::seconds(60));
+
+        auto ex = co_await asio::this_coro::executor;
+        asio::co_spawn(ex, HandleConnection(std::move(stream)), on_coro_error);
+    }
+}
+
+asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
+    beast::flat_buffer buf;
+    http::request<http::string_body> req;
+
+    try {
+        co_await http::async_read(stream, buf, req, asio::use_awaitable);
+    } catch (...) {
+        co_return;
+    }
+
+    auto target = std::string(req.target());
+    auto [path, _] = handlers::SplitURLTarget(target);
+    auto method = req.method();
+    auto& cfg = ctx_.config;
+
+    // ── CORS preflight ────────────────────────────────────────────────────────
+    if (method == http::verb::options) {
+        http::response<http::string_body> res{http::status::no_content, req.version()};
+        res.set(http::field::access_control_allow_origin, cfg.allow_origin);
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type");
+        res.prepare_payload();
+        co_await http::async_write(stream, res, asio::use_awaitable);
+        co_return;
+    }
+
+    // ── Route dispatch ────────────────────────────────────────────────────────
+    if (path == "/logs/sse" && method == http::verb::get) {
+        // Long-lived; hands off the stream.
+        co_await handlers::HandleSSE(std::move(stream), std::move(req), ctx_);
+        co_return;
+    }
+
+    http::response<http::string_body> res;
+
+    if (path == "/logs" && method == http::verb::post) {
+        res = handlers::HandleInsert(req, ctx_);
+    } else if (path == "/logs" && method == http::verb::get) {
+        res = handlers::HandleQuery(req, ctx_);
+    } else if (path == "/health" && method == http::verb::get) {
+        res = handlers::HandleHealth(req, ctx_);
+    } else {
+        res = handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
+    }
+
+    try {
+        co_await http::async_write(stream, res, asio::use_awaitable);
+    } catch (...) {
+    }
+
+    beast::error_code ec;
+    stream.socket().shutdown(asio::ip::tcp::socket::shutdown_send, ec);
+}
+
+}  // namespace loglite

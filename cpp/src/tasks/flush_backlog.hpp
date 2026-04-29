@@ -22,7 +22,7 @@ namespace loglite::tasks {
 //   2. Dispatches to the write strand to INSERT into SQLite.
 //   3. Reads max_log_id and notifies SSE subscribers.
 
-inline asio::awaitable<void> flush_backlog_task(ServerContext& ctx) {
+inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
     asio::steady_timer timer{ex};

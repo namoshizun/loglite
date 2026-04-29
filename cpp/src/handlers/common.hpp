@@ -83,6 +83,27 @@ inline std::pair<std::string, std::string> SplitURLTarget(std::string_view targe
     return {std::string(target.substr(0, q)), std::string(target.substr(q + 1))};
 }
 
+// Safe integer parsing for query parameters.  Returns std::nullopt on
+// non-numeric or out-of-range input instead of throwing.
+inline std::optional<int> ParseIntParam(std::string_view s) {
+    if (s.empty()) return std::nullopt;
+
+    // Reject inputs that contain anything other than digits and an optional leading '-'.
+    for (char c : s) {
+        if (!std::isdigit(c) && c != '-') {
+            return std::nullopt;
+        }
+    }
+
+    try {
+        return std::stoi(std::string(s));
+    } catch (const std::invalid_argument&) {
+        return std::nullopt;
+    } catch (const std::out_of_range&) {
+        return std::nullopt;
+    }
+}
+
 // ── Filter expression parser ──────────────────────────────────────────────────
 //
 // Each query param value is one or more "<op><value>" tokens, comma-separated.

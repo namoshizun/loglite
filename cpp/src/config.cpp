@@ -191,7 +191,7 @@ Config Config::from_file(const std::filesystem::path& path) {
 
     load_root_config(cfg, env, yaml);
 
-    // Run balidation
+    // Run validation
     for (const auto& h : cfg.harvesters) {
         if (h.type.empty() || h.name.empty()) {
             throw std::runtime_error(

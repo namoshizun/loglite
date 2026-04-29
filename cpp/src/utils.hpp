@@ -102,7 +102,12 @@ inline std::string url_decode(std::string_view s) {
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '%' && i + 2 < s.size()) {
             auto hex = std::string(s.substr(i + 1, 2));
-            out += static_cast<char>(std::stoi(hex, nullptr, 16));
+            // Safely parse hex; skip the escape sequence on invalid input.
+            try {
+                out += static_cast<char>(std::stoi(hex, nullptr, 16));
+            } catch (const std::invalid_argument&) {
+            } catch (const std::out_of_range&) {
+            }
             i += 2;
         } else if (s[i] == '+') {
             out += ' ';

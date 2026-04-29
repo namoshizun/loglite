@@ -16,7 +16,7 @@ namespace loglite::tasks {
 //
 // Periodically logs ingestion and query statistics then resets the counters.
 
-inline asio::awaitable<void> diagnostics_task(ServerContext& ctx) {
+inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
     asio::steady_timer timer{ex};

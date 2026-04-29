@@ -25,8 +25,13 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
 
     // ── Extract pagination / field selection ──────────────────────────────────
     auto fields_str = params.find("fields")->second;
-    auto limit = std::stoi(params.find("limit")->second);
-    auto offset = std::stoi(params.find("offset")->second);
+    auto limit_opt = ParseIntParam(params.find("limit")->second);
+    auto offset_opt = ParseIntParam(params.find("offset")->second);
+    if (!limit_opt || !offset_opt)
+        return MakeFailResp(400, "Parameters 'limit' and 'offset' must be integers", req,
+                            ctx.config.allow_origin);
+    auto limit = *limit_opt;
+    auto offset = *offset_opt;
 
     std::vector<std::string> fields;
     if (fields_str == "*") {

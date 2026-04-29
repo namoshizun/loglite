@@ -64,9 +64,9 @@ void Server::Run() {
     });
 
     // ── Background tasks ──────────────────────────────────────────────────────
-    asio::co_spawn(ex, tasks::flush_backlog_task(ctx_), on_coro_error);
-    asio::co_spawn(ex, tasks::vacuum_task(ctx_), on_coro_error);
-    asio::co_spawn(ex, tasks::diagnostics_task(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::FlushBacklogTask(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::VacuumTask(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_coro_error);
 
     // ── Accept loop ───────────────────────────────────────────────────────────
     asio::co_spawn(ex, AcceptLoop(acceptor_), on_coro_error);

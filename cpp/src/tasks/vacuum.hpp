@@ -62,7 +62,7 @@ inline int remove_excessive_logs(Database& db, const Config& cfg) {
     int removed = 0;
     for (int64_t start = min_id; start <= remove_max_id; start += cfg.vacuum_delete_batch_size) {
         int64_t end_id = std::min(start + cfg.vacuum_delete_batch_size - 1, remove_max_id);
-        std::vector<QueryFilter> flt{{"id", "<=", end_id}};
+        std::vector<QueryFilter> flt{{"id", "<=", end_id}, {"id", ">", start}};
         removed += db.DeleteLogs(flt);
         log::info(std::format("[vacuum] ... removed {} entries so far", removed));
     }
@@ -80,8 +80,7 @@ inline int incremental_vacuum_pass(Database& db, int max_size_mb) {
 
     Timer t;
     db.IncrementalVacuum(static_cast<int>(pages));
-    log::info(
-        std::format("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, t.elapsed_s()));
+    log::info(std::format("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, t.elapsed_s()));
 
     return static_cast<int>(std::stoll(db.GetPragma("freelist_count")));
 }
@@ -90,7 +89,7 @@ inline int incremental_vacuum_pass(Database& db, int max_size_mb) {
 
 // ── Vacuum task ────────────────────────────────────────────────────────────────
 
-inline asio::awaitable<void> vacuum_task(ServerContext& ctx) {
+inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
     asio::steady_timer timer{ex};

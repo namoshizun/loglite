@@ -13,11 +13,17 @@ jobs:
     container:
       image: ghcr.io/namoshizun/loglite-cpp-base:latest
 
+    env:
+      HOME: /root
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Run tests with coverage
         run: cpp/run-tests.sh --cov
+
+      - name: Install codecov deps
+        run: apt-get update && apt-get install -y --no-install-recommends curl gnupg
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

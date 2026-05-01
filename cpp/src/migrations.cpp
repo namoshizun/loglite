@@ -36,7 +36,7 @@ bool MigrationManager::RollbackMigration(int version, bool force) {
         throw std::runtime_error(std::format("Migration v{} not found in config", version));
 
     if (!force) {
-        std::print("Roll back migration v{}? [y/N] ", version);
+        std::cout << std::format("Roll back migration v{}? [y/N] ", version);
         std::string ans;
         std::getline(std::cin, ans);
         if (ans != "y" && ans != "Y") {

@@ -2,9 +2,49 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/build/debug"
-TEST_BIN="$BUILD_DIR/tests/loglite_tests"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}"
+
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+
+case "$HOST_OS" in
+    Darwin)
+        TARGET_OS=apple
+        CONAN_OS=Macos
+        ;;
+    Linux)
+        TARGET_OS=linux
+        CONAN_OS=Linux
+        ;;
+    *)
+        echo "error: unsupported OS: $HOST_OS" >&2
+        exit 1
+        ;;
+esac
+
+case "$HOST_ARCH" in
+    arm64|aarch64)
+        TARGET_ARCH=arm64
+        CONAN_ARCH=armv8
+        ;;
+    x86_64|amd64)
+        TARGET_ARCH=x86_64
+        CONAN_ARCH=x86_64
+        ;;
+    *)
+        echo "error: unsupported architecture: $HOST_ARCH" >&2
+        exit 1
+        ;;
+esac
+
+TARGET="$TARGET_OS-$TARGET_ARCH"
+TARGET_TOOLCHAIN="$SCRIPT_DIR/cmake/toolchains/$TARGET.cmake"
+if [[ ! -f "$TARGET_TOOLCHAIN" ]]; then
+    TARGET_TOOLCHAIN=""
+fi
+
+BUILD_DIR="$SCRIPT_DIR/build/$TARGET/debug"
+TEST_BIN="$BUILD_DIR/tests/loglite_tests"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
 #
@@ -32,7 +72,23 @@ fi
 
 # ── Conan (this script always configures Debug) ───────────────────────────────
 echo "── Conan (Debug) ─────────────────────────────────────────────────────────────"
-conan install "$SCRIPT_DIR" --output-folder="$BUILD_DIR" --settings build_type=Debug --build=missing
+CONAN_ARGS=(
+    "$SCRIPT_DIR"
+    --output-folder="$BUILD_DIR"
+    --settings:h "os=$CONAN_OS"
+    --settings:h "arch=$CONAN_ARCH"
+    --settings:h build_type=Debug
+    --settings:h compiler.cppstd=23
+    --settings:b build_type=Release
+    --conf "tools.cmake.cmaketoolchain:user_presets="
+    --build=missing
+)
+
+if [[ -n "$TARGET_TOOLCHAIN" ]]; then
+    CONAN_ARGS+=(--conf "tools.cmake.cmaketoolchain:user_toolchain+=$TARGET_TOOLCHAIN")
+fi
+
+conan install "${CONAN_ARGS[@]}"
 
 # ── Configure ─────────────────────────────────────────────────────────────────
 echo "── Configure ────────────────────────────────────────────────────────────────"

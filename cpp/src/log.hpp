@@ -2,8 +2,9 @@
 #define LOGLITE_LOG_HPP_
 
 #include <chrono>
+#include <cstdio>
 #include <format>
-#include <print>
+#include <string>
 #include <string_view>
 
 namespace loglite::log {
@@ -13,18 +14,19 @@ inline std::string timestamp() {
     return std::format("{:%Y-%m-%dT%H:%M:%S}", now);
 }
 
-inline void info(std::string_view msg) { std::println("[{}] [INFO ] {}", timestamp(), msg); }
-
-inline void warn(std::string_view msg) {
-    std::println(stderr, "[{}] [WARN ] {}", timestamp(), msg);
+inline void write(FILE* stream, std::string_view level, std::string_view msg) {
+    auto line = std::format("[{}] [{}] {}\n", timestamp(), level, msg);
+    std::fwrite(line.data(), 1, line.size(), stream);
 }
 
-inline void error(std::string_view msg) {
-    std::println(stderr, "[{}] [ERROR] {}", timestamp(), msg);
-}
+inline void info(std::string_view msg) { write(stdout, "INFO ", msg); }
+
+inline void warn(std::string_view msg) { write(stderr, "WARN ", msg); }
+
+inline void error(std::string_view msg) { write(stderr, "ERROR", msg); }
 
 inline void debug(std::string_view msg, bool enabled = true) {
-    if (enabled) std::println("[{}] [DEBUG] {}", timestamp(), msg);
+    if (enabled) write(stdout, "DEBUG", msg);
 }
 
 }  // namespace loglite::log

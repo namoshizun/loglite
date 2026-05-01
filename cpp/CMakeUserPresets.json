@@ -1,10 +1,10 @@
 {
-    "version": 4,
-    "vendor": {
-        "conan": {}
-    },
-    "include": [
-        "build/release/CMakePresets.json",
-        "build/debug/CMakePresets.json"
-    ]
+  "version": 4,
+  "vendor": {
+    "conan": {}
+  },
+  "include": [
+    "build/apple-arm64/debug/CMakePresets.json",
+    "build/apple-arm64/release/CMakePresets.json"
+  ]
 }

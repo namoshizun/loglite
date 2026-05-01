@@ -8,36 +8,117 @@ JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}"
 # ── Parse flags ───────────────────────────────────────────────────────────────
 
 RELEASE=0
-for arg in "$@"; do
-    case "$arg" in
-        --release) RELEASE=1 ;;
-        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release)
+            RELEASE=1
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--release]"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
     esac
 done
 
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+
+case "$HOST_OS" in
+    Darwin)
+        TARGET_OS=apple
+        CONAN_OS=Macos
+        ;;
+    Linux)
+        TARGET_OS=linux
+        CONAN_OS=Linux
+        ;;
+    *)
+        echo "error: unsupported OS: $HOST_OS" >&2
+        exit 1
+        ;;
+esac
+
+case "$HOST_ARCH" in
+    arm64|aarch64)
+        TARGET_ARCH=arm64
+        CONAN_ARCH=armv8
+        ;;
+    x86_64|amd64)
+        TARGET_ARCH=x86_64
+        CONAN_ARCH=x86_64
+        ;;
+    *)
+        echo "error: unsupported architecture: $HOST_ARCH" >&2
+        exit 1
+        ;;
+esac
+
+TARGET="$TARGET_OS-$TARGET_ARCH"
+TARGET_TOOLCHAIN="$SCRIPT_DIR/cmake/toolchains/$TARGET.cmake"
+if [[ ! -f "$TARGET_TOOLCHAIN" ]]; then
+    TARGET_TOOLCHAIN=""
+fi
+
 if [[ $RELEASE -eq 1 ]]; then
     BUILD_TYPE=Release
-    BUILD_DIR="$BUILD_ROOT/release"
+    BUILD_FLAVOR=release
     RELEASE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON)
-    echo "Mode: RELEASE  (O3 · LTO · stripped · hidden symbols · dead-code elimination)"
+    MODE_LABEL="Mode: RELEASE  (O3 · LTO · stripped · hidden symbols · dead-code elimination)"
 else
     BUILD_TYPE=Debug
-    BUILD_DIR="$BUILD_ROOT/debug"
+    BUILD_FLAVOR=debug
     RELEASE_FLAGS=(-DLOGLITE_LTO=OFF -DLOGLITE_STRIP=OFF)
-    echo "Mode: DEBUG  (unoptimised · debug symbols · fast recompile)"
+    MODE_LABEL="Mode: DEBUG  (unoptimised · debug symbols · fast recompile)"
 fi
+
+BUILD_DIR="$BUILD_ROOT/$TARGET/$BUILD_FLAVOR"
+echo "$MODE_LABEL"
+echo "Target: $TARGET"
 
 # ── Compiler ──────────────────────────────────────────────────────────────────
 # MacOS.
-if [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
+if [[ "$TARGET" == "apple-arm64" && -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
     export CC=/opt/homebrew/opt/llvm/bin/clang
     export CXX=/opt/homebrew/opt/llvm/bin/clang++
 fi
 
 # ── Conan (CMakeDeps matches CMAKE_BUILD_TYPE) ────────────────────────────────
 echo ""
-echo "── Conan ($BUILD_TYPE) ───────────────────────────────────────────────────────"
-conan install "$SCRIPT_DIR" --output-folder="$BUILD_DIR" --settings "build_type=$BUILD_TYPE" --build=missing
+echo "── Conan ($TARGET, $BUILD_TYPE) ─────────────────────────────────────────────"
+mkdir -p "$BUILD_DIR"
+if [[ -n "${CONAN_HOME:-}" ]]; then
+    mkdir -p "$CONAN_HOME"
+fi
+if [[ -n "${HOME:-}" ]]; then
+    mkdir -p "$HOME"
+fi
+if ! conan profile path default >/dev/null 2>&1; then
+    conan profile detect --force
+fi
+
+CONAN_ARGS=(
+    "$SCRIPT_DIR"
+    --output-folder="$BUILD_DIR"
+    --settings:h "os=$CONAN_OS"
+    --settings:h "arch=$CONAN_ARCH"
+    --settings:h "build_type=$BUILD_TYPE"
+    --settings:h "compiler.cppstd=23"
+    --settings:b "build_type=Release"
+    --conf "tools.cmake.cmaketoolchain:user_presets="
+    --build=missing
+)
+
+if [[ -n "$TARGET_TOOLCHAIN" ]]; then
+    CONAN_ARGS+=(--conf "tools.cmake.cmaketoolchain:user_toolchain+=$TARGET_TOOLCHAIN")
+fi
+
+conan install "${CONAN_ARGS[@]}"
 
 # ── Configure ─────────────────────────────────────────────────────────────────
 

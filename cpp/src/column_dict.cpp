@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <mutex>
 #include <ranges>
 #include <shared_mutex>
 #include <stdexcept>

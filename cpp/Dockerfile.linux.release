@@ -1,0 +1,16 @@
+ARG BASE_IMAGE=ghcr.io/namoshizun/loglite-cpp-base:latest
+FROM ${BASE_IMAGE} AS builder
+
+WORKDIR /src/cpp
+COPY . .
+
+RUN rm -rf build \
+    && ./build.sh --release \
+    && mkdir -p /out \
+    && cp build/linux-*/release/loglite /out/loglite
+
+FROM gcr.io/distroless/cc-debian13
+
+COPY --from=builder /out/loglite /usr/local/bin/loglite
+
+ENTRYPOINT ["loglite"]

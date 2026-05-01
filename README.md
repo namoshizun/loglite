@@ -39,6 +39,16 @@ Supports Python 3.10+
 pip install loglite
 ```
 
+## C++ Build
+
+A native C++ build is available as a drop-in replacement — same config file, same database, no migration needed. Pre-built Docker images are published for Linux x86\_64 and arm64:
+
+```
+ghcr.io/namoshizun/loglite-cpp:latest
+```
+
+See [`cpp/`](cpp/README.md) for build instructions.
+
 ## Documentation
 
 See [online doc](https://loglite.lu-d.com/) for more details.

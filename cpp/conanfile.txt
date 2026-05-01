@@ -1,8 +1,13 @@
 [requires]
-yaml-cpp/0.9.0
-nlohmann_json/3.12.0
+boost/1.90.0
 cli11/2.6.2
 gtest/1.17.0
+nlohmann_json/3.12.0
+sqlite3/3.53.0
+yaml-cpp/0.9.0
+
+[options]
+boost/*:header_only=True
 
 [generators]
 CMakeDeps

@@ -9,10 +9,10 @@ RUN apt-get update \
         git \
         make \
         libc6-dev \
-        libsqlite3-dev \
-        libboost-dev \
+        python3-pip \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && pip3 install --break-system-packages conan \
     && rm -rf /var/lib/apt/lists/*
 
 

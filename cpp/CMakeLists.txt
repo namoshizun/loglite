@@ -6,23 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Conan CMakeDeps lives in the build dir; prepending survives toolchain include_guard()
-# when CMake re-runs configure (e.g. after CMAKE_CXX_COMPILER changes).
+# Conan CMakeDeps lives in the build dir.
 list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}")
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_BINARY_DIR}")
 
-if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
-endif()
-
 # ── Dependencies ──────────────────────────────────────────────────────────────
-# Conan (CMakeDeps): yaml-cpp, nlohmann_json, CLI11. Boost + SQLite: system / Homebrew.
 
-find_package(Boost 1.80 REQUIRED)
-find_package(SQLite3 REQUIRED)
-find_package(yaml-cpp REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(CLI11 REQUIRED)
+find_package(Boost REQUIRED CONFIG)
+find_package(SQLite3 REQUIRED CONFIG)
+find_package(yaml-cpp REQUIRED CONFIG)
+find_package(nlohmann_json REQUIRED CONFIG)
+find_package(CLI11 REQUIRED CONFIG)
 
 include(CTest)
 
@@ -39,7 +33,7 @@ add_library(loglite_lib STATIC ${LOGLITE_LIB_SOURCES})
 
 target_include_directories(loglite_lib PUBLIC src)
 target_link_libraries(loglite_lib PUBLIC
-    Boost::headers
+    boost::boost
     SQLite::SQLite3
     yaml-cpp::yaml-cpp
     nlohmann_json::nlohmann_json

@@ -2,8 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/build"
-CONAN_TOOLCHAIN="$BUILD_DIR/conan_toolchain.cmake"
+BUILD_ROOT="$SCRIPT_DIR/build"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}"
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
@@ -18,11 +17,13 @@ done
 
 if [[ $RELEASE -eq 1 ]]; then
     BUILD_TYPE=Release
-    EXTRA_CMAKE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON)
+    BUILD_DIR="$BUILD_ROOT/release"
+    RELEASE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON)
     echo "Mode: RELEASE  (O3 · LTO · stripped · hidden symbols · dead-code elimination)"
 else
     BUILD_TYPE=Debug
-    EXTRA_CMAKE_FLAGS=()
+    BUILD_DIR="$BUILD_ROOT/debug"
+    RELEASE_FLAGS=(-DLOGLITE_LTO=OFF -DLOGLITE_STRIP=OFF)
     echo "Mode: DEBUG  (unoptimised · debug symbols · fast recompile)"
 fi
 
@@ -34,29 +35,30 @@ if [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
 fi
 
 # ── Conan (CMakeDeps matches CMAKE_BUILD_TYPE) ────────────────────────────────
-if ! command -v conan >/dev/null 2>&1; then
-    echo "error: conan not found in PATH (install Conan 2)" >&2
-    exit 1
-fi
-
 echo ""
 echo "── Conan ($BUILD_TYPE) ───────────────────────────────────────────────────────"
-conan install "$SCRIPT_DIR" --output-folder="$BUILD_DIR" -s "build_type=$BUILD_TYPE" --build=missing
+conan install "$SCRIPT_DIR" --output-folder="$BUILD_DIR" --settings "build_type=$BUILD_TYPE" --build=missing
 
 # ── Configure ─────────────────────────────────────────────────────────────────
 
 echo ""
 echo "── Configure ────────────────────────────────────────────────────────────────"
-cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DCMAKE_TOOLCHAIN_FILE="$CONAN_TOOLCHAIN" \
-    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DLOGLITE_COVERAGE=OFF \
-    -DBUILD_TESTING=OFF \
-    ${CXX:+-DCMAKE_CXX_COMPILER="$CXX"} \
-    ${CC:+-DCMAKE_C_COMPILER="$CC"} \
-    ${EXTRA_CMAKE_FLAGS[@]+"${EXTRA_CMAKE_FLAGS[@]}"}
+CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+    -DCMAKE_TOOLCHAIN_FILE="$BUILD_DIR/conan_toolchain.cmake"
+    -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    -DBoost_DIR="$BUILD_DIR"
+    -DLOGLITE_COVERAGE=OFF
+    -DBUILD_TESTING=OFF
+)
+
+CMAKE_ARGS+=("${RELEASE_FLAGS[@]}")
+if [[ -n "${CXX:-}" ]]; then
+    CMAKE_ARGS+=(-DCMAKE_CXX_COMPILER="$CXX")
+fi
+
+cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 echo ""

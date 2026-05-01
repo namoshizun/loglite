@@ -25,6 +25,10 @@ if(LOGLITE_COVERAGE)
     target_compile_options(loglite_tests PRIVATE --coverage)
     target_link_options(loglite_tests    PRIVATE --coverage)
 
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(loglite_tests PRIVATE -fprofile-update=atomic)
+    endif()
+
     find_program(LOGLITE_LCOV_EXECUTABLE lcov REQUIRED)
 
     set(_cov_baseline "${CMAKE_BINARY_DIR}/coverage_baseline.info")

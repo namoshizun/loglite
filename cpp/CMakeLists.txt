@@ -112,6 +112,10 @@ option(LOGLITE_COVERAGE "Instrument loglite_lib with gcov (--coverage)" OFF)
 if(LOGLITE_COVERAGE)
     target_compile_options(loglite_lib PRIVATE --coverage)
     target_link_options(loglite        PRIVATE --coverage)
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(loglite_lib PRIVATE -fprofile-update=atomic)
+    endif()
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

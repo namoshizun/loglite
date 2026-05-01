@@ -11,6 +11,10 @@ RUN apt-get update \
         make \
         libc6-dev \
         python3-pip \
+        curl \
+        gnupg \
+        pkg-config \
+        patch \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100 \
     && pip3 install --break-system-packages conan \

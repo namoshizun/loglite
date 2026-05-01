@@ -1,3 +1,5 @@
+find_package(GTest REQUIRED)
+
 file(GLOB test_sources CONFIGURE_DEPENDS "test_*.cpp")
 add_executable(loglite_tests ${test_sources})
 
@@ -30,9 +32,17 @@ if(LOGLITE_COVERAGE)
     set(_cov_merged   "${CMAKE_BINARY_DIR}/coverage_merged.info")
     set(_cov_info     "${CMAKE_BINARY_DIR}/coverage.info")
 
-    # Common ignore-errors flags reused across steps.
     set(_lcov_ignore
         --ignore-errors inconsistent,inconsistent,unsupported,unsupported,mismatch,mismatch,range,range,format,format
+    )
+    set(_lcov_exclude
+        "/usr/*"
+        "/Library/*"
+        "/opt/homebrew/*"
+        "*/_deps/*"
+        "*/.conan/*"
+        "*/.conan2/*"
+        "${CMAKE_CURRENT_SOURCE_DIR}/*"
     )
 
     add_custom_target(loglite_coverage
@@ -68,11 +78,10 @@ if(LOGLITE_COVERAGE)
                 --keep-going
                 --output-file "${_cov_merged}"
 
-        # 6. Strip system headers, vendored deps, and test-harness sources.
+        # 6. Keep only project sources (drop system, Conan, FetchContent, tests/).
         COMMAND ${LOGLITE_LCOV_EXECUTABLE} -q -q
                 --remove "${_cov_merged}"
-                "/usr/*" "/Library/*" "/opt/homebrew/*" "*/_deps/*"
-                "${CMAKE_CURRENT_SOURCE_DIR}/*"
+                ${_lcov_exclude}
                 --ignore-errors unused,unused,inconsistent,inconsistent,unsupported,range,format
                 --keep-going
                 --output-file "${_cov_info}"

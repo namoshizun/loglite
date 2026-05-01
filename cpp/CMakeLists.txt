@@ -6,40 +6,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Homebrew prefix for macOS
+# Conan CMakeDeps lives in the build dir; prepending survives toolchain include_guard()
+# when CMake re-runs configure (e.g. after CMAKE_CXX_COMPILER changes).
+list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}")
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_BINARY_DIR}")
+
 if(APPLE)
     list(APPEND CMAKE_PREFIX_PATH /opt/homebrew)
 endif()
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
+# Conan (CMakeDeps): yaml-cpp, nlohmann_json, CLI11. Boost + SQLite: system / Homebrew.
 
 find_package(Boost 1.80 REQUIRED)
 find_package(SQLite3 REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(CLI11 REQUIRED)
 
-include(FetchContent)
-
-FetchContent_Declare(yaml-cpp
-    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG        0.8.0
-    SYSTEM
-    OVERRIDE_FIND_PACKAGE
-)
-set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-    SYSTEM
-)
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(CLI11
-    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG        v2.6.2
-    SYSTEM
-)
-
-FetchContent_MakeAvailable(yaml-cpp nlohmann_json CLI11)
+include(CTest)
 
 # ── Main library target ───────────────────────────────────────────────────────
 
@@ -136,14 +121,8 @@ if(LOGLITE_COVERAGE)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
-FetchContent_Declare(googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.15.2
-    SYSTEM
-)
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-
-enable_testing()
-add_subdirectory(tests)
+# Controlled by BUILD_TESTING (build.sh passes OFF; run-tests.sh passes ON).
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

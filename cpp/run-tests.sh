@@ -72,6 +72,10 @@ fi
 
 # ── Conan (this script always configures Debug) ───────────────────────────────
 echo "── Conan (Debug) ─────────────────────────────────────────────────────────────"
+if ! conan profile path default >/dev/null 2>&1; then
+    conan profile detect --force
+fi
+
 CONAN_ARGS=(
     "$SCRIPT_DIR"
     --output-folder="$BUILD_DIR"

@@ -1,0 +1,49 @@
+name: C++ Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-cpp:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ lcov
+
+      - name: Install Conan 2
+        run: python -m pip install --upgrade pip conan
+
+      - name: Cache Conan
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: ${{ runner.os }}-conan2-${{ hashFiles('cpp/conanfile.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-conan2-
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Run C++ tests with coverage
+        run: ./cpp/run-tests.sh --cov
+
+      - name: Upload C++ coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: cpp/build/linux-x86_64/debug/coverage.info
+          flags: cpp
+          fail_ci_if_error: false

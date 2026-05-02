@@ -25,15 +25,14 @@ namespace loglite {
 
 namespace {
 
-// Log and swallow exceptions from detached coroutines.
-void on_coro_error(std::exception_ptr eptr) {
+void log_exception(std::exception_ptr eptr, std::string_view tag) {
     if (!eptr) return;
     try {
         std::rethrow_exception(eptr);
     } catch (const std::exception& e) {
-        log::error(std::format("Coroutine error: {}", e.what()));
+        log::error(std::format("{} {}", tag, e.what()));
     } catch (...) {
-        log::error("Coroutine: unknown exception");
+        log::error(std::format("{} unknown exception", tag));
     }
 }
 
@@ -63,13 +62,19 @@ void Server::Run() {
         }
     });
 
+    // ── Fatal error handler for background tasks ──────────────────────────────
+    auto on_task_error = [this](std::exception_ptr eptr) {
+        log_exception(eptr, "Background task crashed — shutting down:");
+        Stop();
+    };
+
     // ── Background tasks ──────────────────────────────────────────────────────
-    asio::co_spawn(ex, tasks::FlushBacklogTask(ctx_), on_coro_error);
-    asio::co_spawn(ex, tasks::VacuumTask(ctx_), on_coro_error);
-    asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_coro_error);
+    asio::co_spawn(ex, tasks::FlushBacklogTask(ctx_), on_task_error);
+    asio::co_spawn(ex, tasks::VacuumTask(ctx_), on_task_error);
+    asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_task_error);
 
     // ── Accept loop ───────────────────────────────────────────────────────────
-    asio::co_spawn(ex, AcceptLoop(acceptor_), on_coro_error);
+    asio::co_spawn(ex, AcceptLoop(acceptor_), on_task_error);
 
     pool_.join();  // blocks until stop() is called
 }
@@ -95,7 +100,9 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
         stream.expires_after(std::chrono::seconds(60));
 
         auto ex = co_await asio::this_coro::executor;
-        asio::co_spawn(ex, HandleConnection(std::move(stream)), on_coro_error);
+        asio::co_spawn(
+            ex, HandleConnection(std::move(stream)),
+            [](std::exception_ptr eptr) { log_exception(eptr, "Connection error:"); });
     }
 }
 

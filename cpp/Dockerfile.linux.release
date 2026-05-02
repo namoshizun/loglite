@@ -19,8 +19,8 @@ COPY conanfile.py ./
 COPY cmake/toolchains/ ./cmake/toolchains/
 
 ARG TARGETARCH
-RUN --mount=type=cache,target=/root/.conan2 \
-    set -eux; \
+
+RUN set -eux; \
     case "$TARGETARCH" in \
         amd64) LOG_ARCH=x86_64; CONAN_ARCH=x86_64 ;; \
         arm64) LOG_ARCH=arm64; CONAN_ARCH=armv8 ;; \
@@ -44,8 +44,7 @@ FROM deps AS builder
 
 COPY . .
 
-RUN --mount=type=cache,target=/root/.conan2 \
-    rm -rf build \
+RUN rm -rf build \
     && ./build.sh --release \
     && mkdir -p /out \
     && cp build/linux-musl-*/release/loglite /out/loglite \

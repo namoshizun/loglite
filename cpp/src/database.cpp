@@ -156,7 +156,7 @@ void Database::Initialize() {
 
     col_dict_ = std::make_unique<ColumnDictionary>(
         std::move(lut), [this](const std::string& col, const std::string& val, ValueId vid) {
-            InsertColumnDictValue(col, val, vid);
+            return InsertColumnDictValue(col, val, vid);
         });
 }
 
@@ -274,6 +274,7 @@ int Database::Insert(const std::vector<nlohmann::json>& logs) {
 
                 nlohmann::json serialized = serialize_value(raw);
                 if (compressed_columns_.contains(ci.name) && !serialized.is_null()) {
+                    // Store the enum id of the compressed column instead of the original value
                     std::string sv =
                         serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
                     serialized = col_dict_->GetOrCreate(ci.name, sv);
@@ -492,12 +493,12 @@ std::vector<std::tuple<std::string, std::string, ValueId>> Database::GetColumnDi
     return rows;
 }
 
-void Database::InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id) {
+bool Database::InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id) {
     Statement stmt{db_, "INSERT INTO column_dictionary (column, value, value_id) VALUES (?, ?, ?)"};
     sqlite3_bind_text(stmt, 1, col.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
-    sqlite3_step(stmt);
+    return sqlite3_step(stmt) == SQLITE_DONE;
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

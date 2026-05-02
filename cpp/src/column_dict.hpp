@@ -30,7 +30,7 @@ class ColumnDictionary {
     // Callback used to persist a new (column, value, id) entry to the DB.
     // Called asynchronously (fire-and-forget) so it must be thread-safe.
     using PersistFn =
-        std::function<void(const std::string& col, const std::string& value, ValueId id)>;
+        std::function<bool(const std::string& col, const std::string& value, ValueId id)>;
 
     explicit ColumnDictionary(LookupTable lookup, PersistFn persist);
 

@@ -89,7 +89,7 @@ class Database {
     // ── Column dictionary ─────────────────────────────────────────────────────
 
     std::vector<std::tuple<std::string, std::string, ValueId>> GetColumnDictRows() const;
-    void InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
+    bool InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
 
     // ── Health ────────────────────────────────────────────────────────────────
 

@@ -14,27 +14,29 @@ ColumnDictionary::ColumnDictionary(LookupTable lookup, PersistFn persist)
 
 ValueId ColumnDictionary::GetOrCreate(const std::string& col, const std::string& value) {
     // Writes are serialised by the strand, so only reader-writer contention exists.
-    ValueId result;
-    {
-        std::unique_lock wl(mtx_);
+    std::unique_lock wl(mtx_);
 
-        auto& col_map = lookup_[col];
-        if (auto it = col_map.find(value); it != col_map.end()) return it->second;
+    auto& col_map = lookup_[col];
+    if (auto it = col_map.find(value); it != col_map.end()) return it->second;
 
-        // New value: assign next sequential id within this column.
-        ValueId new_id = 1;
-        if (!col_map.empty()) {
-            auto max_it =
-                std::ranges::max_element(col_map, {}, [](const auto& kv) { return kv.second; });
-            new_id = max_it->second + 1;
+    // New value: assign next sequential id within this column.
+    ValueId new_id = 1;
+    if (!col_map.empty()) {
+        auto max_it =
+            std::ranges::max_element(col_map, {}, [](const auto& kv) { return kv.second; });
+        new_id = max_it->second + 1;
+    }
+
+    if (persist_) {
+        if (!persist_(col, value, new_id)) {
+            throw std::runtime_error(
+                std::format("Failed to update the compression table for column '{}' and value '{}'",
+                            col, value));
         }
+    }
 
-        col_map[value] = new_id;
-        result = new_id;
-    }  // lock released via RAII before the potentially slow persist_ call
-
-    if (persist_) persist_(col, value, result);
-    return result;
+    col_map[value] = new_id;
+    return new_id;
 }
 
 std::string ColumnDictionary::GetValue(const std::string& col, ValueId id) const {

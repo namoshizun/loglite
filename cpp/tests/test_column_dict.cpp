@@ -26,10 +26,11 @@ class ColumnDictFixture : public ::testing::Test {
     void TearDown() override {}
 
     ColumnDictionary::PersistFn make_persist() {
-        return [this](const std::string& c, const std::string& v, int id) {
+        return [this](const std::string& c, const std::string& v, int id) -> bool {
             std::lock_guard lk{persist_mtx_};
             persisted_.emplace_back(c, v, id);
             ++calls_;
+            return true;
         };
     }
 

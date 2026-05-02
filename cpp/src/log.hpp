@@ -10,8 +10,11 @@
 namespace loglite::log {
 
 inline std::string timestamp() {
-    auto now = std::chrono::system_clock::now();
-    return std::format("{:%Y-%m-%dT%H:%M:%S}", now);
+    using namespace std::chrono;
+    const auto now = system_clock::now();
+    const auto s = floor<seconds>(now);
+    const auto ms = duration_cast<milliseconds>(now - s);
+    return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}", s, ms.count());
 }
 
 inline void write(FILE* stream, std::string_view level, std::string_view msg) {

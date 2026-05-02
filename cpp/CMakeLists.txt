@@ -59,6 +59,7 @@ target_link_libraries(loglite PRIVATE loglite_lib)
 
 option(LOGLITE_LTO   "Enable link-time optimisation"          OFF)
 option(LOGLITE_STRIP "Strip debug symbols from the binary"    OFF)
+option(LOGLITE_STATIC_MUSL "Build a fully static Linux/musl executable" OFF)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     # Hide all non-exported symbols: shrinks the binary and prevents internal
@@ -74,6 +75,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         target_compile_options(loglite_lib PUBLIC -ffunction-sections -fdata-sections)
         target_link_options(loglite PRIVATE -Wl,--gc-sections)
     endif()
+endif()
+
+if(LOGLITE_STATIC_MUSL)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "LOGLITE_STATIC_MUSL is only supported on Linux")
+    endif()
+    target_link_options(loglite PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 if(LOGLITE_LTO)

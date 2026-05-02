@@ -2,12 +2,8 @@ name: Build cpp-release image
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Build cpp-base image"]
-    types: [completed]
 
 env:
-  BASE_IMAGE: ghcr.io/${{ github.repository_owner }}/loglite-cpp-base:latest
   IMAGE: ghcr.io/${{ github.repository_owner }}/loglite-cpp:latest
 
 permissions:
@@ -16,7 +12,6 @@ permissions:
 
 jobs:
   build-and-push:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -43,7 +38,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE }}
-          build-args: |
-            BASE_IMAGE=${{ env.BASE_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,16 +1,63 @@
-ARG BASE_IMAGE=ghcr.io/namoshizun/loglite-cpp-base:latest
-FROM ${BASE_IMAGE} AS builder
+FROM alpine:3.22 AS deps
 
 WORKDIR /src/cpp
+
+RUN apk add --no-cache \
+        bash \
+        binutils \
+        build-base \
+        cmake \
+        git \
+        linux-headers \
+        make \
+        pkgconf \
+        python3 \
+        py3-pip \
+    && pip3 install --break-system-packages conan
+
+COPY conanfile.py ./
+COPY cmake/toolchains/ ./cmake/toolchains/
+
+ARG TARGETARCH
+RUN --mount=type=cache,target=/root/.conan2 \
+    set -eux; \
+    case "$TARGETARCH" in \
+        amd64) LOG_ARCH=x86_64; CONAN_ARCH=x86_64 ;; \
+        arm64) LOG_ARCH=arm64; CONAN_ARCH=armv8 ;; \
+        *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    conan profile detect --force; \
+    conan install . \
+        --output-folder="build/linux-musl-${LOG_ARCH}/release" \
+        --settings:h os=Linux \
+        --settings:h "arch=${CONAN_ARCH}" \
+        --settings:h build_type=Release \
+        --settings:h compiler.cppstd=23 \
+        --settings:b build_type=Release \
+        --options:h "*:shared=False" \
+        --options:h "&:with_tests=False" \
+        --conf "tools.cmake.cmaketoolchain:user_presets=" \
+        --conf "tools.cmake.cmaketoolchain:user_toolchain+=/src/cpp/cmake/toolchains/linux-musl-${LOG_ARCH}.cmake" \
+        --build=missing
+
+FROM deps AS builder
+
 COPY . .
 
-RUN rm -rf build \
+RUN --mount=type=cache,target=/root/.conan2 \
+    rm -rf build \
     && ./build.sh --release \
     && mkdir -p /out \
-    && cp build/linux-*/release/loglite /out/loglite
+    && cp build/linux-musl-*/release/loglite /out/loglite \
+    && ldd /out/loglite 2>&1 | tee /tmp/loglite-ldd.txt \
+    && if readelf -d /out/loglite | grep -q '(NEEDED)'; then \
+        echo "loglite is dynamically linked" >&2; \
+        readelf -d /out/loglite >&2; \
+        exit 1; \
+    fi
 
-FROM gcr.io/distroless/cc-debian13
+FROM scratch
 
 COPY --from=builder /out/loglite /usr/local/bin/loglite
 
-ENTRYPOINT ["loglite"]
+ENTRYPOINT ["/usr/local/bin/loglite"]

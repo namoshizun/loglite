@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <format>
+#include <sstream>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -111,8 +112,14 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         }
 
         // ── Write SSE event chunk ─────────────────────────────────────────────
-        nlohmann::json arr = result.results;
-        std::string event = std::format("data: {}\r\n\r\n", arr.dump());
+        std::ostringstream payload;
+        payload << "data: [";
+        for (size_t i = 0; i < result.results.size(); ++i) {
+            if (i != 0) payload << ',';
+            payload << result.results[i];
+        }
+        payload << "]\r\n\r\n";
+        std::string event = std::move(payload).str();
         auto chunk = http::make_chunk(net::buffer(event));
 
         try {

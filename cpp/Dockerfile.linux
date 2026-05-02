@@ -20,7 +20,7 @@ RUN apt-get update \
     && pip3 install --break-system-packages conan \
     && rm -rf /var/lib/apt/lists/*
 
-COPY conanfile.txt /tmp/loglite-conan/conanfile.txt
+COPY conanfile.py /tmp/loglite-conan/conanfile.py
 WORKDIR /tmp/loglite-conan
 
 RUN conan profile detect --force \

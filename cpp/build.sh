@@ -59,7 +59,18 @@ case "$HOST_ARCH" in
         ;;
 esac
 
-TARGET="$TARGET_OS-$TARGET_ARCH"
+if [[ $RELEASE -eq 1 && "$TARGET_OS" == "linux" ]]; then
+    LDD_VERSION="$(ldd --version 2>&1 || true)"
+    if [[ "$LDD_VERSION" != *musl* ]]; then
+        echo "error: Linux release builds must run in a musl environment" >&2
+        echo "hint: use cpp/Dockerfile.linux.release or an Alpine/musl toolchain" >&2
+        exit 1
+    fi
+    TARGET="$TARGET_OS-musl-$TARGET_ARCH"
+else
+    TARGET="$TARGET_OS-$TARGET_ARCH"
+fi
+
 TARGET_TOOLCHAIN="$SCRIPT_DIR/cmake/toolchains/$TARGET.cmake"
 if [[ ! -f "$TARGET_TOOLCHAIN" ]]; then
     TARGET_TOOLCHAIN=""
@@ -110,6 +121,8 @@ CONAN_ARGS=(
     --settings:h "build_type=$BUILD_TYPE"
     --settings:h "compiler.cppstd=23"
     --settings:b "build_type=Release"
+    --options:h "*:shared=False"
+    --options:h "&:with_tests=False"
     --conf "tools.cmake.cmaketoolchain:user_presets="
     --build=missing
 )

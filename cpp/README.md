@@ -17,6 +17,7 @@ The only current limitation is partial harvester support: only the **file harves
 - **Conan 2.x**: installed as [`conan`](https://conan.io/)
 
 On macOS (Apple Silicon), the build script uses Homebrew LLVM Clang (`/opt/homebrew/opt/llvm/bin/clang++`) when present.
+On Linux, release builds must run in a musl environment, such as Alpine Linux or `Dockerfile.linux.release`.
 
 ## Build
 
@@ -26,6 +27,15 @@ On macOS (Apple Silicon), the build script uses Homebrew LLVM Clang (`/opt/homeb
 ```
 
 Runs `conan install`, configures CMake, and builds the `loglite` target. The binary is placed at `build/<os-arch>/<debug|release>/loglite`.
+
+Linux release builds produce a statically linked musl binary under `build/linux-musl-<arch>/release/loglite`.
+The generated release container uses `scratch` and contains only `/usr/local/bin/loglite`.
+
+## Docker Images
+
+- `Dockerfile.linux.test` builds the glibc/GCC base image used for CI tests.
+
+- `Dockerfile.linux.release` builds the portable Linux release image from Alpine/musl.
 
 ## Tests
 

@@ -8,7 +8,8 @@
   <img src="https://github.com/namoshizun/loglite/actions/workflows/deploy-docs.yml/badge.svg?branch=main" />
   <img src="https://github.com/namoshizun/loglite/actions/workflows/python-tests.yml/badge.svg?branch=main&event=push" />
   <img src="https://github.com/namoshizun/loglite/actions/workflows/cpp-tests.yml/badge.svg?branch=main&event=push" />
-  <a href="https://codecov.io/gh/namoshizun/loglite"><img src="https://codecov.io/gh/namoshizun/loglite/graph/badge.svg?branch=main" alt="codecov coverage" /></a>
+  <img src="https://img.shields.io/codecov/c/github/namoshizun/loglite/main?flag=python&logo=python" alt="python coverage" />
+  <img src="https://img.shields.io/codecov/c/github/namoshizun/loglite/main?flag=cpp&logo=cplusplus" alt="cpp coverage" />
 </p>
 
 **SQLite Backend** 💾 : Store log messages in SQLite, enabling efficient and complex queries.

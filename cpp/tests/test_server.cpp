@@ -120,11 +120,16 @@ protected:
             server_thread_.join();
         }
         server_.reset();
-        ctx_.reset();
+
+        // Drain strand pool before destroying context — background tasks may
+        // have pending dispatches on write_strand that must complete first.
         if (db_ops_pool_) {
+            db_ops_pool_->stop();
             db_ops_pool_->join();
             db_ops_pool_.reset();
         }
+
+        ctx_.reset();
         db_->Close();
         db_.reset();
         fs::remove_all(tmp_);
@@ -133,12 +138,12 @@ protected:
     fs::path tmp_;
     Config cfg_;
     std::unique_ptr<Database> db_;
-    std::unique_ptr<asio::thread_pool> db_ops_pool_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<StatsTracker> ingest_stats_;
     std::unique_ptr<StatsTracker> query_stats_;
     std::unique_ptr<ServerContext> ctx_;
+    std::unique_ptr<asio::thread_pool> db_ops_pool_;
     std::unique_ptr<Server> server_;
     std::thread server_thread_;
 };

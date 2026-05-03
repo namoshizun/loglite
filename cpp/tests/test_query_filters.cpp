@@ -69,3 +69,25 @@ TEST(QueryStringTest, SplitTargetNoQuery) {
     EXPECT_TRUE(qs.empty());
 }
 
+// ── Response helpers ────────────────────────────────────────────────────────
+
+#include "handlers/common.hpp"
+
+TEST(ResponseHelperTest, MakeJSONResponse) {
+    http::request<http::string_body> req{http::verb::get, "/test", 11};
+    auto res = handlers::MakeJSONResponse(http::status::ok, {{"key", "val"}}, req, "https://example.com");
+    EXPECT_EQ(res.result(), http::status::ok);
+    EXPECT_EQ(res[http::field::content_type], "application/json");
+    EXPECT_EQ(res[http::field::access_control_allow_origin], "https://example.com");
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["key"], "val");
+}
+
+TEST(ResponseHelperTest, MakeJSONResponseWithKeepAlive) {
+    http::request<http::string_body> req{http::verb::get, "/test", 11};
+    req.keep_alive(true);
+    auto res = handlers::MakeOKResp({{"status", "ok"}}, req);
+    EXPECT_TRUE(res.keep_alive());
+}
+

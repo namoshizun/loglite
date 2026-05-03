@@ -277,3 +277,104 @@ TEST_F(DatabaseTest, AllQueryOperatorsAreAccepted) {
         EXPECT_NO_THROW(db_->Query({"*"}, {f}, 10, 0)) << "operator: " << op;
     }
 }
+
+// ── PRAGMAs / health ───────────────────────────────────────────────────────
+
+TEST_F(DatabaseTest, GetPragma) {
+    auto val = db_->GetPragma("journal_mode");
+    EXPECT_FALSE(val.empty());
+}
+
+TEST_F(DatabaseTest, SetPragma) {
+    db_->SetPragma("cache_size", "-4000");
+    auto val = db_->GetPragma("cache_size");
+    EXPECT_EQ(val, "-4000");
+}
+
+TEST_F(DatabaseTest, GetPragmaPageCount) {
+    auto val = db_->GetPragma("page_count");
+    EXPECT_FALSE(val.empty());
+    EXPECT_NE(val, "0");
+}
+
+TEST_F(DatabaseTest, GetPragmaPageSize) {
+    auto val = db_->GetPragma("page_size");
+    EXPECT_FALSE(val.empty());
+    int64_t sz = std::stoll(val);
+    EXPECT_GT(sz, 0);
+}
+
+TEST_F(DatabaseTest, IncrementalVacuumNoOp) {
+    EXPECT_NO_THROW(db_->IncrementalVacuum(0));
+}
+
+TEST_F(DatabaseTest, GetMinLogId) {
+    EXPECT_EQ(db_->GetMinLogId(), 0);
+
+    db_->Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "a"}, {"level", "INFO"}}});
+    EXPECT_EQ(db_->GetMinLogId(), 1);
+}
+
+TEST_F(DatabaseTest, GetMinTimestamp) {
+    auto ts = db_->GetMinTimestamp();
+    EXPECT_TRUE(ts.empty());
+
+    db_->Insert({{{"timestamp", "2024-06-01T00:00:00Z"}, {"message", "a"}, {"level", "INFO"}}});
+    db_->Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "b"}, {"level", "INFO"}}});
+
+    auto min_ts = db_->GetMinTimestamp();
+    EXPECT_FALSE(min_ts.empty());
+}
+
+TEST_F(DatabaseTest, RefreshColumnInfo) {
+    db_->RefreshColumnInfo();
+    auto cols = db_->GetColumnInfo();
+    EXPECT_FALSE(cols.empty());
+
+    bool has_id = false, has_ts = false, has_msg = false;
+    for (const auto& ci : cols) {
+        if (ci.name == "id") has_id = true;
+        if (ci.name == "timestamp") has_ts = true;
+        if (ci.name == "message") has_msg = true;
+    }
+    EXPECT_TRUE(has_id);
+    EXPECT_TRUE(has_ts);
+    EXPECT_TRUE(has_msg);
+}
+
+TEST_F(DatabaseTest, WALCheckpoint) {
+    EXPECT_NO_THROW(db_->WALCheckpoint("PASSIVE"));
+}
+
+TEST_F(DatabaseTest, GetColumnDictRowsInitiallyEmpty) {
+    auto rows = db_->GetColumnDictRows();
+    EXPECT_TRUE(rows.empty());
+}
+
+TEST_F(DatabaseTest, InsertColumnDictValue) {
+    bool ok = db_->InsertColumnDictValue("level", "INFO", 1);
+    EXPECT_TRUE(ok);
+
+    auto rows = db_->GetColumnDictRows();
+    EXPECT_EQ(rows.size(), 1u);
+    EXPECT_EQ(std::get<0>(rows[0]), "level");
+    EXPECT_EQ(std::get<1>(rows[0]), "INFO");
+    EXPECT_EQ(std::get<2>(rows[0]), 1);
+}
+
+TEST_F(DatabaseTest, DeleteLogsById) {
+    db_->Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "keep"}, {"level", "INFO"}}});
+    db_->Insert({{{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "del"}, {"level", "INFO"}}});
+
+    int deleted = db_->DeleteLogs({{"id", "=", 2}});
+    EXPECT_EQ(deleted, 1);
+
+    auto result = db_->Query({"*"}, {}, 10, 0);
+    EXPECT_EQ(result.total, 1);
+    EXPECT_EQ(result.results[0]["message"], "keep");
+}
+
+TEST_F(DatabaseTest, CreateInternalTablesIdempotent) {
+    EXPECT_NO_THROW(db_->CreateInternalTables());
+    EXPECT_NO_THROW(db_->CreateInternalTables());
+}

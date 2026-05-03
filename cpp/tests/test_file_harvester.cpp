@@ -203,3 +203,8 @@ TEST_F(FileHarvesterTest, DetectsRotation) {
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "post-rotate");
 }
+
+TEST_F(FileHarvesterTest, NameReturnsConstructorValue) {
+    create_file_and_start();
+    EXPECT_EQ(harvester_->Name(), "test");
+}

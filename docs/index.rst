@@ -12,7 +12,7 @@ A lightweight, high-performance logging service with SQLite and an async REST AP
 - Built-in migration utilities
 - REST API for ingestion and query
 - Server-Sent Events (SSE) for real-time notifications
-- **Native `C++ implementation <https://github.com/namoshizun/loglite/tree/main/cpp>`_ available as a drop-in replacement** 🚀
+- **Native C++ implementation available as a drop-in replacement** 🚀
 
 Installation
 ------------

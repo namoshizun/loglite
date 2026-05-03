@@ -18,7 +18,8 @@
     "**/node_modules",
     "**/__pycache__",
     "docs",
-    "cpp"
+    "cpp",
+    "tests"
   ],
   "pythonPlatform": "Linux"
 }

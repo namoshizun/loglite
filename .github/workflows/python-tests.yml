@@ -30,7 +30,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --frozen --group test
+        run: uv sync --frozen --group test --extra zmq
 
       - name: Run tests
         run: uv run pytest --cov-report=xml
@@ -40,5 +40,5 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
-          flags: py-${{ matrix.python-version }}
+          flags: python,py-${{ matrix.python-version }}
           fail_ci_if_error: false

@@ -21,7 +21,8 @@
 
 **Lightweight & Efficient** ⚡️ : Built with performance in mind:
   - Fully async libraries, with orjson for fast JSON serialization.
-  - Supports incremental vacuuming to minimize IO / memory overhead.
+  - Supports incremental vacuuming to manage IO / memory overhead.
+  - **Native [C++ implementation](cpp/README.md) available as a drop-in replacement**
 
 **More cool features in my wishlist** ✨✨✨ :
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
@@ -39,16 +40,6 @@ Supports Python 3.10+
 ```bash
 pip install loglite
 ```
-
-## C++ Build
-
-A native C++ build is available as a drop-in replacement — same config file, same database, no migration needed. Pre-built Docker images are published for Linux x86\_64 and arm64:
-
-```
-ghcr.io/namoshizun/loglite-cpp:latest
-```
-
-See [`cpp/`](cpp/README.md) for build instructions.
 
 ## Documentation
 

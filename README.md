@@ -10,6 +10,7 @@
   <img src="https://github.com/namoshizun/loglite/actions/workflows/cpp-tests.yml/badge.svg?branch=main&event=push" />
   <img src="https://img.shields.io/codecov/c/github/namoshizun/loglite/main?flag=python&logo=python" alt="python coverage" />
   <img src="https://img.shields.io/codecov/c/github/namoshizun/loglite/main?flag=cpp&logo=cplusplus" alt="cpp coverage" />
+  <img src="https://img.shields.io/pypi/v/loglite" alt="python version" />
 </p>
 
 **SQLite Backend** 💾 : Store log messages in SQLite, enabling efficient and complex queries.
@@ -29,10 +30,9 @@
   - [x] *Bulk insert*: Buffer log entries in memory for a short while or when a limit is reached, and bulk insert them into the database.
   - [x] *Column based compression*: Store the canonical ids for enum columns instead of the original values, saving disk space and improves query performance. See [enable-compression.yaml](configs/enable-compression.yaml) for an example configuration.
   - [x] *Harvester plugin system*: harvest logs from local files, ZeroMQ and TCP socket. Allow defining custom harvesters outside of the library.
+  - [ ] *Statistics API*: API to query statistics about the database, such as log count, log size, background task runs etc.
+  - [ ] *Web UI*: shiny pretty frontend UI to quickly peek logs and view database statistics!
   - [ ] *Time based partitioning*: One SQLite database per date or month.
-  - [ ] *Just a logging handler*: Allow to be used as a basic logging handler without the Web API part.
-  - [ ] *Log redirection*: When used as service, allow redirecting logs to local file or other external sink.
-  - [ ] *CLI utilities*: More CLI utilities to directly query the database, and export the query results to a file.
 
 ## Installation
 

@@ -70,9 +70,9 @@ protected:
         cfg_.host = "127.0.0.1";
         cfg_.port = 17788;
         cfg_.allow_origin = "*";
-        cfg_.task_diagnostics_interval = 3600;    // avoid diagnostics noise
-        cfg_.task_backlog_flush_interval = 3600;  // avoid auto-flush
-        cfg_.task_vacuum_interval = 3600;         // avoid vacuum noise
+        cfg_.task_diagnostics_interval = 3600;
+        cfg_.task_backlog_flush_interval = 3600;
+        cfg_.task_vacuum_interval = 3600;
 
         Migration m;
         m.version = 1;
@@ -105,10 +105,8 @@ protected:
 
         server_ = std::make_unique<Server>(*ctx_, 2u);
 
-        // Start server in background thread
         server_thread_ = std::thread{[this]() { server_->Run(); }};
 
-        // Wait for server to be ready
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
@@ -121,15 +119,17 @@ protected:
         }
         server_.reset();
 
-        // Drain strand pool before destroying context — background tasks may
-        // have pending dispatches on write_strand that must complete first.
+        // Destroy context first — strand destructor posts cleanup to the
+        // executor, which must still be alive.
+        ctx_.reset();
+
+        // Strand is dead; safe to tear down the pool.
         if (db_ops_pool_) {
             db_ops_pool_->stop();
             db_ops_pool_->join();
             db_ops_pool_.reset();
         }
 
-        ctx_.reset();
         db_->Close();
         db_.reset();
         fs::remove_all(tmp_);

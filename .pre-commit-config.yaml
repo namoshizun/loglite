@@ -35,22 +35,22 @@ repos:
 
       - id: ruff-check
         name: Ruff static analysis
-        entry: uv run ruff check
+        entry: uv run --directory py ruff check
         language: system
         types_or: [python, pyi]
         args: [--fix]
         pass_filenames: false
 
       - id: ruff-format
-        name: Ruff auto formatiing
-        entry: uv run ruff format
+        name: Ruff auto formatting
+        entry: uv run --directory py ruff format
         language: system
         types_or: [python, pyi]
         pass_filenames: false
 
       - id: type-checking
         name: Pyright type checking
-        entry: uv run pyright
+        entry: uv run --directory py pyright
         args: [--level=error]
         language: system
         types_or: [python, pyi]

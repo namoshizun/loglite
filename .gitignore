@@ -186,3 +186,5 @@ db/
 playground/
 *.html
 !docs/_templates/**/*.html
+
+.cursor

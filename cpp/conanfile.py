@@ -5,10 +5,11 @@ class LogliteConan(ConanFile):
     name = "loglite"
     settings = "os", "arch", "compiler", "build_type"
     generators = "CMakeDeps", "CMakeToolchain"
-    options = {"with_tests": [True, False]}
+    options = {"with_tests": [True, False], "with_python": [True, False]}
     default_options = {
         "boost/*:header_only": True,
         "with_tests": True,
+        "with_python": False,
     }
 
     def requirements(self):
@@ -20,3 +21,6 @@ class LogliteConan(ConanFile):
 
         if self.options.with_tests:
             self.requires("gtest/1.17.0")
+
+        if self.options.with_python:
+            self.requires("pybind11/2.13.6")

@@ -18,6 +18,11 @@ find_package(yaml-cpp REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED CONFIG)
 find_package(CLI11 REQUIRED CONFIG)
 
+option(LOGLITE_PYTHON "Build the pybind11 extension module (_core)" OFF)
+if(LOGLITE_PYTHON)
+    find_package(pybind11 REQUIRED CONFIG)
+endif()
+
 include(CTest)
 
 # ── Main library target ───────────────────────────────────────────────────────
@@ -27,6 +32,7 @@ file(GLOB LOGLITE_LIB_SOURCES CONFIGURE_DEPENDS
 )
 list(REMOVE_ITEM LOGLITE_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings.cpp"
 )
 
 add_library(loglite_lib STATIC ${LOGLITE_LIB_SOURCES})
@@ -124,6 +130,13 @@ if(LOGLITE_COVERAGE)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(loglite_lib PRIVATE -fprofile-update=atomic)
     endif()
+endif()
+
+# ── Python extension ──────────────────────────────────────────────────────────
+
+if(LOGLITE_PYTHON)
+    pybind11_add_module(_core src/bindings.cpp)
+    target_link_libraries(_core PRIVATE loglite_lib)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

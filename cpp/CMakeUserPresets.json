@@ -3,8 +3,5 @@
   "vendor": {
     "conan": {}
   },
-  "include": [
-    "build/apple-arm64/debug/CMakePresets.json",
-    "build/apple-arm64/release/CMakePresets.json"
-  ]
+  "include": ["build/apple-arm64/debug/CMakePresets.json"]
 }

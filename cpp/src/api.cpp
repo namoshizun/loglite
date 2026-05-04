@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "database.hpp"
 #include "globals.hpp"
+#include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
 #include "log.hpp"
 #include "migrations.hpp"
@@ -12,6 +13,7 @@
 #include <format>
 #include <memory>
 #include <thread>
+#include <vector>
 
 namespace loglite {
 
@@ -22,8 +24,9 @@ namespace {
 Backlog* g_backlog{nullptr};
 Server* g_server{nullptr};
 
-harvesters::HarvesterManager BuildNativeHarvesters(const Config& cfg, Backlog& backlog) {
-    harvesters::HarvesterManager mgr;
+std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const Config& cfg,
+                                                                          Backlog& backlog) {
+    std::vector<std::unique_ptr<harvesters::Harvester>> harvesters;
     for (const auto& hdef : cfg.harvesters) {
         if (hdef.type == "loglite.harvesters.FileHarvester" || hdef.type == "FileHarvester") {
             auto it = hdef.config.find("path");
@@ -31,30 +34,28 @@ harvesters::HarvesterManager BuildNativeHarvesters(const Config& cfg, Backlog& b
                 log::warn(std::format("FileHarvester '{}': missing 'path' config", hdef.name));
                 continue;
             }
-            mgr.Register(
+            harvesters.push_back(
                 std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
         } else {
             log::warn(std::format("Unknown harvester type '{}', skipping", hdef.type));
         }
     }
-    return mgr;
+    return harvesters;
 }
 
 }  // namespace
 
-void RunServer(const std::filesystem::path& config_path,
-               harvesters::HarvesterManager& extra_harvesters,
-               unsigned int thread_count) {
+void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
+    // Load config and init database
     auto cfg = Config::from_file(config_path);
-
     Database db{cfg};
     db.Open();
     db.Initialize();
 
+    // Init context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
     StatsTracker ingest_stats, query_stats;
-
     asio::thread_pool db_ops_pool{1u};
     ServerContext ctx{
         cfg,
@@ -68,10 +69,13 @@ void RunServer(const std::filesystem::path& config_path,
 
     g_backlog = &backlog;
 
+    // Build & start harvesters
     auto native = BuildNativeHarvesters(cfg, backlog);
-    native.StartAll();
-    extra_harvesters.StartAll();
+    for (const auto& harvester : native) {
+        harvester->Start();
+    }
 
+    // Start server
     auto effective_threads =
         thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
     Server server{ctx, effective_threads};
@@ -80,11 +84,13 @@ void RunServer(const std::filesystem::path& config_path,
     log::info(std::format("loglite server starting on {}:{}", cfg.host, cfg.port));
     server.Run();
 
+    // Teardown
     g_server = nullptr;
     g_backlog = nullptr;
 
-    extra_harvesters.StopAll();
-    native.StopAll();
+    for (const auto& harvester : native) {
+        harvester->Stop();
+    }
     db.Close();
 }
 

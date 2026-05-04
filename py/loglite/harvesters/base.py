@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Generic, Optional, TypeVar, get_args
 
+from loglite import _core
+
 
 @dataclass
 class BaseHarvesterConfig:
@@ -71,7 +73,4 @@ class Harvester(ABC, Generic[T]):
         self._task = None
 
     def ingest(self, log: dict[str, Any]):
-        """Push a log entry into the C++ backlog (thread-safe, non-blocking)."""
-        from loglite import _core  # lazy: avoids hard import failure when extension is absent
-
         _core.push_to_backlog(log)

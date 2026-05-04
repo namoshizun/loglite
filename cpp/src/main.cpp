@@ -1,5 +1,4 @@
 #include "api.hpp"
-#include "harvesters/manager.hpp"
 #include "log.hpp"
 
 #include <CLI/CLI.hpp>
@@ -41,8 +40,7 @@ int main(int argc, char** argv) {
 
     try {
         if (server_run->parsed()) {
-            loglite::harvesters::HarvesterManager no_extra;
-            loglite::RunServer(server_config, no_extra);
+            loglite::RunServer(server_config);
             return 0;
         }
         if (rollout_cmd->parsed()) {

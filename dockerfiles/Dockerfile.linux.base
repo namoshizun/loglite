@@ -26,14 +26,18 @@ WORKDIR /tmp/loglite-conan
 
 RUN conan profile detect --force \
     && conan install . \
+        --settings:h build_type=Debug \
+        --settings:h compiler.cppstd=23 \
+        --settings:b build_type=Release \
+        --build=missing \
+        -o with_python=True \
+        -o with_tests=True \
+    && conan install . \
         --settings:h build_type=Release \
         --settings:h compiler.cppstd=23 \
         --settings:b build_type=Release \
         --build=missing \
-    && conan install . \
-        --settings:h build_type=Debug \
-        --settings:h compiler.cppstd=23 \
-        --settings:b build_type=Release \
-        --build=missing
+        -o with_python=True \
+        -o with_tests=True
 
 WORKDIR /src

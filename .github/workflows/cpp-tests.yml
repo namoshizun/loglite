@@ -3,12 +3,19 @@ name: C++ Tests
 on:
   push:
     branches: [main]
+    paths:
+      - "cpp/**"
+      - ".github/workflows/cpp-tests.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "cpp/**"
+      - ".github/workflows/cpp-tests.yml"
 
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: linux/amd64
@@ -33,7 +40,7 @@ jobs:
         run: cpp/run-tests.sh --cov
 
       - name: Upload coverage to Codecov
-        if: matrix.arch == 'aarch64'
+        if: matrix.arch == 'x86_64'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

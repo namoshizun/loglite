@@ -74,17 +74,26 @@ void Server::Run() {
     asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_task_error);
 
     // ── Accept loop ───────────────────────────────────────────────────────────
-    asio::co_spawn(ex, AcceptLoop(acceptor_), on_task_error);
+    //
+    // AcceptLoop is given its own completion handler that stops the pool once
+    // the coroutine exits.  This guarantees AcceptLoop always co_returns
+    // cleanly (processing the operation_aborted from acceptor_.close) before
+    // pool_.stop() is called, which in turn ensures the accepted socket's
+    // executor is still alive when the socket destructor runs — avoiding a
+    // use-after-free that manifests on x86/GCC when pool_.stop() is called
+    // immediately 🤦.
+    asio::co_spawn(ex, AcceptLoop(acceptor_), [this](std::exception_ptr eptr) {
+        log_exception(eptr, "AcceptLoop error:");
+        pool_.stop();
+    });
 
-    pool_.join();  // blocks until stop() is called
+    pool_.join();  // blocks until AcceptLoop exits and calls pool_.stop()
 }
 
 void Server::Stop() {
-    // Use the error_code overload so closing an already-closed acceptor is a
-    // no-op rather than an exception (stop() may be called more than once).
     boost::system::error_code ec;
     acceptor_.close(ec);
-    pool_.stop();
+    // Closing the acceptor will eventually call pool_.stop().
 }
 
 asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
@@ -100,9 +109,8 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
         stream.expires_after(std::chrono::seconds(60));
 
         auto ex = co_await asio::this_coro::executor;
-        asio::co_spawn(
-            ex, HandleConnection(std::move(stream)),
-            [](std::exception_ptr eptr) { log_exception(eptr, "Connection error:"); });
+        asio::co_spawn(ex, HandleConnection(std::move(stream)),
+                       [](std::exception_ptr eptr) { log_exception(eptr, "Connection error:"); });
     }
 }
 

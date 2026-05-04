@@ -1,11 +1,14 @@
 #include "api.hpp"
 #include "log.hpp"
+#include "version.hpp"
 
 #include <CLI/CLI.hpp>
 #include <format>
+#include <string>
 
 int main(int argc, char** argv) {
     CLI::App app{"loglite – lightweight log service"};
+    app.set_version_flag("--version", std::string{loglite::kVersion});
     app.require_subcommand(1);
 
     // ── server ────────────────────────────────────────────────────────────────

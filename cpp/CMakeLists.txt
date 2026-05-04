@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.25)
-project(loglite CXX)
+project(loglite VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp"
+    @ONLY
+)
 
 # Conan CMakeDeps lives in the build dir.
 list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}")
@@ -37,7 +43,10 @@ list(REMOVE_ITEM LOGLITE_LIB_SOURCES
 
 add_library(loglite_lib STATIC ${LOGLITE_LIB_SOURCES})
 
-target_include_directories(loglite_lib PUBLIC src)
+target_include_directories(loglite_lib PUBLIC
+    src
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 target_link_libraries(loglite_lib PUBLIC
     boost::boost
     SQLite::SQLite3

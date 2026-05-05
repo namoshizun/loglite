@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "database.hpp"
 #include "migrations.hpp"
+#include "utils.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -169,13 +170,13 @@ TEST_F(DatabaseTest, MaxLogId) {
 
 TEST_F(DatabaseTest, MigrationRollback) {
     auto versions = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1));
+    EXPECT_TRUE(range_contains(versions, 1));
 
     bool ok = db_->RollbackMigration(1, cfg_.migrations[0].rollback);
     EXPECT_TRUE(ok);
 
     versions = db_->GetAppliedVersions();
-    EXPECT_FALSE(std::ranges::contains(versions, 1));
+    EXPECT_FALSE(range_contains(versions, 1));
 }
 
 TEST_F(DatabaseTest, SizeMb) {
@@ -212,9 +213,9 @@ TEST(MigrationLoopTest, AllMigrationsAppliedOnInitialize) {
     db.Initialize();  // must apply v1, v2, v3 — not just v1
 
     auto versions = db.GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1)) << "migration v1 not applied";
-    EXPECT_TRUE(std::ranges::contains(versions, 2)) << "migration v2 not applied";
-    EXPECT_TRUE(std::ranges::contains(versions, 3)) << "migration v3 not applied";
+    EXPECT_TRUE(range_contains(versions, 1)) << "migration v1 not applied";
+    EXPECT_TRUE(range_contains(versions, 2)) << "migration v2 not applied";
+    EXPECT_TRUE(range_contains(versions, 3)) << "migration v3 not applied";
 
     // Confirm schema reflects all three migrations.
     auto cols = db.GetColumnInfo();

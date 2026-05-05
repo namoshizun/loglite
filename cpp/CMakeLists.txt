@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.25)
-project(loglite CXX)
+project(loglite VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp"
+    @ONLY
+)
 
 # Conan CMakeDeps lives in the build dir.
 list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}")
@@ -18,6 +24,11 @@ find_package(yaml-cpp REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED CONFIG)
 find_package(CLI11 REQUIRED CONFIG)
 
+option(LOGLITE_PYTHON "Build the pybind11 extension module (_core)" OFF)
+if(LOGLITE_PYTHON)
+    find_package(pybind11 REQUIRED CONFIG)
+endif()
+
 include(CTest)
 
 # ── Main library target ───────────────────────────────────────────────────────
@@ -27,11 +38,15 @@ file(GLOB LOGLITE_LIB_SOURCES CONFIGURE_DEPENDS
 )
 list(REMOVE_ITEM LOGLITE_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings.cpp"
 )
 
 add_library(loglite_lib STATIC ${LOGLITE_LIB_SOURCES})
 
-target_include_directories(loglite_lib PUBLIC src)
+target_include_directories(loglite_lib PUBLIC
+    src
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 target_link_libraries(loglite_lib PUBLIC
     boost::boost
     SQLite::SQLite3
@@ -124,6 +139,15 @@ if(LOGLITE_COVERAGE)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(loglite_lib PRIVATE -fprofile-update=atomic)
     endif()
+endif()
+
+# ── Python extension ──────────────────────────────────────────────────────────
+
+if(LOGLITE_PYTHON)
+    # Required when this archive is linked into a shared module (pybind11 _core.so).
+    set_property(TARGET loglite_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
+    pybind11_add_module(_core src/bindings.cpp)
+    target_link_libraries(_core PRIVATE loglite_lib)
 endif()
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

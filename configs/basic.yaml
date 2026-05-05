@@ -1,7 +1,7 @@
 host: 0.0.0.0
 port: 7788
 debug: true
-auto_rollout: false
+auto_rollout: true
 log_table_name: Log
 log_timestamp_field: timestamp
 sse_limit: 1000
@@ -38,7 +38,7 @@ migrations:
             extra JSON
         );
       - CREATE INDEX IF NOT EXISTS idx_timestamp ON Log(timestamp);
-      - CREATE INDEX IF NOT EXISTS idx_level ON Log(level);
+      - CREATE INDEX IF NOT EXISTS idx_level ON Log(level) WHERE level IN ('WARNING', 'ERROR', 'CRITICAL');
       - CREATE INDEX IF NOT EXISTS idx_service ON Log(service);
     rollback:
       - DROP INDEX IF EXISTS idx_service;

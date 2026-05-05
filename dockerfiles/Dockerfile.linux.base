@@ -1,0 +1,35 @@
+ARG BASE_IMAGE=quay.io/pypa/manylinux_2_28_x86_64:latest
+
+FROM ${BASE_IMAGE}
+
+RUN dnf update -y \
+    && dnf install -y perl-Capture-Tiny perl-DateTime perl-Digest-MD5 perl-JSON perl-PerlIO-gzip perl-Cpanel-JSON-XS perl-Module-Load-Conditional perl-Time-HiRes \
+    && dnf clean all \
+    && curl -LO https://github.com/linux-test-project/lcov/releases/download/v2.4/lcov-2.4.tar.gz \
+    && tar -xzf lcov-2.4.tar.gz \
+    && cd lcov-2.4 \
+    && make install PREFIX=/usr/local \
+    && rm -rf lcov-2.4.tar.gz lcov-2.4 \
+    && pipx install conan
+
+# Pre-warm Conan dependency cache for both build types
+COPY conanfile.py /tmp/loglite-conan/conanfile.py
+WORKDIR /tmp/loglite-conan
+
+RUN conan profile detect --force \
+    && conan install . \
+        --settings:h build_type=Debug \
+        --settings:h compiler.cppstd=20 \
+        --settings:b build_type=Release \
+        --build=missing \
+        -o with_python=True \
+        -o with_tests=True \
+    && conan install . \
+        --settings:h build_type=Release \
+        --settings:h compiler.cppstd=20 \
+        --settings:b build_type=Release \
+        --build=missing \
+        -o with_python=True \
+        -o with_tests=True
+
+WORKDIR /src

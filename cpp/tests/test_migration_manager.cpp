@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "database.hpp"
 #include "migrations.hpp"
+#include "utils.hpp"
 
 #include <filesystem>
 
@@ -68,8 +69,8 @@ TEST_F(MigrationManagerTest, ApplyPendingMigrationsAppliesFirstUnapplied) {
     EXPECT_TRUE(ok);
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1));
-    EXPECT_FALSE(std::ranges::contains(versions, 2));
+    EXPECT_TRUE(range_contains(versions, 1));
+    EXPECT_FALSE(range_contains(versions, 2));
 }
 
 TEST_F(MigrationManagerTest, ApplyPendingMigrationsSequentially) {
@@ -81,9 +82,9 @@ TEST_F(MigrationManagerTest, ApplyPendingMigrationsSequentially) {
     EXPECT_FALSE(mgr.ApplyPendingMigrations());  // no more pending
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1));
-    EXPECT_TRUE(std::ranges::contains(versions, 2));
-    EXPECT_TRUE(std::ranges::contains(versions, 5));
+    EXPECT_TRUE(range_contains(versions, 1));
+    EXPECT_TRUE(range_contains(versions, 2));
+    EXPECT_TRUE(range_contains(versions, 5));
 }
 
 TEST_F(MigrationManagerTest, ApplyPendingMigrationsRespectsStartVersion) {
@@ -92,15 +93,15 @@ TEST_F(MigrationManagerTest, ApplyPendingMigrationsRespectsStartVersion) {
     // Apply v1 first so the table exists
     EXPECT_TRUE(mgr.ApplyPendingMigrations(0));
     auto v1 = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(v1, 1));
+    EXPECT_TRUE(range_contains(v1, 1));
 
     // With start_version=1, the next migration (v2) should be picked
     EXPECT_TRUE(mgr.ApplyPendingMigrations(1));
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1));
-    EXPECT_TRUE(std::ranges::contains(versions, 2));
-    EXPECT_FALSE(std::ranges::contains(versions, 5));
+    EXPECT_TRUE(range_contains(versions, 1));
+    EXPECT_TRUE(range_contains(versions, 2));
+    EXPECT_FALSE(range_contains(versions, 5));
 }
 
 TEST_F(MigrationManagerTest, ApplyPendingMigrationsWithNegativeStart) {
@@ -109,7 +110,7 @@ TEST_F(MigrationManagerTest, ApplyPendingMigrationsWithNegativeStart) {
     EXPECT_TRUE(mgr.ApplyPendingMigrations(-10));
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_TRUE(std::ranges::contains(versions, 1));
+    EXPECT_TRUE(range_contains(versions, 1));
 }
 
 TEST_F(MigrationManagerTest, RollbackMigrationWorks) {
@@ -117,13 +118,13 @@ TEST_F(MigrationManagerTest, RollbackMigrationWorks) {
 
     // Apply v1 first
     mgr.ApplyPendingMigrations();
-    EXPECT_TRUE(std::ranges::contains(db_->GetAppliedVersions(), 1));
+    EXPECT_TRUE(range_contains(db_->GetAppliedVersions(), 1));
 
     // Rollback with force=true
     EXPECT_TRUE(mgr.RollbackMigration(1, true));
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_FALSE(std::ranges::contains(versions, 1));
+    EXPECT_FALSE(range_contains(versions, 1));
 }
 
 TEST_F(MigrationManagerTest, RollbackUnknownVersionThrows) {
@@ -137,13 +138,13 @@ TEST_F(MigrationManagerTest, RollbackWithForceTrueSkipsPrompt) {
 
     // Apply v1 first
     mgr.ApplyPendingMigrations();
-    EXPECT_TRUE(std::ranges::contains(db_->GetAppliedVersions(), 1));
+    EXPECT_TRUE(range_contains(db_->GetAppliedVersions(), 1));
 
     // Rollback with force=true should not prompt
     EXPECT_TRUE(mgr.RollbackMigration(1, true));
 
     auto versions = db_->GetAppliedVersions();
-    EXPECT_FALSE(std::ranges::contains(versions, 1));
+    EXPECT_FALSE(range_contains(versions, 1));
 }
 
 TEST_F(MigrationManagerTest, RollbackNotFoundInConfig) {

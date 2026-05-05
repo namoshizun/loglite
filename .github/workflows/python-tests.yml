@@ -4,51 +4,47 @@ on:
   push:
     branches: [main]
     paths:
-      - "loglite/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "uv.lock"
+      - "py/**"
+      - "cpp/**"
       - ".github/workflows/python-tests.yml"
   pull_request:
     branches: [main]
     paths:
-      - "loglite/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "uv.lock"
+      - "py/**"
+      - "cpp/**"
       - ".github/workflows/python-tests.yml"
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+
+    runs-on: ${{ matrix.runner }}
+
+    container:
+      image: ghcr.io/namoshizun/loglite-cpp-base:latest
 
     env:
-      UV_PYTHON: ${{ matrix.python-version }}
+      HOME: /root
       UV_NO_PROGRESS: "1"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --frozen --group test --extra zmq
-
-      - name: Run tests
-        run: uv run pytest --cov-report=xml
+      - name: Sync deps and run tests
+        working-directory: py
+        run: |
+          uv sync -p python${{ matrix.python-version }} --no-dev --group test --extra zmq
+          uv run -p python${{ matrix.python-version }} pytest --cov-report=xml
 
       - name: Upload coverage to Codecov
+        if: matrix.runner == 'ubuntu-24.04'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
+          files: py/coverage.xml
           flags: python,py-${{ matrix.python-version }}
           fail_ci_if_error: false

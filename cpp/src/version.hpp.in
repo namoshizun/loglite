@@ -1,0 +1,12 @@
+#ifndef LOGLITE_VERSION_HPP_
+#define LOGLITE_VERSION_HPP_
+
+#include <string_view>
+
+namespace loglite {
+
+inline constexpr std::string_view kVersion = "@PROJECT_VERSION@";
+
+}  // namespace loglite
+
+#endif  // LOGLITE_VERSION_HPP_

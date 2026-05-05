@@ -13,7 +13,7 @@ The only current limitation is partial harvester support: only the **file harves
 ## Prerequisites
 
 - **CMake** ≥ 3.25
-- **C++23** toolchain (Clang or GCC)
+- **C++20** GCC 12+, Clang 16+
 - **Conan 2.x**: installed as [`conan`](https://conan.io/)
 
 On macOS (Apple Silicon), the build script uses Homebrew LLVM Clang (`/opt/homebrew/opt/llvm/bin/clang++`) when present.

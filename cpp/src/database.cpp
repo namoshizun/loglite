@@ -1,6 +1,7 @@
 #include "database.hpp"
 #include "log.hpp"
 #include "migrations.hpp"
+#include "utils.hpp"
 
 #include <algorithm>
 #include <format>
@@ -200,7 +201,7 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
     for (const auto& ft : filters) {
         // Reject unknown field names and operators before they touch any SQL string.
         validate_field(ft.field);
-        if (!std::ranges::contains(kAllowedOps, ft.op))
+        if (!range_contains(kAllowedOps, ft.op))
             throw std::runtime_error(std::format("Unknown query operator: '{}'", ft.op));
 
         if (!sql_parts.empty()) sql_parts += " AND ";
@@ -439,7 +440,7 @@ std::vector<int> Database::GetAppliedVersions() const {
 bool Database::ApplyMigration(int version, const std::vector<std::string>& statements) {
     // Pre-check outside the transaction – safe to let this throw to the caller.
     auto applied = GetAppliedVersions();
-    if (std::ranges::contains(applied, version)) {
+    if (range_contains(applied, version)) {
         log::info(std::format("Migration v{} already applied", version));
         return true;
     }

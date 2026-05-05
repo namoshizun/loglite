@@ -37,7 +37,7 @@ jobs:
       - name: Sync deps and run tests
         working-directory: py
         run: |
-          uv sync -p python${{ matrix.python-version }} --group test --extra zmq
+          uv sync -p python${{ matrix.python-version }} --no-dev --group test --extra zmq
           uv run -p python${{ matrix.python-version }} pytest --cov-report=xml
 
       - name: Upload coverage to Codecov

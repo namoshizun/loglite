@@ -53,7 +53,7 @@ harvesters:
 - [uv](https://docs.astral.sh/uv/)
 - [Conan 2](https://docs.conan.io/2/installation.html) — `pip install conan && conan profile detect`
 - CMake ≥ 3.25
-- A C++23-capable compiler (GCC 14+, Clang 22+, or Homebrew LLVM on macOS)
+- A C++20-capable compiler (GCC 12+, Clang 16+, or Homebrew LLVM on macOS)
 
 ### Build
 

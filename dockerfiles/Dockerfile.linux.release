@@ -32,7 +32,7 @@ RUN set -eux; \
         --settings:h os=Linux \
         --settings:h "arch=${CONAN_ARCH}" \
         --settings:h build_type=Release \
-        --settings:h compiler.cppstd=23 \
+        --settings:h compiler.cppstd=20 \
         --settings:b build_type=Release \
         --options:h "*:shared=False" \
         --options:h "&:with_tests=False" \

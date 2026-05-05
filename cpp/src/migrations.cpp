@@ -1,6 +1,7 @@
 #include "migrations.hpp"
 #include "database.hpp"
 #include "log.hpp"
+#include "utils.hpp"
 
 #include <algorithm>
 #include <format>
@@ -20,7 +21,7 @@ bool MigrationManager::ApplyPendingMigrations(int start_version) {
 
     for (const auto& mg : migrations_) {
         if (mg.version <= start_version) continue;
-        if (std::ranges::contains(applied, mg.version)) continue;
+        if (range_contains(applied, mg.version)) continue;
 
         bool ok = db_.ApplyMigration(mg.version, mg.rollout);
         // Mirror Python: apply ONE migration per call and return.

@@ -1,4 +1,6 @@
-FROM ubuntu:18.04
+ARG BASE_IMAGE=quay.io/pypa/manylinux_2_28_x86_64:latest
+
+FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -30,7 +32,8 @@ RUN add-apt-repository -y ppa:ubuntu-toolchain-r/test \
     && rm -rf /var/lib/apt/lists/*
 
 # CMake 3.28 from upstream binary (avoids Kitware APT repo compat issues on EOL Bionic)
-RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.28.6/cmake-3.28.6-linux-x86_64.sh \
+RUN CMAKE_MACHINE="$(uname -m)" \
+    && curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.28.6/cmake-3.28.6-linux-${CMAKE_MACHINE}.sh" \
         -o /tmp/cmake.sh \
     && sh /tmp/cmake.sh --prefix=/usr/local --skip-license \
     && rm /tmp/cmake.sh
@@ -53,17 +56,19 @@ RUN python3.11 -m pip install conan
 COPY conanfile.py /tmp/loglite-conan/conanfile.py
 WORKDIR /tmp/loglite-conan
 
-RUN conan profile detect --force \
+RUN conan remove "*" --confirm \
+    && conan cache clean \
+    && conan profile detect --force \
     && conan install . \
         --settings:h build_type=Debug \
-        --settings:h compiler.cppstd=23 \
+        --settings:h compiler.cppstd=20 \
         --settings:b build_type=Release \
         --build=missing \
         -o with_python=True \
         -o with_tests=True \
     && conan install . \
         --settings:h build_type=Release \
-        --settings:h compiler.cppstd=23 \
+        --settings:h compiler.cppstd=20 \
         --settings:b build_type=Release \
         --build=missing \
         -o with_python=True \

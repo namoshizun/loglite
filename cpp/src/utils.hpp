@@ -6,11 +6,21 @@
 #include <format>
 #include <limits>
 #include <mutex>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 
 namespace loglite {
+
+// C++20 equivalent of std::ranges::contains (C++23). Uses iterator-pair find so
+// temporaries (non-borrowed ranges) do not collapse to std::ranges::dangling.
+template <std::ranges::input_range R, class T>
+constexpr bool range_contains(R&& r, const T& value) {
+    const auto first = std::ranges::begin(r);
+    const auto last = std::ranges::end(r);
+    return std::ranges::find(first, last, value) != last;
+}
 
 // ── Size conversions ──────────────────────────────────────────────────────────
 

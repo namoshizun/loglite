@@ -17,6 +17,6 @@
 ## C++ coding style
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
-- Use C++ 23. Prefer modern features over legacy ones.
+- Use C++ 20. Prefer modern features over legacy ones.
 - Follow the Google C++ Style Guide.
 - Use CMake and GTest

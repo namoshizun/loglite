@@ -3,7 +3,8 @@ ARG BASE_IMAGE=quay.io/pypa/manylinux_2_28_x86_64:latest
 FROM ${BASE_IMAGE}
 
 RUN dnf update -y \
-    && dnf install -y perl-Capture-Tiny perl-DateTime perl-Digest-MD5 perl-JSON perl-PerlIO-gzip perl-Cpanel-JSON-XS perl-Module-Load-Conditional \
+    && dnf install -y perl-Capture-Tiny perl-DateTime perl-Digest-MD5 perl-JSON perl-PerlIO-gzip perl-Cpanel-JSON-XS perl-Module-Load-Conditional perl-Time-HiRes \
+    && dnf clean all \
     && curl -LO https://github.com/linux-test-project/lcov/releases/download/v2.4/lcov-2.4.tar.gz \
     && tar -xzf lcov-2.4.tar.gz \
     && cd lcov-2.4 \

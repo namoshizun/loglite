@@ -32,7 +32,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install cibuildwheel
-        run: pip install cibuildwheel==3.4.1
+        run: pip install cibuildwheel==3.4.1 --break-system-packages
+      
+      - name: Copy C++ source tree into package directory
+        run: cp -a cpp py/_cpp
 
       - name: Build wheels
         working-directory: py
@@ -42,6 +45,7 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/namoshizun/loglite-cpp-base:latest
           CIBW_MANYLINUX_AARCH64_IMAGE: ghcr.io/namoshizun/loglite-cpp-base:latest
           CIBW_CMAKE_ARGS: -DLOGLITE_PYTHON=ON
+          CIBW_SKIP: cp*-musllinux*
         run: cibuildwheel --output-dir wheelhouse
 
       - name: Upload wheels as artifacts

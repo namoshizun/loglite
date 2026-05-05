@@ -5,6 +5,20 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ── Locate the C++ source tree ─────────────────────────────────────────────────
+# Local dev: ../cpp exists as a sibling directory.
+# Container (cibuildwheel): _cpp is copied into the package dir before build 🤮.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../cpp/conanfile.py")
+    set(LOGLITE_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cpp")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/_cpp/conanfile.py")
+    set(LOGLITE_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_cpp")
+else()
+    message(FATAL_ERROR
+        "Cannot find the loglite C++ source tree. "
+        "Expected either ../cpp/ (local dev) or _cpp/ (CI container).")
+endif()
+
+
 # ── Conan dependency management ────────────────────────────────────────────────
 #
 # Two modes:
@@ -32,7 +46,7 @@ else()
                    "(first run compiles deps; subsequent runs use the cache)...")
     execute_process(
         COMMAND
-            ${CONAN_EXE} install ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+            ${CONAN_EXE} install ${LOGLITE_CPP_DIR}
             --output-folder=${CMAKE_CURRENT_BINARY_DIR}
             -o with_python=True
             -o with_tests=False
@@ -53,6 +67,6 @@ find_package(pybind11 REQUIRED CONFIG)
 
 set(LOGLITE_PYTHON ON CACHE BOOL "" FORCE)
 set(BUILD_TESTING  OFF CACHE BOOL "" FORCE)
-add_subdirectory(../cpp ${CMAKE_CURRENT_BINARY_DIR}/cpp)
+add_subdirectory(${LOGLITE_CPP_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cpp)
 
 install(TARGETS _core LIBRARY DESTINATION loglite)

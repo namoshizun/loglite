@@ -188,3 +188,4 @@ playground/
 !docs/_templates/**/*.html
 
 .cursor
+py/_cpp

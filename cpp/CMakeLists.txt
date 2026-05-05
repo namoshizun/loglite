@@ -144,6 +144,8 @@ endif()
 # ── Python extension ──────────────────────────────────────────────────────────
 
 if(LOGLITE_PYTHON)
+    # Required when this archive is linked into a shared module (pybind11 _core.so).
+    set_property(TARGET loglite_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
     pybind11_add_module(_core src/bindings.cpp)
     target_link_libraries(_core PRIVATE loglite_lib)
 endif()

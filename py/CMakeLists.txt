@@ -27,6 +27,7 @@ endif()
 #      No CMAKE_TOOLCHAIN_FILE is set, so Conan is invoked here during CMake
 #      configure.  Conan's per-user binary cache makes repeated runs fast.
 #      Requires `conan` on PATH; install it with `pip install conan`.
+#      Host settings mirror cpp/build.sh (cppstd=20, static deps, &:options).
 #
 #   2. Pre-supplied toolchain (e.g. cibuildwheel CI):
 #      Pass -DCMAKE_TOOLCHAIN_FILE=<conan_output>/conan_toolchain.cmake.
@@ -48,9 +49,13 @@ else()
         COMMAND
             ${CONAN_EXE} install ${LOGLITE_CPP_DIR}
             --output-folder=${CMAKE_CURRENT_BINARY_DIR}
-            -o with_python=True
-            -o with_tests=False
-            -s build_type=${CMAKE_BUILD_TYPE}
+            --settings:h build_type=${CMAKE_BUILD_TYPE}
+            --settings:h compiler.cppstd=20
+            --settings:b build_type=Release
+            --options:h *:shared=False
+            --options:h &:with_python=True
+            --options:h &:with_tests=False
+            --conf tools.cmake.cmaketoolchain:user_presets=
             --build=missing
         RESULT_VARIABLE _conan_exit
         COMMAND_ERROR_IS_FATAL ANY

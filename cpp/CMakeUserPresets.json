@@ -4,7 +4,6 @@
         "conan": {}
     },
     "include": [
-        "build/apple-arm64/debug/CMakePresets.json",
-        "../../../../../../var/folders/cb/mrp_cw_x0bd40shd11p61h3r0000gn/T/tmps9og_00i/build/CMakePresets.json"
+        "../../../../../../var/folders/cb/mrp_cw_x0bd40shd11p61h3r0000gn/T/tmpfx2wd42a/build/CMakePresets.json"
     ]
 }

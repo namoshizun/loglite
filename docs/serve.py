@@ -8,7 +8,7 @@ BaseHandler = http.server.SimpleHTTPRequestHandler
 HERE = Path(__file__).resolve().parent
 
 PORT = 8001
-PATH = ""
+PATH = "0.0.0.0"
 DOC_DIR = HERE / "_build/html"
 
 
@@ -28,7 +28,7 @@ class DocHTTPRequestHandler(BaseHandler):
 
 
 with socketserver.TCPServer((PATH, PORT), DocHTTPRequestHandler) as httpd:
-    print(f"Serving at http://localhost:{PORT}")
+    print(f"Serving at http://0.0.0.0:{PORT}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

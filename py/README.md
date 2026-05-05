@@ -1,6 +1,6 @@
 # Loglite (Python)
 
-The Python package is a thin convenience layer on top of the [loglite C++ core](../cpp). It provides:
+The Python package is a thin convenience layer on top of the [loglite C++ core](https://github.com/namoshizun/loglite/tree/main/cpp). It provides:
 
 - **CLI** (`loglite server run`, `loglite migrate rollout/rollback`) — delegates directly to the C++ server via a pybind11 extension (`_core`).
 - **Built-in harvesters** — `FileHarvester`, `SocketHarvester`, and (optional) `ZMQHarvester`.
@@ -63,6 +63,12 @@ uv sync --all-groups
 ```
 
 That's it. CMake automatically invokes Conan during the configure step, so no separate Conan command is needed. The first sync compiles the C++ dependencies (SQLite3, Boost headers, yaml-cpp); subsequent syncs use Conan's binary cache and are fast 💪.
+
+For building docs
+
+```bash
+uv run --group docs sphinx-build -W --keep-going -b html ../docs ../docs/_build/html
+```
 
 ### Running tests
 

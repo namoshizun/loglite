@@ -1,7 +1,7 @@
 [project]
 name = "loglite"
 version = "1.0.0"
-description = "Lightweight log service — Python CLI and harvester layer over the loglite C++ core"
+description = "Loglite - Lightweight logging service for IoT systems"
 authors = [{ name = "namoshizun", email = "dilu3100@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.10"

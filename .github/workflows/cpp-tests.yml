@@ -4,12 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - "cpp/**"
+      - "cpp/src/**"
+      - "cpp/tests/**"
       - ".github/workflows/cpp-tests.yml"
   pull_request:
     branches: [main]
     paths:
-      - "cpp/**"
+      - "cpp/src/**"
+      - "cpp/tests/**"
       - ".github/workflows/cpp-tests.yml"
 
 jobs:

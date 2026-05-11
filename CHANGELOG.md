@@ -1,5 +1,9 @@
 ## Changelog
 
+### 1.0.0
+
+A whole new shape ✨. Loglite can now be deployed as a standalone C++ binary or as a Python package. Core functionality is implemented in C++ for stronger performance and a smoother fit on embedded targets.
+
 ### 0.4.1
 
 - chore: replace poetry with uv; add ruff and pyright to dev dependencies; enable pre-commit hooks

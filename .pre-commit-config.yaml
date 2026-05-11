@@ -42,7 +42,7 @@ repos:
         pass_filenames: false
 
       - id: clang-format
-        name: clang-format C++ formatting
+        name: Clang-format C++ formatting
         entry: clang-format
         args: [-i, --Werror, --style=file:.clang-format]
         language: system

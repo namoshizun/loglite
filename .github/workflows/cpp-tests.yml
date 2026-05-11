@@ -36,7 +36,7 @@ jobs:
       HOME: /root
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run tests with coverage
         run: cpp/run-tests.sh --cov

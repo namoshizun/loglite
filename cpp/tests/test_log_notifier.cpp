@@ -9,7 +9,7 @@ namespace asio = boost::asio;
 using namespace loglite;
 
 class LogNotifierTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override { ioc_ = std::make_unique<asio::io_context>(); }
     void TearDown() override {
         ioc_->stop();

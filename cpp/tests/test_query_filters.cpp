@@ -75,7 +75,8 @@ TEST(QueryStringTest, SplitTargetNoQuery) {
 
 TEST(ResponseHelperTest, MakeJSONResponse) {
     http::request<http::string_body> req{http::verb::get, "/test", 11};
-    auto res = handlers::MakeJSONResponse(http::status::ok, {{"key", "val"}}, req, "https://example.com");
+    auto res =
+        handlers::MakeJSONResponse(http::status::ok, {{"key", "val"}}, req, "https://example.com");
     EXPECT_EQ(res.result(), http::status::ok);
     EXPECT_EQ(res[http::field::content_type], "application/json");
     EXPECT_EQ(res[http::field::access_control_allow_origin], "https://example.com");
@@ -90,4 +91,3 @@ TEST(ResponseHelperTest, MakeJSONResponseWithKeepAlive) {
     auto res = handlers::MakeOKResp({{"status", "ok"}}, req);
     EXPECT_TRUE(res.keep_alive());
 }
-

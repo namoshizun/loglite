@@ -68,26 +68,18 @@ TEST(UtilsTest, StatsTrackerMinAfterReset) {
 
 // ── url_decode ───────────────────────────────────────────────────────────────
 
-TEST(UtilsTest, UrlDecodeNoEncoding) {
-    EXPECT_EQ(url_decode("hello"), "hello");
-}
+TEST(UtilsTest, UrlDecodeNoEncoding) { EXPECT_EQ(url_decode("hello"), "hello"); }
 
-TEST(UtilsTest, UrlDecodePlus) {
-    EXPECT_EQ(url_decode("hello+world"), "hello world");
-}
+TEST(UtilsTest, UrlDecodePlus) { EXPECT_EQ(url_decode("hello+world"), "hello world"); }
 
 TEST(UtilsTest, UrlDecodePercent) {
     EXPECT_EQ(url_decode("hello%20world"), "hello world");
     EXPECT_EQ(url_decode("%3C%3E"), "<>");
 }
 
-TEST(UtilsTest, UrlDecodeInvalidHex) {
-    EXPECT_EQ(url_decode("test%GG"), "test");
-}
+TEST(UtilsTest, UrlDecodeInvalidHex) { EXPECT_EQ(url_decode("test%GG"), "test"); }
 
-TEST(UtilsTest, UrlDecodeEmpty) {
-    EXPECT_EQ(url_decode(""), "");
-}
+TEST(UtilsTest, UrlDecodeEmpty) { EXPECT_EQ(url_decode(""), ""); }
 
 // ── ParseIntParam ────────────────────────────────────────────────────────────
 
@@ -97,9 +89,7 @@ TEST(UtilsTest, ParseIntParamValid) {
     EXPECT_EQ(ParseIntParam("0"), std::optional(0));
 }
 
-TEST(UtilsTest, ParseIntParamEmpty) {
-    EXPECT_EQ(ParseIntParam(""), std::nullopt);
-}
+TEST(UtilsTest, ParseIntParamEmpty) { EXPECT_EQ(ParseIntParam(""), std::nullopt); }
 
 TEST(UtilsTest, ParseIntParamNonNumeric) {
     EXPECT_EQ(ParseIntParam("abc"), std::nullopt);

@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 using namespace loglite;
 
 class MigrationManagerTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tmp_ = fs::temp_directory_path() / "loglite_mgr_test";
         fs::remove_all(tmp_);

@@ -1,0 +1,37 @@
+name: Python Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "py/loglite/**"
+      - "py/tests/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "py/loglite/**"
+      - "py/tests/**"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools
+        working-directory: py
+        run: uv sync --group dev
+
+      - name: Ruff lint
+        working-directory: py
+        run: uv run ruff check
+
+      - name: Pyright type check
+        working-directory: py
+        run: uv run pyright --level=error

@@ -36,13 +36,13 @@ jobs:
       UV_NO_PROGRESS: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Sync deps and run tests
         working-directory: py
         run: |
           uv sync -p python${{ matrix.python-version }} --no-dev --group test --extra zmq
-          uv run -p python${{ matrix.python-version }} pytest --cov-report=xml
+          uv run -p python${{ matrix.python-version }} pytest
 
       - name: Upload coverage to Codecov
         if: matrix.runner == 'ubuntu-24.04'

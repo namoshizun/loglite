@@ -20,7 +20,7 @@ namespace http = boost::beast::http;
 using namespace loglite;
 
 class HandlersTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tmp_ = fs::temp_directory_path() / "loglite_handlers_test";
         fs::remove_all(tmp_);
@@ -61,7 +61,12 @@ protected:
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
 
         ctx_ = std::make_unique<ServerContext>(ServerContext{
-            cfg_, *db_, *backlog_, *notifier_, *ingest_stats_, *query_stats_,
+            cfg_,
+            *db_,
+            *backlog_,
+            *notifier_,
+            *ingest_stats_,
+            *query_stats_,
             asio::make_strand(db_ops_pool_->get_executor()),
         });
     }
@@ -189,8 +194,10 @@ TEST_F(HandlersTest, QueryWithEmptyDbReturnsEmpty) {
 
 TEST_F(HandlersTest, QueryReturnsInsertedLogs) {
     // Insert logs into DB directly via backlog flush
-    nlohmann::json log1{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    nlohmann::json log2{{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}};
+    nlohmann::json log1{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
+    nlohmann::json log2{
+        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}};
     db_->Insert({log1, log2});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0");
@@ -204,7 +211,8 @@ TEST_F(HandlersTest, QueryReturnsInsertedLogs) {
 
 TEST_F(HandlersTest, QueryWithFilter) {
     nlohmann::json log1{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "a"}, {"level", "INFO"}};
-    nlohmann::json log2{{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "b"}, {"level", "ERROR"}};
+    nlohmann::json log2{
+        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "b"}, {"level", "ERROR"}};
     db_->Insert({log1, log2});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&level==ERROR");
@@ -235,7 +243,8 @@ TEST_F(HandlersTest, QueryInvalidFilterExpression) {
 }
 
 TEST_F(HandlersTest, QuerySpecificFields) {
-    nlohmann::json log1{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
+    nlohmann::json log1{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
     db_->Insert({log1});
 
     auto req = make_req(http::verb::get, "/logs?fields=message,level&limit=10&offset=0");
@@ -251,7 +260,8 @@ TEST_F(HandlersTest, QuerySpecificFields) {
 }
 
 TEST_F(HandlersTest, QueryWithUnknownFieldInFilter) {
-    nlohmann::json log1{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
+    nlohmann::json log1{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
     db_->Insert({log1});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&nonexistent==val");

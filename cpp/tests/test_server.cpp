@@ -53,7 +53,7 @@ static http::response<http::string_body> http_req(const std::string& host, uint1
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
 class ServerTest : public ::testing::Test {
-protected:
+   protected:
     static void SetUpTestSuite() {}  // one-time setup if needed
 
     void SetUp() override {
@@ -99,7 +99,12 @@ protected:
         query_stats_ = std::make_unique<StatsTracker>();
 
         ctx_ = std::make_unique<ServerContext>(ServerContext{
-            cfg_, *db_, *backlog_, *notifier_, *ingest_stats_, *query_stats_,
+            cfg_,
+            *db_,
+            *backlog_,
+            *notifier_,
+            *ingest_stats_,
+            *query_stats_,
             asio::make_strand(db_ops_pool_->get_executor()),
         });
 
@@ -184,8 +189,7 @@ TEST_F(ServerTest, InsertArrayOfLogs) {
         {"timestamp":"2024-01-01T00:00:00Z","message":"a","level":"INFO"},
         {"timestamp":"2024-01-01T00:00:01Z","message":"b","level":"ERROR"}
     ])";
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", payload,
-                        "application/json");
+    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", payload, "application/json");
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -193,22 +197,20 @@ TEST_F(ServerTest, InsertArrayOfLogs) {
 }
 
 TEST_F(ServerTest, InsertInvalidJson) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", "not json",
-                        "application/json");
+    auto res =
+        http_req("127.0.0.1", 17788, http::verb::post, "/logs", "not json", "application/json");
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(ServerTest, InsertNonJsonObject) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", "42",
-                        "application/json");
+    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", "42", "application/json");
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 // ── Query ───────────────────────────────────────────────────────────────────
 
 TEST_F(ServerTest, QueryEmptyDbReturnsEmpty) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=10&offset=0");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -229,8 +231,7 @@ TEST_F(ServerTest, QueryWithDataReturnsResults) {
         {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}};
     db_->Insert({log1, log2});
 
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=10&offset=0");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -265,8 +266,7 @@ TEST_F(ServerTest, QueryPagination) {
     }
     db_->Insert(logs);
 
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=2&offset=0");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=2&offset=0");
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -290,14 +290,12 @@ TEST_F(ServerTest, QueryWithSpecificFields) {
 }
 
 TEST_F(ServerTest, QueryNonNumericLimit) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=abc&offset=0");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=abc&offset=0");
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(ServerTest, QueryNonNumericOffset) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=10&offset=xxx");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=xxx");
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
@@ -331,10 +329,10 @@ TEST_F(ServerTest, MultipleRequestsSequentially) {
 
     // Query (data was inserted via backlog, need to flush)
     // Insert directly for the test
-    db_->Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "direct"}, {"level", "INFO"}}});
+    db_->Insert(
+        {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "direct"}, {"level", "INFO"}}});
 
-    auto res3 = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=10&offset=0");
+    auto res3 = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
     EXPECT_EQ(res3.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res3.body());

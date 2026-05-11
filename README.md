@@ -86,6 +86,12 @@ log_table_name: Log
 sqlite_dir: ./db
 auto_rollout: true
 
+sqlite_params:
+   # Any valid SQLite PRAGMA key/value pairs
+   auto_vacuum: INCREMENTAL
+   journal_mode: WAL  # Highly recommended
+   synchronous: NORMAL
+
 migrations:
   - version: 1
     rollout:

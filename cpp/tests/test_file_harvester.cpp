@@ -17,8 +17,7 @@ using namespace std::literals::chrono_literals;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // Poll until `backlog` holds at least `n` entries, or `timeout` elapses.
-static bool wait_for(Backlog& bl, size_t n,
-                     std::chrono::milliseconds timeout = 2500ms) {
+static bool wait_for(Backlog& bl, size_t n, std::chrono::milliseconds timeout = 2500ms) {
     auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline) {
         if (bl.Size() >= n) return true;
@@ -55,7 +54,9 @@ class FileHarvesterTest : public ::testing::Test {
     // Create an empty file at log_file_ (so the harvester doesn't enter the
     // 5-second "waiting for file" loop) then start the harvester.
     void create_file_and_start() {
-        { std::ofstream{log_file_}; }  // empty file
+        {
+            std::ofstream{log_file_};
+        }  // empty file
         harvester_ = std::make_unique<FileHarvester>("test", log_file_, backlog_);
         harvester_->Start();
         // Give the harvester time to open the file and record the initial EOF offset.
@@ -150,8 +151,7 @@ TEST_F(FileHarvesterTest, IngestsMultipleLinesInOnePoll) {
     // Write several lines at once so they land in a single poll iteration.
     {
         std::ofstream f{log_file_, std::ios::app};
-        for (int i = 0; i < 5; ++i)
-            f << R"({"msg":"batch","id":)" << i << "}\n";
+        for (int i = 0; i < 5; ++i) f << R"({"msg":"batch","id":)" << i << "}\n";
     }
 
     ASSERT_TRUE(wait_for(backlog_, 5));
@@ -167,7 +167,9 @@ TEST_F(FileHarvesterTest, DetectsTruncation) {
     backlog_.Flush();
 
     // Truncate the file (simulates logrotate copytruncate).
-    { std::ofstream{log_file_, std::ios::trunc}; }
+    {
+        std::ofstream{log_file_, std::ios::trunc};
+    }
 
     // Give the harvester at least one poll to observe the size drop.
     std::this_thread::sleep_for(600ms);

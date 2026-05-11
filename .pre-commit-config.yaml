@@ -41,6 +41,14 @@ repos:
         args: [--fix]
         pass_filenames: false
 
+      - id: clang-format
+        name: clang-format C++ formatting
+        entry: clang-format
+        args: [-i, --Werror, --style=file:.clang-format]
+        language: system
+        types_or: [c, c++]
+        pass_filenames: true
+
       - id: ruff-format
         name: Ruff auto formatting
         entry: uv run --directory py ruff format

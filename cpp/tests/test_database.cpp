@@ -305,9 +305,7 @@ TEST_F(DatabaseTest, GetPragmaPageSize) {
     EXPECT_GT(sz, 0);
 }
 
-TEST_F(DatabaseTest, IncrementalVacuumNoOp) {
-    EXPECT_NO_THROW(db_->IncrementalVacuum(0));
-}
+TEST_F(DatabaseTest, IncrementalVacuumNoOp) { EXPECT_NO_THROW(db_->IncrementalVacuum(0)); }
 
 TEST_F(DatabaseTest, GetMinLogId) {
     EXPECT_EQ(db_->GetMinLogId(), 0);
@@ -343,9 +341,7 @@ TEST_F(DatabaseTest, RefreshColumnInfo) {
     EXPECT_TRUE(has_msg);
 }
 
-TEST_F(DatabaseTest, WALCheckpoint) {
-    EXPECT_NO_THROW(db_->WALCheckpoint("PASSIVE"));
-}
+TEST_F(DatabaseTest, WALCheckpoint) { EXPECT_NO_THROW(db_->WALCheckpoint("PASSIVE")); }
 
 TEST_F(DatabaseTest, GetColumnDictRowsInitiallyEmpty) {
     auto rows = db_->GetColumnDictRows();

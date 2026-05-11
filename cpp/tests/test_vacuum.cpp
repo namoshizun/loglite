@@ -10,7 +10,7 @@ namespace fs = std::filesystem;
 using namespace loglite;
 
 class VacuumTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tmp_ = fs::temp_directory_path() / "loglite_vacuum_test";
         fs::remove_all(tmp_);

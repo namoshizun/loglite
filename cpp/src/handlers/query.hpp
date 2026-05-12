@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 #include "../utils.hpp"
 
 #include <stdexcept>
@@ -13,6 +14,8 @@ namespace loglite::handlers {
 
 template <class Body>
 http::response<http::string_body> HandleQuery(const http::request<Body>& req, ServerContext& ctx) {
+    metrics::ScopedObservationTimer request_timer{metrics::kQueryRequest};
+
     auto [path, qs] = SplitURLTarget(req.target());
     auto params = ParseQueryString(qs);
 
@@ -61,9 +64,7 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
 
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
-        Timer t;
         auto result = ctx.db.Query(fields, filters, limit, offset);
-        ctx.query_stats.collect(1, t.elapsed_ms());
         return MakeOKResp(result.to_json(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::error(std::format("Query error: {}", e.what()));

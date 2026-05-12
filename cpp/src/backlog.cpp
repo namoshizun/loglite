@@ -1,4 +1,5 @@
 #include "backlog.hpp"
+#include "metrics.hpp"
 
 #include <utility>
 
@@ -7,12 +8,19 @@ namespace loglite {
 Backlog::Backlog(size_t max_size) : max_size_(max_size) {}
 
 void Backlog::Add(nlohmann::json log) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (queue_.size() >= max_size_) {
-        queue_.pop_front();
+    bool dropped = false;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (queue_.size() >= max_size_) {
+            queue_.pop_front();
+            dropped = true;
+        }
+        queue_.push_back(std::move(log));
+        if (queue_.size() >= max_size_) {
+            is_full_.store(true, std::memory_order_release);
+        }
     }
-    queue_.push_back(std::move(log));
-    if (queue_.size() >= max_size_) is_full_.store(true, std::memory_order_release);
+    if (dropped) metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop);
 }
 
 std::vector<nlohmann::json> Backlog::Flush() {

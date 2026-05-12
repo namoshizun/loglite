@@ -375,3 +375,25 @@ TEST_F(DatabaseTest, CreateInternalTablesIdempotent) {
     EXPECT_NO_THROW(db_->CreateInternalTables());
     EXPECT_NO_THROW(db_->CreateInternalTables());
 }
+
+TEST_F(DatabaseTest, InsertAndPruneStatsRows) {
+    ActivityStatsRow old_activity;
+    old_activity.since = "2024-01-01T00:00:00Z";
+    old_activity.until = "2024-01-01T00:01:00Z";
+    old_activity.query_count = 1;
+
+    ActivityStatsRow new_activity;
+    new_activity.since = "2024-01-02T00:00:00Z";
+    new_activity.until = "2024-01-02T00:01:00Z";
+    new_activity.query_count = 2;
+    DatabaseStatsRow old_db{"2024-01-01T00:01:00Z", 10, 4096};
+    DatabaseStatsRow new_db{"2024-01-02T00:01:00Z", 20, 8192};
+
+    EXPECT_TRUE(db_->InsertActivityStats(old_activity));
+    EXPECT_TRUE(db_->InsertActivityStats(new_activity));
+    EXPECT_TRUE(db_->InsertDatabaseStats(old_db));
+    EXPECT_TRUE(db_->InsertDatabaseStats(new_db));
+
+    EXPECT_EQ(db_->DeleteStatsBefore("2024-01-02T00:00:00Z"), 2);
+    EXPECT_EQ(db_->DeleteStatsBefore("2024-01-03T00:00:00Z"), 2);
+}

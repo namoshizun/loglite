@@ -6,10 +6,12 @@
 #include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
 #include "log.hpp"
+#include "metrics.hpp"
 #include "migrations.hpp"
 #include "server.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <format>
 #include <memory>
 #include <thread>
@@ -48,6 +50,8 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
+    metrics::MetricsRegistry::Instance().Configure(
+        std::chrono::seconds{cfg.task_diagnostics_interval});
     Database db{cfg};
     db.Open();
     db.Initialize();
@@ -55,16 +59,9 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     // Init context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
-    StatsTracker ingest_stats, query_stats;
     asio::thread_pool db_ops_pool{1u};
     ServerContext ctx{
-        cfg,
-        db,
-        backlog,
-        notifier,
-        ingest_stats,
-        query_stats,
-        asio::make_strand(db_ops_pool.get_executor()),
+        cfg, db, backlog, notifier, asio::make_strand(db_ops_pool.get_executor()),
     };
 
     g_backlog = &backlog;

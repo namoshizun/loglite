@@ -123,18 +123,42 @@ void Database::Close() {
 }
 
 void Database::CreateInternalTables() {
-    exec_sql(db_,
-             "CREATE TABLE IF NOT EXISTS versions ("
-             "  version    INTEGER PRIMARY KEY,"
-             "  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-             ")");
-    exec_sql(db_,
-             "CREATE TABLE IF NOT EXISTS column_dictionary ("
-             "  id       INTEGER PRIMARY KEY AUTOINCREMENT,"
-             "  column   TEXT    NOT NULL,"
-             "  value_id INTEGER NOT NULL,"
-             "  value    JSON"
-             ")");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS versions (
+        version    INTEGER PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ))");
+
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS column_dictionary (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        column   TEXT    NOT NULL,
+        value_id INTEGER NOT NULL,
+        value    JSON
+    ))");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS activity_stats (
+        id                  INTEGER PRIMARY KEY,
+        since               DATETIME NOT NULL,
+        until               DATETIME NOT NULL,
+        query_count         INTEGER,
+        query_min           INTEGER,
+        query_max           INTEGER,
+        query_avg           INTEGER,
+        ingest_count        INTEGER,
+        ingest_size_min     INTEGER,
+        ingest_size_max     INTEGER,
+        ingest_size_avg     INTEGER,
+        ingest_drop_count   INTEGER,
+        insert_batch_count  INTEGER,
+        insert_total_count  INTEGER,
+        insert_total_cost   INTEGER,
+        sse_session_count   INTEGER,
+        http_conn_count     INTEGER
+    ))");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS database_stats (
+        id           INTEGER PRIMARY KEY,
+        timestamp    DATETIME,
+        rows_count   INTEGER,
+        db_size      INTEGER
+    ))");
 }
 
 void Database::Initialize() {
@@ -395,6 +419,13 @@ std::string Database::GetMinTimestamp() const {
     return "";
 }
 
+int64_t Database::GetLogRowCount() const {
+    auto sql = std::format("SELECT COUNT(id) FROM {}", cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
+    return 0;
+}
+
 // ── PRAGMAs ───────────────────────────────────────────────────────────────────
 
 std::string Database::GetPragma(std::string_view name) const {
@@ -421,11 +452,76 @@ void Database::WALCheckpoint(std::string_view mode) {
     exec_sql(db_, std::format("PRAGMA wal_checkpoint({})", mode));
 }
 
-double Database::GetSizeMB() const {
+int64_t Database::GetSizeBytes() const {
     int64_t page_count = std::stoll(GetPragma("page_count"));
     int64_t page_size = std::stoll(GetPragma("page_size"));
     int64_t freelist = std::stoll(GetPragma("freelist_count"));
-    return bytes_to_mb((page_count - freelist) * page_size);
+    return (page_count - freelist) * page_size;
+}
+
+double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
+
+// ── Internal stats ────────────────────────────────────────────────────────────
+
+bool Database::InsertActivityStats(const ActivityStatsRow& row) {
+    Statement stmt{db_, R"(INSERT INTO activity_stats (
+        since, until,
+        query_count, query_min, query_max, query_avg,
+        ingest_count, ingest_size_min, ingest_size_max, ingest_size_avg, ingest_drop_count,
+        insert_batch_count, insert_total_count, insert_total_cost,
+        sse_session_count, http_conn_count
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?))"};
+
+    sqlite3_bind_text(stmt, 1, row.since.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, row.until.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, row.query_count);
+    sqlite3_bind_int64(stmt, 4, row.query_min);
+    sqlite3_bind_int64(stmt, 5, row.query_max);
+    sqlite3_bind_int64(stmt, 6, row.query_avg);
+    sqlite3_bind_int64(stmt, 7, row.ingest_count);
+    sqlite3_bind_int64(stmt, 8, row.ingest_size_min);
+    sqlite3_bind_int64(stmt, 9, row.ingest_size_max);
+    sqlite3_bind_int64(stmt, 10, row.ingest_size_avg);
+    sqlite3_bind_int64(stmt, 11, row.ingest_drop_count);
+    sqlite3_bind_int64(stmt, 12, row.insert_batch_count);
+    sqlite3_bind_int64(stmt, 13, row.insert_total_count);
+    sqlite3_bind_int64(stmt, 14, row.insert_total_cost);
+    sqlite3_bind_int64(stmt, 15, row.sse_session_count);
+    sqlite3_bind_int64(stmt, 16, row.http_conn_count);
+
+    ensure_ok(sqlite3_step(stmt), db_, "insert_activity_stats");
+    return true;
+}
+
+bool Database::InsertDatabaseStats(const DatabaseStatsRow& row) {
+    Statement stmt{db_,
+                   "INSERT INTO database_stats (timestamp, rows_count, db_size) VALUES (?, ?, ?)"};
+
+    sqlite3_bind_text(stmt, 1, row.timestamp.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, row.rows_count);
+    sqlite3_bind_int64(stmt, 3, row.db_size);
+
+    ensure_ok(sqlite3_step(stmt), db_, "insert_database_stats");
+    return true;
+}
+
+int Database::DeleteStatsBefore(std::string_view cutoff) {
+    int removed = 0;
+    {
+        Statement stmt{db_, "DELETE FROM activity_stats WHERE until < ?"};
+        sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
+                          SQLITE_TRANSIENT);
+        ensure_ok(sqlite3_step(stmt), db_, "delete_activity_stats");
+        removed += sqlite3_changes(db_);
+    }
+    {
+        Statement stmt{db_, "DELETE FROM database_stats WHERE timestamp < ?"};
+        sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
+                          SQLITE_TRANSIENT);
+        ensure_ok(sqlite3_step(stmt), db_, "delete_database_stats");
+        removed += sqlite3_changes(db_);
+    }
+    return removed;
 }
 
 // ── Migrations ────────────────────────────────────────────────────────────────

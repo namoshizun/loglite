@@ -3,6 +3,7 @@
 
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
@@ -53,7 +54,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         // Leave the strand by posting back to the generic pool executor.
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
-        ctx.ingest_stats.collect(count, t.elapsed_ms());
+        metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, t.elapsed_ms(), count);
         ctx.notifier.Notify(max);
 
         if (cfg.debug) log::debug(std::format("Inserted {} row(s), max_log_id={}", count, max));

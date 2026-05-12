@@ -4,7 +4,6 @@
 #include "backlog.hpp"
 #include "database.hpp"
 #include "config.hpp"
-#include "utils.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -60,8 +59,6 @@ struct ServerContext {
     Database& db;
     Backlog& backlog;
     LogNotifier& notifier;
-    StatsTracker& ingest_stats;
-    StatsTracker& query_stats;
 
     // Strand serialising all mutating DB operations.
     asio::strand<asio::thread_pool::executor_type> write_strand;

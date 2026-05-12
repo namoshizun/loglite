@@ -22,50 +22,6 @@ TEST(UtilsTest, TimerElapsedS) {
     EXPECT_GE(t.elapsed_s(), 0.04);
 }
 
-// ── StatsTracker ─────────────────────────────────────────────────────────────
-
-TEST(UtilsTest, StatsTrackerSingleCollect) {
-    StatsTracker st;
-    st.collect(1, 10.0);
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 1);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.avg_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 10.0);
-}
-
-TEST(UtilsTest, StatsTrackerMultipleCollects) {
-    StatsTracker st;
-    st.collect(1, 100.0);
-    st.collect(2, 200.0);
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 3);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 300.0);
-    EXPECT_DOUBLE_EQ(snap.avg_ms, 100.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 200.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 100.0);
-}
-
-TEST(UtilsTest, StatsTrackerResetAfterGet) {
-    StatsTracker st;
-    st.collect(5, 50.0);
-    st.get_and_reset();
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 0);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 0.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 0.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 0.0);
-}
-
-TEST(UtilsTest, StatsTrackerMinAfterReset) {
-    StatsTracker st;
-    st.collect(1, 42.0);
-    st.get_and_reset();
-    auto snap = st.get_and_reset();
-    EXPECT_DOUBLE_EQ(snap.min_ms, 0.0);
-}
-
 // ── url_decode ───────────────────────────────────────────────────────────────
 
 TEST(UtilsTest, UrlDecodeNoEncoding) { EXPECT_EQ(url_decode("hello"), "hello"); }

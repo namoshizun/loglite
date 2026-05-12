@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
@@ -64,6 +65,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     } catch (...) {
         co_return;
     }
+
+    metrics::GaugeGuard sse_session{metrics::kSseSession};
 
     // ── Subscribe ─────────────────────────────────────────────────────────────
     auto sub = ctx.notifier.Subscribe(ex);

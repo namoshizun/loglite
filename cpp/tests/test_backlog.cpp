@@ -1,11 +1,18 @@
 #include <gtest/gtest.h>
 
 #include "backlog.hpp"
+#include "metrics.hpp"
 
 #include <thread>
 #include <vector>
 
 using namespace loglite;
+
+class BacklogMetricsTest : public ::testing::Test {
+   protected:
+    void SetUp() override { metrics::MetricsRegistry::Instance().ResetForTest(); }
+    void TearDown() override { metrics::MetricsRegistry::Instance().ResetForTest(); }
+};
 
 // ── Basic contract ────────────────────────────────────────────────────────────
 TEST(BacklogTest, AddIncreasesSize) {
@@ -75,4 +82,15 @@ TEST(BacklogTest, MultipleOverflowsRetainsMostRecent) {
     ASSERT_EQ(entries.size(), 4u);
     // Entries 1 and 2 were evicted; 3, 4, 5, 6 remain in order.
     for (int i = 0; i < 4; ++i) EXPECT_EQ(entries[i]["id"].get<int>(), i + 3);
+}
+
+TEST_F(BacklogMetricsTest, OverflowRecordsDropMetrics) {
+    Backlog backlog{2};
+    backlog.Add({{"id", 1}});
+    backlog.Add({{"id", 2}});
+    backlog.Add({{"id", 3}});
+
+    auto samples = metrics::MetricsRegistry::Instance().SnapshotObservations();
+    ASSERT_EQ(samples.size(), 1u);
+    EXPECT_EQ(samples[0].name, metrics::kBacklogDrop);
 }

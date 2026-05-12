@@ -71,6 +71,7 @@ class Database {
     int64_t GetMaxLogId() const;
     int64_t GetMinLogId() const;
     std::string GetMinTimestamp() const;  // ISO-8601 string
+    int64_t GetLogRowCount() const;
 
     // ── SQLite PRAGMAs ────────────────────────────────────────────────────────
     std::string GetPragma(std::string_view name) const;
@@ -78,7 +79,13 @@ class Database {
     void IncrementalVacuum(int page_count);
     void Vacuum();
     void WALCheckpoint(std::string_view mode = "TRUNCATE");
+    int64_t GetSizeBytes() const;
     double GetSizeMB() const;
+
+    // ── Internal stats ────────────────────────────────────────────────────────
+    bool InsertActivityStats(const ActivityStatsRow& row);
+    bool InsertDatabaseStats(const DatabaseStatsRow& row);
+    int DeleteStatsBefore(std::string_view cutoff);
 
     // ── Migrations ────────────────────────────────────────────────────────────
 

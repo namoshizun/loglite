@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "database.hpp"
 #include "globals.hpp"
+#include "metrics.hpp"
 #include "server.hpp"
 
 #include <boost/asio.hpp>
@@ -57,6 +58,8 @@ class ServerTest : public ::testing::Test {
     static void SetUpTestSuite() {}  // one-time setup if needed
 
     void SetUp() override {
+        metrics::MetricsRegistry::Instance().ResetForTest();
+
         tmp_ = fs::temp_directory_path() / "loglite_server_test";
         fs::remove_all(tmp_);
         fs::create_directories(tmp_);
@@ -95,16 +98,12 @@ class ServerTest : public ::testing::Test {
 
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
-        ingest_stats_ = std::make_unique<StatsTracker>();
-        query_stats_ = std::make_unique<StatsTracker>();
 
         ctx_ = std::make_unique<ServerContext>(ServerContext{
             cfg_,
             *db_,
             *backlog_,
             *notifier_,
-            *ingest_stats_,
-            *query_stats_,
             asio::make_strand(db_ops_pool_->get_executor()),
         });
 
@@ -145,8 +144,6 @@ class ServerTest : public ::testing::Test {
     std::unique_ptr<Database> db_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
-    std::unique_ptr<StatsTracker> ingest_stats_;
-    std::unique_ptr<StatsTracker> query_stats_;
     std::unique_ptr<ServerContext> ctx_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;
     std::unique_ptr<Server> server_;

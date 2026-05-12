@@ -1,11 +1,10 @@
 #ifndef LOGLITE_UTILS_HPP_
 #define LOGLITE_UTILS_HPP_
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <format>
-#include <limits>
-#include <mutex>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -44,7 +43,7 @@ inline int64_t parse_size_to_bytes(std::string_view s) {
 
 inline double bytes_to_mb(int64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); }
 
-// ── RAII timer ────────────────────────────────────────────────────────────────
+// ── Timer ────────────────────────────────────────────────────────────────
 
 class Timer {
     using Clock = std::chrono::steady_clock;
@@ -58,50 +57,6 @@ class Timer {
     }
 
     double elapsed_s() const { return elapsed_ms() / 1000.0; }
-};
-
-// ── Stats tracker ─────────────────────────────────────────────────────────────
-
-class StatsTracker {
-   public:
-    struct Snapshot {
-        int64_t count{};
-        double total_ms{};
-        double avg_ms{};
-        double max_ms{};
-        double min_ms{};
-    };
-
-    void collect(int64_t n, double cost_ms) {
-        std::lock_guard lk(mtx_);
-        count_ += n;
-        total_ms_ += cost_ms;
-        max_ms_ = std::max(max_ms_, cost_ms);
-        min_ms_ = std::min(min_ms_, cost_ms);
-    }
-
-    Snapshot get_and_reset() {
-        std::lock_guard lk(mtx_);
-        Snapshot s{
-            count_,
-            total_ms_,
-            count_ > 0 ? total_ms_ / static_cast<double>(count_) : 0.0,
-            max_ms_,
-            min_ms_ == std::numeric_limits<double>::max() ? 0.0 : min_ms_,
-        };
-        count_ = 0;
-        total_ms_ = 0;
-        max_ms_ = 0;
-        min_ms_ = std::numeric_limits<double>::max();
-        return s;
-    }
-
-   private:
-    std::mutex mtx_;
-    int64_t count_{};
-    double total_ms_{};
-    double max_ms_{};
-    double min_ms_{std::numeric_limits<double>::max()};
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────────

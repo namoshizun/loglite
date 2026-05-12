@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "log.hpp"
+#include "metrics.hpp"
 
 #include <csignal>
 
@@ -115,6 +116,8 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
 }
 
 asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
+    metrics::GaugeGuard http_connection{metrics::kHttpConnection};
+
     beast::flat_buffer buf;
     http::request<http::string_body> req;
 

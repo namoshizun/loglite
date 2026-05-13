@@ -92,6 +92,13 @@ struct DatabaseStatsRow {
     int64_t db_size{};
 };
 
+// ── Stats query result ─────────────────────────────────────────────────────────
+
+struct StatsQueryResult {
+    std::vector<std::string> fields;
+    std::vector<std::vector<nlohmann::json>> data;
+};
+
 // Boost.Describe — metadata for (de)serialization and config loading (see config.cpp).
 BOOST_DESCRIBE_STRUCT(Migration, (), (version, rollout, rollback))
 BOOST_DESCRIBE_STRUCT(CompressionConfig, (), (enabled, columns))

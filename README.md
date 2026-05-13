@@ -143,7 +143,7 @@ Full configuration reference, HTTP API, harvester plugin guide, and recipes:
 - [x] Column-based compression for enum-like fields
 - [x] Harvester plugin system (file / socket / ZMQ / custom)
 - [x] Native C++ core
-- [ ] `/stats` endpoint for DB and background-task metrics
+- [x] `/stats` endpoint for DB and background-task metrics
 - [ ] Built-in web UI for browsing logs
 - [ ] Time-based partitioning (one SQLite file per day or month)
 

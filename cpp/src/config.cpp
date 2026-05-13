@@ -210,6 +210,9 @@ Config Config::from_file(const std::filesystem::path& path) {
     if (cfg.migrations.empty()) {
         throw std::runtime_error("'migrations' list must not be empty");
     }
+    if (cfg.task_diagnostics_interval < 30) {
+        throw std::runtime_error("'task_diagnostics_interval' must be at least 30 seconds");
+    }
 
     // Post init
     cfg.vacuum_max_size_bytes = parse_size_to_bytes(cfg.vacuum_max_size);

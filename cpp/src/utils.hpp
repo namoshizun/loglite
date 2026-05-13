@@ -1,10 +1,14 @@
 #ifndef LOGLITE_UTILS_HPP_
 #define LOGLITE_UTILS_HPP_
 
+#include <boost/date_time/posix_time/posix_time.hpp>
+
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -87,6 +91,13 @@ inline std::string url_decode(std::string_view s) {
     return out;
 }
 
+// Trims leading and trailing characters for which std::isspace is true (calls use unsigned char).
+inline std::string_view strip_spaces(std::string_view s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
+    return s;
+}
+
 // ── Time utils ───────────────────────────────────────────────────────────────
 inline std::string format_utc(std::chrono::system_clock::time_point tp) {
     auto t = std::chrono::system_clock::to_time_t(tp);
@@ -95,6 +106,26 @@ inline std::string format_utc(std::chrono::system_clock::time_point tp) {
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
     return buf;
+}
+
+// RFC 3339–style UTC (…Z) with optional fractional seconds. Boost's extended ISO parser does not
+// accept a trailing 'Z' on the time-of-day; sub-second precision is truncated when converting to
+// time_t. Requires a full date-time ('T'); date-only inputs are rejected.
+inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::string_view s) {
+    if (s.find('T') == std::string_view::npos) return std::nullopt;
+
+    std::string str{s};
+    if (!str.empty() && str.back() == 'Z') str.pop_back();
+
+    boost::posix_time::ptime pt;
+    try {
+        pt = boost::posix_time::from_iso_extended_string(str);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    if (pt.is_special()) return std::nullopt;
+
+    return std::chrono::system_clock::from_time_t(boost::posix_time::to_time_t(pt));
 }
 
 }  // namespace loglite

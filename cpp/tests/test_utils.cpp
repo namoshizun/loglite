@@ -37,6 +37,17 @@ TEST(UtilsTest, UrlDecodeInvalidHex) { EXPECT_EQ(url_decode("test%GG"), "test");
 
 TEST(UtilsTest, UrlDecodeEmpty) { EXPECT_EQ(url_decode(""), ""); }
 
+// ── strip_spaces ─────────────────────────────────────────────────────────────
+
+TEST(UtilsTest, StripSpacesTrimsEnds) {
+    EXPECT_EQ(strip_spaces("  query_avg  "), "query_avg");
+    EXPECT_EQ(strip_spaces("\tfoo\n"), "foo");
+}
+
+TEST(UtilsTest, StripSpacesAllBlank) { EXPECT_TRUE(strip_spaces(" \t ").empty()); }
+
+TEST(UtilsTest, StripSpacesEmpty) { EXPECT_TRUE(strip_spaces("").empty()); }
+
 // ── ParseIntParam ────────────────────────────────────────────────────────────
 
 TEST(UtilsTest, ParseIntParamValid) {
@@ -62,6 +73,38 @@ TEST(UtilsTest, ParseIntParamOverflow) {
 TEST(UtilsTest, BytesToMb) {
     EXPECT_DOUBLE_EQ(bytes_to_mb(1048576), 1.0);
     EXPECT_DOUBLE_EQ(bytes_to_mb(0), 0.0);
+}
+
+// ── parse_iso8601 / format_utc ──────────────────────────────────────────────
+
+TEST(UtilsTest, ParseIso8601WithZRoundTripsViaFormatUtc) {
+    auto tp = parse_iso8601("2024-06-15T08:30:00Z");
+    ASSERT_TRUE(tp.has_value());
+    EXPECT_EQ(format_utc(*tp), "2024-06-15T08:30:00Z");
+}
+
+TEST(UtilsTest, ParseIso8601WithoutZ) {
+    auto tp = parse_iso8601("2024-01-01T00:00:00");
+    ASSERT_TRUE(tp.has_value());
+    EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00Z");
+}
+
+TEST(UtilsTest, ParseIso8601FractionalTruncatesToSecond) {
+    auto whole = parse_iso8601("2024-01-01T12:34:56Z");
+    auto frac = parse_iso8601("2024-01-01T12:34:56.999999Z");
+    ASSERT_TRUE(whole.has_value());
+    ASSERT_TRUE(frac.has_value());
+    EXPECT_EQ(*whole, *frac);
+}
+
+TEST(UtilsTest, ParseIso8601DateOnlyRejected) {
+    EXPECT_EQ(parse_iso8601("2024-01-01"), std::nullopt);
+}
+
+TEST(UtilsTest, ParseIso8601InvalidRejected) {
+    EXPECT_EQ(parse_iso8601(""), std::nullopt);
+    EXPECT_EQ(parse_iso8601("not-a-time"), std::nullopt);
+    EXPECT_EQ(parse_iso8601("2024-13-40T99:99:99Z"), std::nullopt);
 }
 
 // ── SplitURLTarget ───────────────────────────────────────────────────────────

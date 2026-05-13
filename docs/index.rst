@@ -227,6 +227,62 @@ Supported operators: ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``, ``~=``
    field you intend to query frequently, otherwise expect full table scans.
 
 
+``GET /stats``
+~~~~~~~~~~~~~~
+
+Query the internal runtime performance statistics collected by the diagnostics
+background task. The diagnostics task snapshots per-interval metrics (query
+latency, ingest throughput, backlog drops, insert batches, live connection
+gauges) and persists them to the ``activity_stats`` and ``database_stats``
+internal tables.
+
+Reserved parameters (all required except ``ordering``):
+
+- ``since``, ``until`` — ISO-8601 time window. **Must be ≤ 1 day apart.**
+- ``activity_stats_fields`` — comma-separated columns to return, or ``*`` for all
+- ``database_stats_fields`` — comma-separated columns to return, or ``*`` for all
+- ``ordering`` — ``asc`` or ``desc`` (default: ``desc``)
+
+Known ``activity_stats`` columns: ``since``, ``until``, ``query_count``,
+``query_min``, ``query_max``, ``query_avg``, ``ingest_count``,
+``ingest_size_min``, ``ingest_size_max``, ``ingest_size_avg``,
+``ingest_drop_count``, ``insert_batch_count``, ``insert_total_count``,
+``insert_total_cost``, ``sse_session_count``, ``http_conn_count``.
+
+Known ``database_stats`` columns: ``timestamp``, ``rows_count``, ``db_size``.
+
+.. code-block:: bash
+
+   curl "http://localhost:7788/stats?\
+   since=2026-05-01T00:00:00Z&until=2026-05-01T01:00:00Z&\
+   activity_stats_fields=*&database_stats_fields=*&ordering=desc"
+
+Response:
+
+.. code-block:: json
+
+   {
+     "activities": {
+       "fields": ["since", "until", "query_count", "query_min", ...],
+       "data": [
+         ["2026-05-01T00:59:00Z", "2026-05-01T01:00:00Z", 120, 1, 250, ...],
+         ["2026-05-01T00:58:00Z", "2026-05-01T00:59:00Z", 95, 1, 180, ...]
+       ]
+     },
+     "database": {
+       "fields": ["timestamp", "rows_count", "db_size"],
+       "data": [
+         ["2026-05-01T01:00:00Z", 45230, 5242880],
+         ["2026-05-01T00:59:00Z", 45110, 5111808]
+       ]
+     }
+   }
+
+Each stats table returns data in a columnar format: ``fields`` lists the
+column names in order, and ``data`` is a list of rows where each row is an
+array of values matching the field order.
+
+
 ``GET /logs/sse``
 ~~~~~~~~~~~~~~~~~
 
@@ -359,7 +415,6 @@ switching is a binary swap.
 Roadmap
 -------
 
-- ``GET /stats`` for database size, log count, and background-task metrics
 - Built-in web UI for browsing logs and database stats
 - Time-based partitioning (one SQLite file per day or month)
 

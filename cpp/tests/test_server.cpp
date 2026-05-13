@@ -10,6 +10,7 @@
 #include <boost/beast.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <thread>
 
@@ -309,6 +310,121 @@ TEST_F(ServerTest, UnknownRouteReturns404) {
 TEST_F(ServerTest, PostToHealthReturns404) {
     auto res = http_req("127.0.0.1", 17788, http::verb::post, "/health");
     EXPECT_EQ(static_cast<int>(res.result()), 404);
+}
+
+// ── Stats endpoint ──────────────────────────────────────────────────────────
+
+TEST_F(ServerTest, StatsRequiresAllParams) {
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/stats");
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
+    auto url = std::format(
+        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_TRUE(body.contains("activities"));
+    EXPECT_TRUE(body.contains("database"));
+    EXPECT_TRUE(body["activities"].contains("fields"));
+    EXPECT_TRUE(body["activities"].contains("data"));
+    EXPECT_TRUE(body["database"].contains("fields"));
+    EXPECT_TRUE(body["database"].contains("data"));
+}
+
+TEST_F(ServerTest, StatsWithPopulatedData) {
+    // Insert some stats data directly.
+    ActivityStatsRow activity;
+    activity.since = "2024-01-01T00:00:00Z";
+    activity.until = "2024-01-01T00:01:00Z";
+    activity.query_count = 10;
+    activity.query_avg = 5;
+    db_->InsertActivityStats(activity);
+    db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
+
+    auto url = std::format(
+        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+        "&activity_stats_fields=query_count,query_avg&database_stats_fields=rows_count,db_size"
+        "&ordering=asc");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["activities"]["fields"].size(), 2u);
+    EXPECT_EQ(body["activities"]["fields"][0], "query_count");
+    EXPECT_EQ(body["activities"]["fields"][1], "query_avg");
+    EXPECT_EQ(body["activities"]["data"].size(), 1u);
+    EXPECT_EQ(body["database"]["fields"].size(), 2u);
+    EXPECT_EQ(body["database"]["fields"][0], "rows_count");
+    EXPECT_EQ(body["database"]["fields"][1], "db_size");
+    EXPECT_EQ(body["database"]["data"].size(), 1u);
+}
+
+TEST_F(ServerTest, StatsWindowExceedsOneDay) {
+    auto url = std::format(
+        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-03T00:00:00Z"
+        "&activity_stats_fields=*&database_stats_fields=*");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(ServerTest, StatsUntilBeforeSince) {
+    auto url = std::format(
+        "/stats?since=2024-01-02T00:00:00Z&until=2024-01-01T00:00:00Z"
+        "&activity_stats_fields=*&database_stats_fields=*");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(ServerTest, StatsInvalidOrdering) {
+    auto url = std::format(
+        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=sideways");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(ServerTest, StatsInvalidTimestamp) {
+    auto url = std::format(
+        "/stats?since=notatime&until=2024-01-01T01:00:00Z"
+        "&activity_stats_fields=*&database_stats_fields=*");
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(ServerTest, StatsAcceptsFractionalIso8601) {
+    auto url =
+        "/stats?since=2024-01-01T00:00:00.000Z&until=2024-01-01T01:00:00.999Z"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+}
+
+TEST_F(ServerTest, StatsTrimsCommaSeparatedFieldNames) {
+    ActivityStatsRow activity;
+    activity.since = "2024-01-01T00:00:00Z";
+    activity.until = "2024-01-01T00:01:00Z";
+    activity.query_count = 10;
+    activity.query_avg = 5;
+    db_->InsertActivityStats(activity);
+    db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
+
+    // Spaces after commas (and outer padding) via %20 — raw spaces in target break HTTP parsing.
+    auto url =
+        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+        "&activity_stats_fields=query_count%2C%20query_avg"
+        "&database_stats_fields=%20rows_count%20%2C%20db_size%20&ordering=asc";
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["activities"]["fields"][0], "query_count");
+    EXPECT_EQ(body["activities"]["fields"][1], "query_avg");
+    EXPECT_EQ(body["database"]["fields"][0], "rows_count");
+    EXPECT_EQ(body["database"]["fields"][1], "db_size");
 }
 
 // ── Multiple connections ────────────────────────────────────────────────────

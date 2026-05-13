@@ -87,6 +87,13 @@ class Database {
     bool InsertDatabaseStats(const DatabaseStatsRow& row);
     int DeleteStatsBefore(std::string_view cutoff);
 
+    StatsQueryResult QueryActivityStats(std::string_view since, std::string_view until,
+                                        const std::vector<std::string>& fields,
+                                        std::string_view ordering) const;
+    StatsQueryResult QueryDatabaseStats(std::string_view since, std::string_view until,
+                                        const std::vector<std::string>& fields,
+                                        std::string_view ordering) const;
+
     // ── Migrations ────────────────────────────────────────────────────────────
 
     std::vector<int> GetAppliedVersions() const;
@@ -114,6 +121,9 @@ class Database {
 
     // Throws std::runtime_error if `name` is not a known column in column_info_.
     void validate_field(std::string_view name) const;
+
+    static const std::vector<std::string>& activity_known_columns();
+    static const std::vector<std::string>& database_known_columns();
 
     const Config& cfg_;
     sqlite3* db_{};

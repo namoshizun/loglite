@@ -525,6 +525,114 @@ int Database::DeleteStatsBefore(std::string_view cutoff) {
     return removed;
 }
 
+// ── Stats queries ─────────────────────────────────────────────────────────────
+
+const std::vector<std::string>& Database::activity_known_columns() {
+    static const std::vector<std::string> cols = {
+        "since",
+        "until",
+        "query_count",
+        "query_min",
+        "query_max",
+        "query_avg",
+        "ingest_count",
+        "ingest_size_min",
+        "ingest_size_max",
+        "ingest_size_avg",
+        "ingest_drop_count",
+        "insert_batch_count",
+        "insert_total_count",
+        "insert_total_cost",
+        "sse_session_count",
+        "http_conn_count",
+    };
+    return cols;
+}
+
+const std::vector<std::string>& Database::database_known_columns() {
+    static const std::vector<std::string> cols = {"timestamp", "rows_count", "db_size"};
+    return cols;
+}
+
+StatsQueryResult Database::QueryActivityStats(std::string_view since, std::string_view until,
+                                              const std::vector<std::string>& fields,
+                                              std::string_view ordering) const {
+    const auto& known = activity_known_columns();
+    auto resolved = fields.empty() || (fields.size() == 1 && fields[0] == "*") ? known : fields;
+    for (const auto& f : resolved)
+        if (!range_contains(known, f))
+            throw std::runtime_error(std::format("Unknown activity_stats field: '{}'", f));
+
+    std::string col_list;
+    col_list.reserve(resolved.size() * 16);  // generous estimate per column name
+    for (size_t i = 0; i < resolved.size(); ++i) {
+        if (i) col_list += ", ";
+        col_list += resolved[i];
+    }
+
+    std::string order = "DESC";
+    if (ordering == "asc") order = "ASC";
+
+    auto sql = std::format(
+        "SELECT {} FROM activity_stats WHERE until >= ? AND until <= ? ORDER BY until {}", col_list,
+        order);
+    Statement stmt{db_, sql};
+    sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
+
+    StatsQueryResult result;
+    result.fields = resolved;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::vector<nlohmann::json> row;
+        row.reserve(resolved.size());
+        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
+            row.push_back(column_to_json(stmt, c));
+        }
+        result.data.push_back(std::move(row));
+    }
+    return result;
+}
+
+StatsQueryResult Database::QueryDatabaseStats(std::string_view since, std::string_view until,
+                                              const std::vector<std::string>& fields,
+                                              std::string_view ordering) const {
+    const auto& known = database_known_columns();
+    auto resolved = fields.empty() || (fields.size() == 1 && fields[0] == "*") ? known : fields;
+    for (const auto& f : resolved)
+        if (!range_contains(known, f))
+            throw std::runtime_error(std::format("Unknown database_stats field: '{}'", f));
+
+    std::string col_list;
+    col_list.reserve(resolved.size() * 16);
+    for (size_t i = 0; i < resolved.size(); ++i) {
+        if (i) col_list += ", ";
+        col_list += resolved[i];
+    }
+
+    std::string order = "DESC";
+    if (ordering == "asc") order = "ASC";
+
+    auto sql = std::format(
+        "SELECT {} FROM database_stats WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp "
+        "{}",
+        col_list, order);
+    Statement stmt{db_, sql};
+    sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
+
+    StatsQueryResult result;
+    result.fields = resolved;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::vector<nlohmann::json> row;
+        row.reserve(resolved.size());
+        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
+            row.push_back(column_to_json(stmt, c));
+        }
+        result.data.push_back(std::move(row));
+    }
+    return result;
+}
+
 // ── Migrations ────────────────────────────────────────────────────────────────
 
 std::vector<int> Database::GetAppliedVersions() const {

@@ -19,6 +19,8 @@
 
 namespace loglite {
 
+using namespace std::chrono_literals;
+
 namespace {
 
 // Module-level state set during RunServer so PushToBacklog / StopServer work.
@@ -50,8 +52,7 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
-    metrics::MetricsRegistry::Instance().Configure(
-        std::chrono::seconds{cfg.task_diagnostics_interval});
+    metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
     Database db{cfg};
     db.Open();
     db.Initialize();

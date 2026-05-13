@@ -9,9 +9,9 @@ using namespace loglite;
 
 class MetricsTest : public ::testing::Test {
    protected:
-    void SetUp() override { metrics::MetricsRegistry::Instance().ResetForTest(); }
+    void SetUp() override { metrics::MetricsRegistry::Instance().Reset(); }
 
-    void TearDown() override { metrics::MetricsRegistry::Instance().ResetForTest(); }
+    void TearDown() override { metrics::MetricsRegistry::Instance().Reset(); }
 };
 
 TEST_F(MetricsTest, CollectStoresNamedObservations) {
@@ -20,7 +20,7 @@ TEST_F(MetricsTest, CollectStoresNamedObservations) {
     registry.Collect(metrics::kQueryRequest, 12.5);
     registry.Collect(metrics::kInsertBatch, 8.0, 3);
 
-    auto samples = registry.SnapshotObservations();
+    auto samples = registry.Flush();
     ASSERT_EQ(samples.size(), 2u);
     EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
     EXPECT_DOUBLE_EQ(samples[0].value, 12.5);
@@ -38,7 +38,7 @@ TEST_F(MetricsTest, SnapshotPrunesExpiredObservations) {
     std::this_thread::sleep_for(std::chrono::milliseconds{30});
     registry.Collect(metrics::kIngestRequest, 2.0);
 
-    auto samples = registry.SnapshotObservations();
+    auto samples = registry.Flush();
     ASSERT_EQ(samples.size(), 1u);
     EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
 }
@@ -64,15 +64,15 @@ TEST_F(MetricsTest, GaugeGuardBalancesGauge) {
     EXPECT_EQ(registry.Gauge(metrics::kSseSession), 0);
 }
 
-TEST_F(MetricsTest, ScopedObservationTimerCollectsElapsedTime) {
+TEST_F(MetricsTest, ObservationTimerCollectsElapsedTime) {
     auto& registry = metrics::MetricsRegistry::Instance();
 
     {
-        metrics::ScopedObservationTimer timer{metrics::kQueryRequest};
+        metrics::ObservationTimer timer{metrics::kQueryRequest};
         std::this_thread::sleep_for(std::chrono::milliseconds{5});
     }
 
-    auto samples = registry.SnapshotObservations();
+    auto samples = registry.Flush();
     ASSERT_EQ(samples.size(), 1u);
     EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
     EXPECT_GT(samples[0].value, 0.0);

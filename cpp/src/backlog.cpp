@@ -16,11 +16,15 @@ void Backlog::Add(nlohmann::json log) {
             dropped = true;
         }
         queue_.push_back(std::move(log));
-        if (queue_.size() >= max_size_) {
+
+        // Notify flush when the buffer is near full to avoid dropping logs.
+        if (queue_.size() >= max_size_ * 0.95) {
             is_full_.store(true, std::memory_order_release);
         }
     }
-    if (dropped) metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop);
+    if (dropped) {
+        metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop);
+    }
 }
 
 std::vector<nlohmann::json> Backlog::Flush() {

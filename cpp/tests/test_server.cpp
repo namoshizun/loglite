@@ -58,7 +58,7 @@ class ServerTest : public ::testing::Test {
     static void SetUpTestSuite() {}  // one-time setup if needed
 
     void SetUp() override {
-        metrics::MetricsRegistry::Instance().ResetForTest();
+        metrics::MetricsRegistry::Instance().Reset();
 
         tmp_ = fs::temp_directory_path() / "loglite_server_test";
         fs::remove_all(tmp_);

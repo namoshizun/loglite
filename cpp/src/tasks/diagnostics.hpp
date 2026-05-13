@@ -4,12 +4,14 @@
 #include "../globals.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
+#include "../utils.hpp"
 
 #include <boost/asio.hpp>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
-#include <ctime>
+#include <concepts>
 #include <format>
 #include <limits>
 #include <string>
@@ -18,6 +20,8 @@
 namespace asio = boost::asio;
 
 namespace loglite::tasks {
+
+using namespace std::chrono_literals;
 
 namespace detail {
 
@@ -30,50 +34,53 @@ struct ObservationSummary {
     double avg{};
 };
 
-inline ObservationSummary summarize_observations(const std::vector<metrics::Observation>& samples,
-                                                 std::string_view name) {
-    ObservationSummary summary;
-    double min_value = std::numeric_limits<double>::max();
-    double max_value = std::numeric_limits<double>::lowest();
+template <typename... Names>
+    requires(sizeof...(Names) > 0 && (std::convertible_to<Names, std::string_view> && ...))
+inline auto summarize_observations(const std::vector<metrics::Observation>& samples,
+                                   Names&&... names)
+    -> std::array<ObservationSummary, sizeof...(Names)> {
+    constexpr std::size_t N = sizeof...(Names);
+    const std::array<std::string_view, N> name_arr{std::string_view{names}...};
 
-    for (const auto& sample : samples) {
-        if (sample.name != name) continue;
-        ++summary.sample_count;
-        summary.item_count += sample.item_count;
-        summary.value_total += sample.value;
-        min_value = std::min(min_value, sample.value);
-        max_value = std::max(max_value, sample.value);
+    // Initialize the summary entries
+    std::array<ObservationSummary, N> out{};
+    for (auto& s : out) {
+        s.min = std::numeric_limits<double>::max();
+        s.max = std::numeric_limits<double>::lowest();
     }
 
-    if (summary.sample_count == 0) return summary;
+    for (const auto& sample : samples) {
+        for (std::size_t i = 0; i < N; ++i) {
+            if (name_arr[i] == sample.name) {
+                auto& s = out[i];
+                s.sample_count += 1;
+                s.item_count += sample.item_count;
+                s.value_total += sample.value;
+                s.min = std::min(s.min, sample.value);
+                s.max = std::max(s.max, sample.value);
+                break;
+            }
+        }
+    }
 
-    summary.min = min_value;
-    summary.max = max_value;
-    summary.avg = summary.value_total / static_cast<double>(summary.sample_count);
-    return summary;
+    for (auto& s : out) {
+        if (s.sample_count > 0) {
+            s.avg = s.value_total / static_cast<double>(s.sample_count);
+        } else {
+            s.min = 0.0;
+            s.max = 0.0;
+        }
+    }
+    return out;
 }
 
 inline int64_t round_stat(double value) { return static_cast<int64_t>(std::llround(value)); }
 
-inline std::string format_utc(std::chrono::system_clock::time_point tp) {
-    auto t = std::chrono::system_clock::to_time_t(tp);
-    std::tm tm{};
-#if defined(_WIN32)
-    gmtime_s(&tm, &t);
-#else
-    gmtime_r(&t, &tm);
-#endif
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return buf;
-}
-
 inline ActivityStatsRow build_activity_stats(std::string since, std::string until,
                                              const std::vector<metrics::Observation>& samples) {
-    auto query = summarize_observations(samples, metrics::kQueryRequest);
-    auto ingest = summarize_observations(samples, metrics::kIngestRequest);
-    auto drops = summarize_observations(samples, metrics::kBacklogDrop);
-    auto inserts = summarize_observations(samples, metrics::kInsertBatch);
+    const auto [query, ingest, drops, inserts] =
+        summarize_observations(samples, metrics::kQueryRequest, metrics::kIngestRequest,
+                               metrics::kBacklogDrop, metrics::kInsertBatch);
 
     auto& registry = metrics::MetricsRegistry::Instance();
     return {
@@ -112,22 +119,22 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
         std::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
 
     while (true) {
-        timer.expires_after(std::chrono::seconds(cfg.task_diagnostics_interval));
+        timer.expires_after(cfg.task_diagnostics_interval * 1s);
         co_await timer.async_wait(asio::use_awaitable);
 
         auto window_until = std::chrono::system_clock::now();
-        auto samples = metrics::MetricsRegistry::Instance().SnapshotObservations();
-        auto row = detail::build_activity_stats(detail::format_utc(window_since),
-                                                detail::format_utc(window_until), samples);
-        auto cutoff =
-            detail::format_utc(window_until - std::chrono::hours{cfg.stats_retention_hours});
+        auto samples = metrics::MetricsRegistry::Instance().Flush();
+        auto row = detail::build_activity_stats(loglite::format_utc(window_since),
+                                                loglite::format_utc(window_until), samples);
+        auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
+        window_since = window_until;
 
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
         ctx.db.InsertActivityStats(row);
         ctx.db.InsertDatabaseStats({
             row.until,
-            ctx.db.GetLogRowCount(),
+            ctx.db.EstimateLogRowCount(),
             ctx.db.GetSizeBytes(),
         });
         int pruned = ctx.db.DeleteStatsBefore(cutoff);
@@ -135,15 +142,13 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
         log::info(std::format(
-            "[stats] query: count={} avg={}ms max={}ms | "
-            "ingest: count={} avg_size={}B drops={} | "
-            "insert: batches={} rows={} total={}ms | "
-            "sse_sessions={} http_connections={} pruned={}",
+            "[query]: count={} avg={}ms max={}ms | "
+            "[ingest]: count={} avg_size={}B drops={} | "
+            "[insert]: batches={} rows={} total={}ms | "
+            "sse_sessions={} http_conns={} pruned={}",
             row.query_count, row.query_avg, row.query_max, row.ingest_count, row.ingest_size_avg,
             row.ingest_drop_count, row.insert_batch_count, row.insert_total_count,
             row.insert_total_cost, row.sse_session_count, row.http_conn_count, pruned));
-
-        window_since = window_until;
     }
 }
 

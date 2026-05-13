@@ -10,10 +10,9 @@
 namespace loglite::log {
 
 inline std::string timestamp() {
-    using namespace std::chrono;
-    const auto now = system_clock::now();
-    const auto s = floor<seconds>(now);
-    const auto ms = duration_cast<milliseconds>(now - s);
+    const auto now = std::chrono::system_clock::now();
+    const auto s = std::chrono::floor<std::chrono::seconds>(now);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - s);
     return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}", s, ms.count());
 }
 

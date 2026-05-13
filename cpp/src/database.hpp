@@ -71,7 +71,7 @@ class Database {
     int64_t GetMaxLogId() const;
     int64_t GetMinLogId() const;
     std::string GetMinTimestamp() const;  // ISO-8601 string
-    int64_t GetLogRowCount() const;
+    int64_t EstimateLogRowCount() const;
 
     // ── SQLite PRAGMAs ────────────────────────────────────────────────────────
     std::string GetPragma(std::string_view name) const;

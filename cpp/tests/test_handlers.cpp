@@ -23,7 +23,7 @@ using namespace loglite;
 class HandlersTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        metrics::MetricsRegistry::Instance().ResetForTest();
+        metrics::MetricsRegistry::Instance().Reset();
 
         tmp_ = fs::temp_directory_path() / "loglite_handlers_test";
         fs::remove_all(tmp_);
@@ -135,7 +135,7 @@ TEST_F(HandlersTest, InsertRecordsPayloadSizeMetric) {
     auto res = handlers::HandleInsert(req, *ctx_);
     EXPECT_EQ(res.result(), http::status::ok);
 
-    auto samples = metrics::MetricsRegistry::Instance().SnapshotObservations();
+    auto samples = metrics::MetricsRegistry::Instance().Flush();
     ASSERT_EQ(samples.size(), 1u);
     EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
     EXPECT_DOUBLE_EQ(samples[0].value, static_cast<double>(body.size()));
@@ -184,7 +184,7 @@ TEST_F(HandlersTest, QueryRecordsRequestMetricOnValidationFailure) {
     auto res = handlers::HandleQuery(req, *ctx_);
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 
-    auto samples = metrics::MetricsRegistry::Instance().SnapshotObservations();
+    auto samples = metrics::MetricsRegistry::Instance().Flush();
     ASSERT_EQ(samples.size(), 1u);
     EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
     EXPECT_GE(samples[0].value, 0.0);

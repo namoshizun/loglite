@@ -13,19 +13,19 @@ namespace asio = boost::asio;
 
 namespace loglite::tasks {
 
+using namespace std::chrono_literals;
+
 namespace detail {
 
 // Remove log entries older than max_age_days; returns deleted count.
 inline int remove_stale_logs(Database& db, const Config& cfg) {
-    using namespace std::chrono;
-
     auto min_ts = db.GetMinTimestamp();
     if (min_ts.empty()) return 0;
 
     // Build cutoff ISO timestamp string (UTC).
-    auto now = system_clock::now();
-    auto cutoff = now - hours(24 * cfg.vacuum_max_days);
-    auto cutoff_t = system_clock::to_time_t(cutoff);
+    auto now = std::chrono::system_clock::now();
+    auto cutoff = now - (cfg.vacuum_max_days * 24) * 1h;
+    auto cutoff_t = std::chrono::system_clock::to_time_t(cutoff);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::gmtime(&cutoff_t));
 
@@ -97,7 +97,7 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
     log::info(std::format("Vacuum task started (interval={}s)", cfg.task_vacuum_interval));
 
     while (true) {
-        timer.expires_after(std::chrono::seconds(cfg.task_vacuum_interval));
+        timer.expires_after(cfg.task_vacuum_interval * 1s);
         co_await timer.async_wait(asio::use_awaitable);
 
         // All vacuum operations mutate the DB → run on write strand.

@@ -419,8 +419,9 @@ std::string Database::GetMinTimestamp() const {
     return "";
 }
 
-int64_t Database::GetLogRowCount() const {
-    auto sql = std::format("SELECT COUNT(id) FROM {}", cfg_.log_table_name);
+int64_t Database::EstimateLogRowCount() const {
+    auto sql =
+        std::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
     if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
     return 0;

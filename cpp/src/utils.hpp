@@ -53,10 +53,14 @@ class Timer {
     Timer() = default;
 
     double elapsed_ms() const {
-        return std::chrono::duration<double, std::milli>(Clock::now() - start_).count();
+        using std::chrono_literals::operator""ms;
+        return (Clock::now() - start_) / 1.0ms;
     }
 
-    double elapsed_s() const { return elapsed_ms() / 1000.0; }
+    double elapsed_s() const {
+        using std::chrono_literals::operator""s;
+        return (Clock::now() - start_) / 1.0s;
+    }
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
@@ -81,6 +85,16 @@ inline std::string url_decode(std::string_view s) {
         }
     }
     return out;
+}
+
+// ── Time utils ───────────────────────────────────────────────────────────────
+inline std::string format_utc(std::chrono::system_clock::time_point tp) {
+    auto t = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return buf;
 }
 
 }  // namespace loglite

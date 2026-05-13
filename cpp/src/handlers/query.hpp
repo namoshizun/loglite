@@ -14,7 +14,7 @@ namespace loglite::handlers {
 
 template <class Body>
 http::response<http::string_body> HandleQuery(const http::request<Body>& req, ServerContext& ctx) {
-    metrics::ScopedObservationTimer request_timer{metrics::kQueryRequest};
+    metrics::ObservationTimer request_timer{metrics::kQueryRequest};
 
     auto [path, qs] = SplitURLTarget(req.target());
     auto params = ParseQueryString(qs);

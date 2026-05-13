@@ -1,13 +1,11 @@
 import asyncio
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from loglite.harvesters.base import BaseHarvesterConfig, Harvester
-from loglite.harvesters.file import FileHarvester, FileHarvesterConfig
 from loglite.harvesters.manager import HarvesterManager, import_class
 from loglite.harvesters.socket import SocketHarvester, SocketHarvesterConfig
 from loglite.harvesters.zmq import ZMQHarvester, ZMQHarvesterConfig
@@ -28,11 +26,6 @@ class InvalidConfigClassHarvester(Harvester):
         raise NotImplementedError
 
 
-class BrokenIngestFileHarvester(FileHarvester):
-    def ingest(self, log: dict[str, Any]):
-        raise RuntimeError("ingest failed")
-
-
 @pytest.fixture
 def manager():
     return HarvesterManager()
@@ -47,10 +40,6 @@ def test_invalid_harvester_type_argument():
 
 def test_harvester_config_validation(tmp_path: Path):
     assert MockHarvester.get_config_type() is BaseHarvesterConfig
-    assert FileHarvesterConfig(path=str(tmp_path / "logs.jsonl")).path == tmp_path / "logs.jsonl"
-
-    with pytest.raises(ValueError, match="'path' is required"):
-        FileHarvesterConfig(path=None)  # pyright: ignore[reportArgumentType]
 
     with pytest.raises(ValueError, match="Either 'port' or 'path' must be provided"):
         SocketHarvesterConfig()
@@ -70,16 +59,9 @@ def test_harvester_manager_ignores_invalid_configs(manager: HarvesterManager, tm
             {},
             {"type": "tests.test_harvesters.NoSuchHarvester"},
             {"type": "tests.test_harvesters.InvalidConfigClassHarvester", "name": "bad config"},
-            {"type": "loglite.harvesters.file.FileHarvester", "name": "missing path"},
-            {
-                "type": "loglite.harvesters.file.FileHarvester",
-                "name": "file",
-                "config": {"path": str(tmp_path / "log.jsonl"), "ignored": "extra"},
-            },
         ]
     )
 
-    # FileHarvester is a native type — skipped by the Python manager.
     assert list(manager.harvesters) == []
 
 
@@ -107,53 +89,13 @@ async def test_harvester_lifecycle(manager: HarvesterManager):
 
 
 @pytest.mark.asyncio
-async def test_file_harvester(tmp_path: Path, captured_logs: list[dict]):
-    log_file = tmp_path / "test.log"
-    log_file.touch()
-
-    harvester = FileHarvester("file_test", FileHarvesterConfig(path=log_file))
-    await harvester.start()
-    await asyncio.sleep(0.1)
-
-    log_entry = {"message": "test log", "timestamp": "2023-01-01T00:00:00"}
-    with open(log_file, "a") as f:
-        f.write(json.dumps(log_entry) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
-
-    await asyncio.sleep(0.5)
-    await harvester.stop()
-
-    assert len(captured_logs) == 1
-    assert captured_logs[0]["message"] == "test log"
-
-
-@pytest.mark.asyncio
-async def test_file_harvester_process_line_defaults_timestamp_and_ignores_bad_lines(
-    tmp_path: Path, captured_logs: list[dict]
-):
-    harvester = FileHarvester("file_test", FileHarvesterConfig(path=tmp_path / "test.log"))
-
-    await harvester._process_line(b'{"message":"missing timestamp"}')
-    await harvester._process_line(b"{")
-    # BrokenIngestFileHarvester.ingest raises; _process_line must catch it gracefully.
-    await BrokenIngestFileHarvester(
-        "broken", FileHarvesterConfig(path=tmp_path / "broken.log")
-    )._process_line(b'{"message":"not ingested"}')
-
-    assert len(captured_logs) == 1
-    assert captured_logs[0]["message"] == "missing timestamp"
-    assert "timestamp" in captured_logs[0]
-
-
-@pytest.mark.asyncio
 async def test_socket_harvester(captured_logs: list[dict]):
     port = 9999
     harvester = SocketHarvester("socket_test", SocketHarvesterConfig(port=port, host="127.0.0.1"))
     await harvester.start()
     await asyncio.sleep(0.5)
 
-    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    _, writer = await asyncio.open_connection("127.0.0.1", port)
     log_entry = {"message": "socket log", "timestamp": "2023-01-01T00:00:00"}
     writer.write((json.dumps(log_entry) + "\n").encode())
     await writer.drain()

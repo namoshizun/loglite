@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <format>
+#include <iterator>
 #include <ranges>
 #include <stdexcept>
 
@@ -21,6 +22,12 @@ Statement::Statement(sqlite3* db, std::string_view sql) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 namespace {
+
+std::vector<std::string> pluck_column_names(const std::vector<ColumnInfo>& infos) {
+    namespace rv = std::ranges::views;
+    auto view = infos | rv::transform(&ColumnInfo::name);
+    return std::vector<std::string>(std::ranges::begin(view), std::ranges::end(view));
+}
 
 void ensure_ok(int rc, sqlite3* db, std::string_view ctx) {
     if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW)
@@ -187,11 +194,11 @@ void Database::Initialize() {
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return column_info_; }
+const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return log_column_info_; }
 
-void Database::RefreshColumnInfo() {
-    column_info_.clear();
-    auto sql = std::format("PRAGMA table_info({})", cfg_.log_table_name);
+std::vector<ColumnInfo> Database::GetColumnInfo(std::string_view table_name) const {
+    std::vector<ColumnInfo> out;
+    auto sql = std::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         ColumnInfo ci;
@@ -199,16 +206,23 @@ void Database::RefreshColumnInfo() {
         ci.type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         ci.not_null = sqlite3_column_int(stmt, 3) != 0;
         ci.is_pk = sqlite3_column_int(stmt, 5) != 0;
-        column_info_.push_back(std::move(ci));
+        out.push_back(std::move(ci));
     }
+    return out;
+}
+
+void Database::RefreshColumnInfo() {
+    log_column_info_ = GetColumnInfo(cfg_.log_table_name);
+    activity_stats_column_info_ = GetColumnInfo("activity_stats");
+    db_stats_column_info_ = GetColumnInfo("database_stats");
 }
 
 // ── Field / operator validation ───────────────────────────────────────────────
 
 void Database::validate_field(std::string_view name) const {
-    for (const auto& ci : column_info_)
-        if (ci.name == name) return;
-    throw std::runtime_error(std::format("Unknown field name: '{}'", name));
+    if (!std::ranges::any_of(log_column_info_,
+                             [name](const ColumnInfo& ci) { return ci.name == name; }))
+        throw std::runtime_error(std::format("Unknown field name: '{}'", name));
 }
 
 // ── WHERE clause builder ──────────────────────────────────────────────────────
@@ -258,8 +272,9 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
 int Database::Insert(const std::vector<nlohmann::json>& logs) {
     // Columns excluding 'id' (auto-generated primary key).
     std::vector<ColumnInfo> cols;
-    for (const auto& ci : column_info_)
-        if (!ci.is_pk) cols.push_back(ci);
+    cols.reserve(log_column_info_.size());
+    std::ranges::copy_if(log_column_info_, std::back_inserter(cols),
+                         [](const ColumnInfo& ci) { return !ci.is_pk; });
 
     if (cols.empty() || logs.empty()) return 0;
 
@@ -328,7 +343,7 @@ PaginatedQueryResult Database::Query(const std::vector<std::string>& fields,
     // Expand wildcard.
     std::vector<std::string> effective_fields;
     if (fields.size() == 1 && fields[0] == "*") {
-        for (const auto& ci : column_info_) effective_fields.push_back(ci.name);
+        for (const auto& ci : log_column_info_) effective_fields.push_back(ci.name);
     } else {
         // Validate every caller-supplied field name against the live schema before
         // it is interpolated into the SELECT list.
@@ -527,40 +542,15 @@ int Database::DeleteStatsBefore(std::string_view cutoff) {
 
 // ── Stats queries ─────────────────────────────────────────────────────────────
 
-const std::vector<std::string>& Database::activity_known_columns() {
-    static const std::vector<std::string> cols = {
-        "since",
-        "until",
-        "query_count",
-        "query_min",
-        "query_max",
-        "query_avg",
-        "ingest_count",
-        "ingest_size_min",
-        "ingest_size_max",
-        "ingest_size_avg",
-        "ingest_drop_count",
-        "insert_batch_count",
-        "insert_total_count",
-        "insert_total_cost",
-        "sse_session_count",
-        "http_conn_count",
-    };
-    return cols;
-}
-
-const std::vector<std::string>& Database::database_known_columns() {
-    static const std::vector<std::string> cols = {"timestamp", "rows_count", "db_size"};
-    return cols;
-}
-
 StatsQueryResult Database::QueryActivityStats(std::string_view since, std::string_view until,
                                               const std::vector<std::string>& fields,
                                               std::string_view ordering) const {
-    const auto& known = activity_known_columns();
-    auto resolved = fields.empty() || (fields.size() == 1 && fields[0] == "*") ? known : fields;
+    const auto known = pluck_column_names(activity_stats_column_info_);
+    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
+    const auto resolved = query_all_fields ? known : fields;
+
     for (const auto& f : resolved)
-        if (!range_contains(known, f))
+        if (std::ranges::find(known, f) == known.end())
             throw std::runtime_error(std::format("Unknown activity_stats field: '{}'", f));
 
     std::string col_list;
@@ -596,10 +586,12 @@ StatsQueryResult Database::QueryActivityStats(std::string_view since, std::strin
 StatsQueryResult Database::QueryDatabaseStats(std::string_view since, std::string_view until,
                                               const std::vector<std::string>& fields,
                                               std::string_view ordering) const {
-    const auto& known = database_known_columns();
-    auto resolved = fields.empty() || (fields.size() == 1 && fields[0] == "*") ? known : fields;
+    const auto known = pluck_column_names(db_stats_column_info_);
+    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
+    const auto resolved = query_all_fields ? known : fields;
+
     for (const auto& f : resolved)
-        if (!range_contains(known, f))
+        if (std::ranges::find(known, f) == known.end())
             throw std::runtime_error(std::format("Unknown database_stats field: '{}'", f));
 
     std::string col_list;

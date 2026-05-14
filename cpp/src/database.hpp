@@ -53,6 +53,7 @@ class Database {
     void Initialize();
 
     // ── Schema ────────────────────────────────────────────────────────────────
+    // Column metadata for the configured log table
     [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
     void RefreshColumnInfo();
 
@@ -119,15 +120,16 @@ class Database {
     };
     WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
 
-    // Throws std::runtime_error if `name` is not a known column in column_info_.
+    // Throws std::runtime_error if `name` is not a known column in log_column_info_.
     void validate_field(std::string_view name) const;
 
-    static const std::vector<std::string>& activity_known_columns();
-    static const std::vector<std::string>& database_known_columns();
+    [[nodiscard]] std::vector<ColumnInfo> GetColumnInfo(std::string_view table_name) const;
 
     const Config& cfg_;
     sqlite3* db_{};
-    mutable std::vector<ColumnInfo> column_info_;
+    std::vector<ColumnInfo> log_column_info_;
+    std::vector<ColumnInfo> activity_stats_column_info_;
+    std::vector<ColumnInfo> db_stats_column_info_;
     std::set<std::string> compressed_columns_;
     std::unique_ptr<ColumnDictionary> col_dict_;
 };

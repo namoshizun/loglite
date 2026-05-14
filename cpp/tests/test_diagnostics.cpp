@@ -427,9 +427,10 @@ TEST_F(DiagnosticsTest, QueryActivityStatsAllFields) {
     auto result =
         db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
     EXPECT_EQ(result.data.size(), 2u);
-    EXPECT_EQ(result.fields[0], "since");
-    EXPECT_EQ(result.fields[1], "until");
-    EXPECT_EQ(result.fields[2], "query_count");
+    EXPECT_EQ(result.fields[0], "id");
+    EXPECT_EQ(result.fields[1], "since");
+    EXPECT_EQ(result.fields[2], "until");
+    EXPECT_EQ(result.fields[3], "query_count");
 }
 
 TEST_F(DiagnosticsTest, QueryActivityStatsSpecificFields) {
@@ -484,14 +485,15 @@ TEST_F(DiagnosticsTest, QueryActivityStatsOrdering) {
     auto desc =
         db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
     ASSERT_EQ(desc.data.size(), 2u);
-    EXPECT_EQ(desc.data[0][1].get<std::string>(), "2024-01-01T00:02:00Z");
-    EXPECT_EQ(desc.data[1][1].get<std::string>(), "2024-01-01T00:01:00Z");
+    constexpr int kUntilCol = 2;  // id, since, until, ...
+    EXPECT_EQ(desc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
+    EXPECT_EQ(desc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
 
     auto asc =
         db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "asc");
     ASSERT_EQ(asc.data.size(), 2u);
-    EXPECT_EQ(asc.data[0][1].get<std::string>(), "2024-01-01T00:01:00Z");
-    EXPECT_EQ(asc.data[1][1].get<std::string>(), "2024-01-01T00:02:00Z");
+    EXPECT_EQ(asc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
+    EXPECT_EQ(asc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
 }
 
 TEST_F(DiagnosticsTest, QueryDatabaseStatsAllFields) {
@@ -502,9 +504,10 @@ TEST_F(DiagnosticsTest, QueryDatabaseStatsAllFields) {
 
     auto result =
         db_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", {"*"}, "desc");
-    EXPECT_EQ(result.fields[0], "timestamp");
-    EXPECT_EQ(result.fields[1], "rows_count");
-    EXPECT_EQ(result.fields[2], "db_size");
+    EXPECT_EQ(result.fields[0], "id");
+    EXPECT_EQ(result.fields[1], "timestamp");
+    EXPECT_EQ(result.fields[2], "rows_count");
+    EXPECT_EQ(result.fields[3], "db_size");
     EXPECT_GE(result.data.size(), 1u);
 }
 

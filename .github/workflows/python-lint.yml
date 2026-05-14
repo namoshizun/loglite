@@ -26,7 +26,7 @@ jobs:
 
       - name: Install lint tools
         working-directory: py
-        run: uv sync --group dev
+        run: uv sync --group dev --no-install-project
 
       - name: Ruff lint
         working-directory: py

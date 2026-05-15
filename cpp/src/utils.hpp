@@ -125,7 +125,11 @@ inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::s
     };
     for (const char* fmt : fmts) {
         std::istringstream is(buf);
-        is >> date::parse(fmt, parsed);
+        parsed = {};
+        // NOTE: Use date::from_stream directly: libstdc++ (GCC 14+) also provides
+        // std::chrono::from_stream for sys_time, so date::parse()'s unqualified
+        // from_stream(...) is ambiguous on Linux.
+        date::from_stream(is, fmt, parsed);
         if (is.fail()) continue;
 
         while (is.peek() != std::istringstream::traits_type::eof() &&

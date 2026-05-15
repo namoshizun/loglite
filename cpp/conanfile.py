@@ -8,6 +8,7 @@ class LogliteConan(ConanFile):
     options = {"with_tests": [True, False], "with_python": [True, False]}
     default_options = {
         "boost/*:header_only": True,
+        "date/*:tz_db": "system",
         "with_tests": True,
         "with_python": False,
     }

@@ -1,11 +1,18 @@
 #include <gtest/gtest.h>
 
 #include "backlog.hpp"
+#include "metrics.hpp"
 
 #include <thread>
 #include <vector>
 
 using namespace loglite;
+
+class BacklogMetricsTest : public ::testing::Test {
+   protected:
+    void SetUp() override { metrics::MetricsRegistry::Instance().Reset(); }
+    void TearDown() override { metrics::MetricsRegistry::Instance().Reset(); }
+};
 
 // ── Basic contract ────────────────────────────────────────────────────────────
 TEST(BacklogTest, AddIncreasesSize) {
@@ -25,13 +32,25 @@ TEST(BacklogTest, FlushReturnsAllEntries) {
     EXPECT_EQ(backlog.Size(), 0u);
 }
 
-TEST(BacklogTest, IsFullSetAtCapacity) {
+// With max_size=3, 95% of capacity is crossed only once the deque holds 3 entries
+// (same as the hard cap for small capacities).
+TEST(BacklogTest, IsFullAlignedWithCapacityWhenSmall) {
     Backlog backlog{3};
     backlog.Add({{"id", 1}});
     backlog.Add({{"id", 2}});
     EXPECT_FALSE(backlog.IsFull());
     backlog.Add({{"id", 3}});
     EXPECT_TRUE(backlog.IsFull());
+}
+
+TEST(BacklogTest, IsFullBeforeHardCapacityWhenLarge) {
+    constexpr size_t kMax = 100;
+    Backlog backlog{kMax};
+    for (size_t i = 0; i < 94; ++i) backlog.Add({{"id", static_cast<int>(i)}});
+    EXPECT_FALSE(backlog.IsFull());
+    backlog.Add({{"id", 94}});
+    EXPECT_TRUE(backlog.IsFull());
+    EXPECT_LT(backlog.Size(), kMax);
 }
 
 // ── Bounded / drop-oldest behaviour ──────────────────────────────────────────
@@ -75,4 +94,15 @@ TEST(BacklogTest, MultipleOverflowsRetainsMostRecent) {
     ASSERT_EQ(entries.size(), 4u);
     // Entries 1 and 2 were evicted; 3, 4, 5, 6 remain in order.
     for (int i = 0; i < 4; ++i) EXPECT_EQ(entries[i]["id"].get<int>(), i + 3);
+}
+
+TEST_F(BacklogMetricsTest, OverflowRecordsDropMetrics) {
+    Backlog backlog{2};
+    backlog.Add({{"id", 1}});
+    backlog.Add({{"id", 2}});
+    backlog.Add({{"id", 3}});
+
+    auto samples = metrics::MetricsRegistry::Instance().Flush();
+    ASSERT_EQ(samples.size(), 1u);
+    EXPECT_EQ(samples[0].name, metrics::kBacklogDrop);
 }

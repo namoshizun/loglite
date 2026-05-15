@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "log.hpp"
+#include "metrics.hpp"
 
 #include <csignal>
 
@@ -7,6 +8,7 @@
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "handlers/sse.hpp"
+#include "handlers/stats.hpp"
 
 #include "tasks/diagnostics.hpp"
 #include "tasks/flush_backlog.hpp"
@@ -14,6 +16,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <chrono>
 #include <format>
 
 namespace asio = boost::asio;
@@ -22,6 +25,8 @@ namespace http = beast::http;
 namespace ip = asio::ip;
 
 namespace loglite {
+
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -106,7 +111,7 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
         }
 
         beast::tcp_stream stream{std::move(socket)};
-        stream.expires_after(std::chrono::seconds(60));
+        stream.expires_after(60s);
 
         auto ex = co_await asio::this_coro::executor;
         asio::co_spawn(ex, HandleConnection(std::move(stream)),
@@ -115,6 +120,8 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
 }
 
 asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
+    metrics::GaugeGuard http_connection{metrics::kHttpConnection};
+
     beast::flat_buffer buf;
     http::request<http::string_body> req;
 
@@ -155,6 +162,8 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
         res = handlers::HandleQuery(req, ctx_);
     } else if (path == "/health" && method == http::verb::get) {
         res = handlers::HandleHealth(req, ctx_);
+    } else if (path == "/stats" && method == http::verb::get) {
+        res = handlers::HandleStats(req, ctx_);
     } else {
         res = handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
     }

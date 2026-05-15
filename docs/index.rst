@@ -125,6 +125,14 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
    vacuum_max_size: 500MB     # Trigger vacuum when db exceeds this
    vacuum_target_size: 400MB  # Trim oldest rows until db is under this
 
+   # ── Background tasks ──────────────────────────────────────
+   task_diagnostics_interval: 60   # Seconds between stats collections
+   task_backlog_flush_interval: 5  # Seconds between backlog flush passes
+   task_backlog_max_size: 200      # Max backlog entries before force-flush
+   task_vacuum_interval: 120       # Seconds between incremental vacuum pass
+   task_vacuum_max_size: 20        # MB budget per incremental vacuum pass
+   stats_retention_hours: 24       # Hours to keep stats data before pruning
+
    # ── Optional: column compression ─────────────────────────
    # See configs/enable-compression.yaml for the full example.
    # Listed columns must be declared INTEGER in the schema; LogLite
@@ -225,6 +233,88 @@ Supported operators: ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``, ``~=``
    Filters always translate to a ``WHERE`` on the SQLite table. **In production,
    only filter on indexed columns** — define indices in your migration for every
    field you intend to query frequently, otherwise expect full table scans.
+
+
+``GET /stats``
+~~~~~~~~~~~~~~
+
+Returns runtime performance statistics sampled at regular intervals (controlled by ``task_diagnostics_interval``).
+Each sample captures request rates, latencies, throughput, and live
+connection counts.
+
+
+**Query parameters** (all required except ``ordering``):
+
+- ``since``, ``until`` — ISO-8601 time window (closed-open), e.g., ``2026-05-01T00:00:00Z,2026-05-01T01:00:00Z``. **Must be ≤ 1 day apart.**
+- ``activity_stats_fields`` — comma-separated columns to return, or ``*`` for all
+- ``database_stats_fields`` — comma-separated columns to return, or ``*`` for all
+- ``ordering`` — ``asc`` or ``desc`` (default: ``desc``)
+
+**Activity stats columns** (interval measurements):
+
+- ``since``, ``until`` — start and end of the interval (ISO‑8601, closed‑open).
+- *Log query fields*
+
+  - ``query_count`` — number of ``GET /logs`` requests received.
+  - ``query_min`` — min query response time (ms).
+  - ``query_max`` — max query response time (ms).
+  - ``query_avg`` — average query response time (ms).
+
+- *Log ingestion fields*
+
+  - ``ingest_count`` — number of ``POST /logs`` requests received.
+  - ``ingest_size_min`` — min request body size (bytes).
+  - ``ingest_size_max`` — max request body size (bytes).
+  - ``ingest_size_avg`` — average request body size (bytes).
+  - ``ingest_drop_count`` — log entries discarded from the backlog due to buffer task_backlog_flush_interval
+
+- *Log insertion fields*
+
+  - ``insert_batch_count`` — number of insert batches flushed to the database.
+  - ``insert_total_count`` — total log entries inserted across all batches.
+  - ``insert_total_cost`` — total time spent on database insertion (ms).
+
+- *Live connections fields* (point-in-time gauge at end of interval)
+
+  - ``sse_session_count`` — active SSE subscriptions.
+  - ``http_conn_count`` — active HTTP connections (including SSE sessions).
+
+**Database stats columns** (point-in-time snapshot):
+
+- ``timestamp`` — sample time (ISO‑8601).
+- ``rows_count`` — total log rows stored in the database.
+- ``db_size`` — database file size (bytes).
+
+
+
+**Example query:**
+
+.. code-block:: bash
+
+   curl "http://localhost:7788/stats?\
+   since=2026-05-01T00:00:00Z&until=2026-05-01T01:00:00Z&\
+   activity_stats_fields=id,since,until,query_count&database_stats_fields=*&ordering=desc"
+
+Response:
+
+.. code-block:: json
+
+   {
+     "activities": {
+       "fields": ["id", "since", "until", "query_count"],
+       "data": [
+         [2, "2026-05-01T00:59:00Z", "2026-05-01T01:00:00Z", 120],
+         [1, "2026-05-01T00:58:00Z", "2026-05-01T00:59:00Z", 95]
+       ]
+     },
+     "database": {
+       "fields": ["id", "timestamp", "rows_count", "db_size"],
+       "data": [
+         [2, "2026-05-01T01:00:00Z", 45230, 5242880],
+         [1, "2026-05-01T00:59:00Z", 45110, 5111808]
+       ]
+     }
+   }
 
 
 ``GET /logs/sse``
@@ -359,7 +449,6 @@ switching is a binary swap.
 Roadmap
 -------
 
-- ``GET /stats`` for database size, log count, and background-task metrics
 - Built-in web UI for browsing logs and database stats
 - Time-based partitioning (one SQLite file per day or month)
 

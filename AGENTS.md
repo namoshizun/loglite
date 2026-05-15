@@ -20,3 +20,5 @@
 - Use C++ 20. Prefer modern features over legacy ones.
 - Follow the Google C++ Style Guide.
 - Use CMake and GTest
+- Use `cpp/build.sh` to build the debug / release binary.
+- Use `cpp/run-tests.sh` to execute unit tests.

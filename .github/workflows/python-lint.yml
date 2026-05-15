@@ -26,12 +26,12 @@ jobs:
 
       - name: Install lint tools
         working-directory: py
-        run: uv sync --group dev
+        run: uv sync --group dev --no-install-project
 
       - name: Ruff lint
         working-directory: py
-        run: uv run ruff check
+        run: uv run --no-sync ruff check
 
       - name: Pyright type check
         working-directory: py
-        run: uv run pyright --level=error
+        run: uv run --no-sync pyright --level=error

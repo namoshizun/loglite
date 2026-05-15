@@ -49,6 +49,7 @@ struct Config {
     int task_backlog_max_size{200};      // max entries before force-flush
     int task_vacuum_interval{120};       // seconds
     int task_vacuum_max_size{20};        // MB budget per incremental vacuum pass
+    int stats_retention_hours{24};
 
     // ── Compression ───────────────────────────────────────────────────────────
     CompressionConfig compression;
@@ -77,7 +78,7 @@ BOOST_DESCRIBE_STRUCT(Config, (),
                        vacuum_target_size, vacuum_target_size_bytes, vacuum_delete_batch_size,
                        task_diagnostics_interval, task_backlog_flush_interval,
                        task_backlog_max_size, task_vacuum_interval, task_vacuum_max_size,
-                       compression, harvesters, migrations))
+                       stats_retention_hours, compression, harvesters, migrations))
 
 }  // namespace loglite
 

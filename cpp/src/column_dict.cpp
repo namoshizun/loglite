@@ -59,34 +59,28 @@ std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter
     if (col_it == lookup_.end()) return {};
 
     const auto& col_map = col_it->second;
-    const auto& op = filter.op;
-    // Value from the filter as a string for comparison.
     std::string fval =
         filter.value.is_string() ? filter.value.get<std::string>() : filter.value.dump();
 
-    std::vector<ValueId> ids;
-    for (const auto& [v, id] : col_map) {
-        bool match = false;
-        if (op == "~=") {
-            // Substring match (both directions, mirroring the Python implementation).
-            match = v.find(fval) != std::string::npos || fval.find(v) != std::string::npos;
-        } else if (op == "=") {
-            match = v == fval;
-        } else if (op == "!=") {
-            match = v != fval;
-        } else if (op == ">") {
-            match = v > fval;
-        } else if (op == ">=") {
-            match = v >= fval;
-        } else if (op == "<") {
-            match = v < fval;
-        } else if (op == "<=") {
-            match = v <= fval;
-        }
+    const auto value_matches = [](std::string_view op, const std::string& fval_arg,
+                                  const std::string& v) -> bool {
+        if (op == "~=")
+            return v.find(fval_arg) != std::string::npos || fval_arg.find(v) != std::string::npos;
+        if (op == "=") return v == fval_arg;
+        if (op == "!=") return v != fval_arg;
+        if (op == ">") return v > fval_arg;
+        if (op == ">=") return v >= fval_arg;
+        if (op == "<") return v < fval_arg;
+        if (op == "<=") return v <= fval_arg;
+        return false;
+    };
 
-        if (match) ids.push_back(id);
-    }
-    return ids;
+    namespace rv = std::ranges::views;
+    auto matched =
+        col_map |
+        rv::filter([&](const auto& kv) { return value_matches(filter.op, fval, kv.first); }) |
+        rv::transform([](const auto& kv) { return kv.second; });
+    return std::vector<ValueId>(std::ranges::begin(matched), std::ranges::end(matched));
 }
 
 LookupTable ColumnDictionary::GetLookUp() const {

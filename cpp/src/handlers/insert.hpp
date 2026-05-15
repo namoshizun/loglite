@@ -4,11 +4,15 @@
 #include "common.hpp"
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 
 namespace loglite::handlers {
 
 template <class Body>
 http::response<http::string_body> HandleInsert(const http::request<Body>& req, ServerContext& ctx) {
+    metrics::MetricsRegistry::Instance().Collect(metrics::kIngestRequest,
+                                                 static_cast<double>(req.body().size()));
+
     try {
         auto body = nlohmann::json::parse(req.body());
 

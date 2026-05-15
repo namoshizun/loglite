@@ -20,8 +20,9 @@ namespace loglite {
 // inserting the new one (drop-oldest policy), so memory use is bounded
 // even if the flush task falls behind or dies.
 //
-// The `IsFull()` flag is polled by the flush task so it can force an early
-// flush when the backlog reaches capacity (task_backlog_max_size).
+// `IsFull()` is polled by the flush task so it can exit the periodic wait early
+// when the queue crosses a ~95% high watermark — before drop-oldest triggers
+// at the hard cap (task_backlog_max_size).
 
 class Backlog {
    public:

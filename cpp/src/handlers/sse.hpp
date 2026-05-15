@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
@@ -21,6 +22,8 @@ namespace net = boost::asio;
 
 namespace loglite::handlers {
 
+using namespace std::chrono_literals;
+
 // ── SSE handler ────────────────────────────────────────────────────────────────
 //
 // Long-running coroutine that owns the TCP stream.  It:
@@ -37,7 +40,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
     auto origin = cfg.allow_origin;
-    auto debounce = std::chrono::milliseconds(cfg.sse_debounce_ms);
+    auto debounce = cfg.sse_debounce_ms * 1ms;
 
     // ── Parse fields param ────────────────────────────────────────────────────
     auto [path, qs] = SplitURLTarget(req.target());
@@ -65,6 +68,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         co_return;
     }
 
+    metrics::GaugeGuard sse_session{metrics::kSseSession};
+
     // ── Subscribe ─────────────────────────────────────────────────────────────
     auto sub = ctx.notifier.Subscribe(ex);
     auto unsub = std::unique_ptr<LogNotifier, std::function<void(LogNotifier*)>>(
@@ -90,8 +95,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
 
         // Apply debounce: do not push more than once per debounce window.
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_push_tp);
-        if (last_push_tp.time_since_epoch().count() != 0 && elapsed < debounce) continue;
+        if (last_push_tp.time_since_epoch().count() != 0 && (now - last_push_tp) < debounce)
+            continue;
 
         // ── Query new logs ────────────────────────────────────────────────────
         std::vector<QueryFilter> id_filters{

@@ -3,6 +3,7 @@
 
 #include "../globals.hpp"
 #include "../log.hpp"
+#include "../metrics.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
@@ -14,10 +15,12 @@ namespace asio = boost::asio;
 
 namespace loglite::tasks {
 
+using namespace std::chrono_literals;
+
 // ── Backlog flush task ─────────────────────────────────────────────────────────
 //
 // Runs as an infinite Asio coroutine.  Every task_backlog_flush_interval seconds
-// (or immediately when the backlog is full), it:
+// (or when Backlog signals the high watermark via IsFull()), it:
 //   1. Drains the backlog.
 //   2. Dispatches to the write strand to INSERT into SQLite.
 //   3. Reads max_log_id and notifies SSE subscribers.
@@ -30,11 +33,10 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
     log::info("Backlog flush task started");
 
     while (true) {
-        // Poll every 100 ms; break early when the backlog is full.
-        auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::seconds(cfg.task_backlog_flush_interval);
+        // Poll every 100 ms; break early when the backlog hits the flush watermark.
+        auto deadline = std::chrono::steady_clock::now() + cfg.task_backlog_flush_interval * 1s;
         while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.IsFull()) {
-            timer.expires_after(std::chrono::milliseconds(100));
+            timer.expires_after(100ms);
             co_await timer.async_wait(asio::use_awaitable);
         }
 
@@ -53,7 +55,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         // Leave the strand by posting back to the generic pool executor.
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
-        ctx.ingest_stats.collect(count, t.elapsed_ms());
+        metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, t.elapsed_ms(), count);
         ctx.notifier.Notify(max);
 
         if (cfg.debug) log::debug(std::format("Inserted {} row(s), max_log_id={}", count, max));

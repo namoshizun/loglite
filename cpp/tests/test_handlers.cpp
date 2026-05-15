@@ -8,6 +8,7 @@
 #include "database.hpp"
 #include "globals.hpp"
 #include "backlog.hpp"
+#include "metrics.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -22,6 +23,8 @@ using namespace loglite;
 class HandlersTest : public ::testing::Test {
    protected:
     void SetUp() override {
+        metrics::MetricsRegistry::Instance().Reset();
+
         tmp_ = fs::temp_directory_path() / "loglite_handlers_test";
         fs::remove_all(tmp_);
         fs::create_directories(tmp_);
@@ -55,8 +58,6 @@ class HandlersTest : public ::testing::Test {
 
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
-        ingest_stats_ = std::make_unique<StatsTracker>();
-        query_stats_ = std::make_unique<StatsTracker>();
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
 
@@ -65,8 +66,6 @@ class HandlersTest : public ::testing::Test {
             *db_,
             *backlog_,
             *notifier_,
-            *ingest_stats_,
-            *query_stats_,
             asio::make_strand(db_ops_pool_->get_executor()),
         });
     }
@@ -96,8 +95,6 @@ class HandlersTest : public ::testing::Test {
     std::unique_ptr<Database> db_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
-    std::unique_ptr<StatsTracker> ingest_stats_;
-    std::unique_ptr<StatsTracker> query_stats_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;
     std::unique_ptr<ServerContext> ctx_;
 };
@@ -130,6 +127,18 @@ TEST_F(HandlersTest, InsertSingleObject) {
     auto body = nlohmann::json::parse(res.body());
     EXPECT_EQ(body["status"], "accepted");
     EXPECT_EQ(backlog_->Size(), 1u);
+}
+
+TEST_F(HandlersTest, InsertRecordsPayloadSizeMetric) {
+    std::string body = R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
+    auto req = make_req(http::verb::post, "/logs", body);
+    auto res = handlers::HandleInsert(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto samples = metrics::MetricsRegistry::Instance().Flush();
+    ASSERT_EQ(samples.size(), 1u);
+    EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
+    EXPECT_DOUBLE_EQ(samples[0].value, static_cast<double>(body.size()));
 }
 
 TEST_F(HandlersTest, InsertArray) {
@@ -168,6 +177,17 @@ TEST_F(HandlersTest, QueryMissingFieldsParam) {
     auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
     auto res = handlers::HandleQuery(req, *ctx_);
     EXPECT_EQ(static_cast<int>(res.result()), 400);
+}
+
+TEST_F(HandlersTest, QueryRecordsRequestMetricOnValidationFailure) {
+    auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
+    auto res = handlers::HandleQuery(req, *ctx_);
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+
+    auto samples = metrics::MetricsRegistry::Instance().Flush();
+    ASSERT_EQ(samples.size(), 1u);
+    EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
+    EXPECT_GE(samples[0].value, 0.0);
 }
 
 TEST_F(HandlersTest, QueryMissingLimitParam) {

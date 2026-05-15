@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(app, argc, argv);
 
+    // ── execute command ────────────────────────────────────────────────────────
     try {
         if (server_run->parsed()) {
             loglite::RunServer(server_config);

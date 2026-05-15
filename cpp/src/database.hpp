@@ -53,6 +53,7 @@ class Database {
     void Initialize();
 
     // ── Schema ────────────────────────────────────────────────────────────────
+    // Column metadata for the configured log table
     [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
     void RefreshColumnInfo();
 
@@ -71,6 +72,7 @@ class Database {
     int64_t GetMaxLogId() const;
     int64_t GetMinLogId() const;
     std::string GetMinTimestamp() const;  // ISO-8601 string
+    int64_t EstimateLogRowCount() const;
 
     // ── SQLite PRAGMAs ────────────────────────────────────────────────────────
     std::string GetPragma(std::string_view name) const;
@@ -78,7 +80,20 @@ class Database {
     void IncrementalVacuum(int page_count);
     void Vacuum();
     void WALCheckpoint(std::string_view mode = "TRUNCATE");
+    int64_t GetSizeBytes() const;
     double GetSizeMB() const;
+
+    // ── Internal stats ────────────────────────────────────────────────────────
+    bool InsertActivityStats(const ActivityStatsRow& row);
+    bool InsertDatabaseStats(const DatabaseStatsRow& row);
+    int DeleteStatsBefore(std::string_view cutoff);
+
+    StatsQueryResult QueryActivityStats(std::string_view since, std::string_view until,
+                                        const std::vector<std::string>& fields,
+                                        std::string_view ordering) const;
+    StatsQueryResult QueryDatabaseStats(std::string_view since, std::string_view until,
+                                        const std::vector<std::string>& fields,
+                                        std::string_view ordering) const;
 
     // ── Migrations ────────────────────────────────────────────────────────────
 
@@ -105,12 +120,16 @@ class Database {
     };
     WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
 
-    // Throws std::runtime_error if `name` is not a known column in column_info_.
+    // Throws std::runtime_error if `name` is not a known column in log_column_info_.
     void validate_field(std::string_view name) const;
+
+    [[nodiscard]] std::vector<ColumnInfo> GetColumnInfo(std::string_view table_name) const;
 
     const Config& cfg_;
     sqlite3* db_{};
-    mutable std::vector<ColumnInfo> column_info_;
+    std::vector<ColumnInfo> log_column_info_;
+    std::vector<ColumnInfo> activity_stats_column_info_;
+    std::vector<ColumnInfo> db_stats_column_info_;
     std::set<std::string> compressed_columns_;
     std::unique_ptr<ColumnDictionary> col_dict_;
 };

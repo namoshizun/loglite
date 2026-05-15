@@ -1,26 +1,8 @@
-from pathlib import Path
-
 import pytest
 
-from loglite.harvesters.file import FileHarvesterConfig
 from loglite.harvesters.manager import HarvesterManager
 from loglite.harvesters.socket import SocketHarvesterConfig
 from loglite.harvesters.zmq import ZMQHarvesterConfig
-
-
-def test_file_harvester_config_validation():
-    # Valid config
-    config = FileHarvesterConfig(path=Path("/tmp/test.log"))
-    assert str(config.path) == "/tmp/test.log"
-
-    # Missing path
-    # Dataclasses raise TypeError for missing arguments
-    with pytest.raises(TypeError):
-        FileHarvesterConfig()  # pyright: ignore[reportCallIssue]
-
-    # Empty path (custom validation)
-    with pytest.raises(ValueError):
-        FileHarvesterConfig(path="")  # pyright: ignore[reportArgumentType]
 
 
 def test_zmq_harvester_config_validation():

@@ -11,7 +11,6 @@ from loglite.harvesters.base import Harvester
 _NATIVE_TYPES = {
     "FileHarvester",
     "loglite.harvesters.FileHarvester",
-    "loglite.harvesters.file.FileHarvester",
 }
 
 

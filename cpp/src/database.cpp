@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <format>
+#include <iterator>
 #include <ranges>
 #include <stdexcept>
 
@@ -21,6 +22,12 @@ Statement::Statement(sqlite3* db, std::string_view sql) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 namespace {
+
+std::vector<std::string> pluck_column_names(const std::vector<ColumnInfo>& infos) {
+    namespace rv = std::ranges::views;
+    auto view = infos | rv::transform(&ColumnInfo::name);
+    return std::vector<std::string>(std::ranges::begin(view), std::ranges::end(view));
+}
 
 void ensure_ok(int rc, sqlite3* db, std::string_view ctx) {
     if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW)
@@ -123,18 +130,42 @@ void Database::Close() {
 }
 
 void Database::CreateInternalTables() {
-    exec_sql(db_,
-             "CREATE TABLE IF NOT EXISTS versions ("
-             "  version    INTEGER PRIMARY KEY,"
-             "  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-             ")");
-    exec_sql(db_,
-             "CREATE TABLE IF NOT EXISTS column_dictionary ("
-             "  id       INTEGER PRIMARY KEY AUTOINCREMENT,"
-             "  column   TEXT    NOT NULL,"
-             "  value_id INTEGER NOT NULL,"
-             "  value    JSON"
-             ")");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS versions (
+        version    INTEGER PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ))");
+
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS column_dictionary (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        column   TEXT    NOT NULL,
+        value_id INTEGER NOT NULL,
+        value    JSON
+    ))");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS activity_stats (
+        id                  INTEGER PRIMARY KEY,
+        since               DATETIME NOT NULL,
+        until               DATETIME NOT NULL,
+        query_count         INTEGER,
+        query_min           INTEGER,
+        query_max           INTEGER,
+        query_avg           INTEGER,
+        ingest_count        INTEGER,
+        ingest_size_min     INTEGER,
+        ingest_size_max     INTEGER,
+        ingest_size_avg     INTEGER,
+        ingest_drop_count   INTEGER,
+        insert_batch_count  INTEGER,
+        insert_total_count  INTEGER,
+        insert_total_cost   INTEGER,
+        sse_session_count   INTEGER,
+        http_conn_count     INTEGER
+    ))");
+    exec_sql(db_, R"(CREATE TABLE IF NOT EXISTS database_stats (
+        id           INTEGER PRIMARY KEY,
+        timestamp    DATETIME,
+        rows_count   INTEGER,
+        db_size      INTEGER
+    ))");
 }
 
 void Database::Initialize() {
@@ -163,11 +194,11 @@ void Database::Initialize() {
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return column_info_; }
+const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return log_column_info_; }
 
-void Database::RefreshColumnInfo() {
-    column_info_.clear();
-    auto sql = std::format("PRAGMA table_info({})", cfg_.log_table_name);
+std::vector<ColumnInfo> Database::GetColumnInfo(std::string_view table_name) const {
+    std::vector<ColumnInfo> out;
+    auto sql = std::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         ColumnInfo ci;
@@ -175,16 +206,23 @@ void Database::RefreshColumnInfo() {
         ci.type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         ci.not_null = sqlite3_column_int(stmt, 3) != 0;
         ci.is_pk = sqlite3_column_int(stmt, 5) != 0;
-        column_info_.push_back(std::move(ci));
+        out.push_back(std::move(ci));
     }
+    return out;
+}
+
+void Database::RefreshColumnInfo() {
+    log_column_info_ = GetColumnInfo(cfg_.log_table_name);
+    activity_stats_column_info_ = GetColumnInfo("activity_stats");
+    db_stats_column_info_ = GetColumnInfo("database_stats");
 }
 
 // ── Field / operator validation ───────────────────────────────────────────────
 
 void Database::validate_field(std::string_view name) const {
-    for (const auto& ci : column_info_)
-        if (ci.name == name) return;
-    throw std::runtime_error(std::format("Unknown field name: '{}'", name));
+    if (!std::ranges::any_of(log_column_info_,
+                             [name](const ColumnInfo& ci) { return ci.name == name; }))
+        throw std::runtime_error(std::format("Unknown field name: '{}'", name));
 }
 
 // ── WHERE clause builder ──────────────────────────────────────────────────────
@@ -234,8 +272,9 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
 int Database::Insert(const std::vector<nlohmann::json>& logs) {
     // Columns excluding 'id' (auto-generated primary key).
     std::vector<ColumnInfo> cols;
-    for (const auto& ci : column_info_)
-        if (!ci.is_pk) cols.push_back(ci);
+    cols.reserve(log_column_info_.size());
+    std::ranges::copy_if(log_column_info_, std::back_inserter(cols),
+                         [](const ColumnInfo& ci) { return !ci.is_pk; });
 
     if (cols.empty() || logs.empty()) return 0;
 
@@ -304,7 +343,7 @@ PaginatedQueryResult Database::Query(const std::vector<std::string>& fields,
     // Expand wildcard.
     std::vector<std::string> effective_fields;
     if (fields.size() == 1 && fields[0] == "*") {
-        for (const auto& ci : column_info_) effective_fields.push_back(ci.name);
+        for (const auto& ci : log_column_info_) effective_fields.push_back(ci.name);
     } else {
         // Validate every caller-supplied field name against the live schema before
         // it is interpolated into the SELECT list.
@@ -395,6 +434,14 @@ std::string Database::GetMinTimestamp() const {
     return "";
 }
 
+int64_t Database::EstimateLogRowCount() const {
+    auto sql =
+        std::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
+    return 0;
+}
+
 // ── PRAGMAs ───────────────────────────────────────────────────────────────────
 
 std::string Database::GetPragma(std::string_view name) const {
@@ -421,11 +468,161 @@ void Database::WALCheckpoint(std::string_view mode) {
     exec_sql(db_, std::format("PRAGMA wal_checkpoint({})", mode));
 }
 
-double Database::GetSizeMB() const {
+int64_t Database::GetSizeBytes() const {
     int64_t page_count = std::stoll(GetPragma("page_count"));
     int64_t page_size = std::stoll(GetPragma("page_size"));
     int64_t freelist = std::stoll(GetPragma("freelist_count"));
-    return bytes_to_mb((page_count - freelist) * page_size);
+    return (page_count - freelist) * page_size;
+}
+
+double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
+
+// ── Internal stats ────────────────────────────────────────────────────────────
+
+bool Database::InsertActivityStats(const ActivityStatsRow& row) {
+    Statement stmt{db_, R"(INSERT INTO activity_stats (
+        since, until,
+        query_count, query_min, query_max, query_avg,
+        ingest_count, ingest_size_min, ingest_size_max, ingest_size_avg, ingest_drop_count,
+        insert_batch_count, insert_total_count, insert_total_cost,
+        sse_session_count, http_conn_count
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?))"};
+
+    sqlite3_bind_text(stmt, 1, row.since.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, row.until.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, row.query_count);
+    sqlite3_bind_int64(stmt, 4, row.query_min);
+    sqlite3_bind_int64(stmt, 5, row.query_max);
+    sqlite3_bind_int64(stmt, 6, row.query_avg);
+    sqlite3_bind_int64(stmt, 7, row.ingest_count);
+    sqlite3_bind_int64(stmt, 8, row.ingest_size_min);
+    sqlite3_bind_int64(stmt, 9, row.ingest_size_max);
+    sqlite3_bind_int64(stmt, 10, row.ingest_size_avg);
+    sqlite3_bind_int64(stmt, 11, row.ingest_drop_count);
+    sqlite3_bind_int64(stmt, 12, row.insert_batch_count);
+    sqlite3_bind_int64(stmt, 13, row.insert_total_count);
+    sqlite3_bind_int64(stmt, 14, row.insert_total_cost);
+    sqlite3_bind_int64(stmt, 15, row.sse_session_count);
+    sqlite3_bind_int64(stmt, 16, row.http_conn_count);
+
+    ensure_ok(sqlite3_step(stmt), db_, "insert_activity_stats");
+    return true;
+}
+
+bool Database::InsertDatabaseStats(const DatabaseStatsRow& row) {
+    Statement stmt{db_,
+                   "INSERT INTO database_stats (timestamp, rows_count, db_size) VALUES (?, ?, ?)"};
+
+    sqlite3_bind_text(stmt, 1, row.timestamp.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, row.rows_count);
+    sqlite3_bind_int64(stmt, 3, row.db_size);
+
+    ensure_ok(sqlite3_step(stmt), db_, "insert_database_stats");
+    return true;
+}
+
+int Database::DeleteStatsBefore(std::string_view cutoff) {
+    int removed = 0;
+    {
+        Statement stmt{db_, "DELETE FROM activity_stats WHERE until < ?"};
+        sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
+                          SQLITE_TRANSIENT);
+        ensure_ok(sqlite3_step(stmt), db_, "delete_activity_stats");
+        removed += sqlite3_changes(db_);
+    }
+    {
+        Statement stmt{db_, "DELETE FROM database_stats WHERE timestamp < ?"};
+        sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
+                          SQLITE_TRANSIENT);
+        ensure_ok(sqlite3_step(stmt), db_, "delete_database_stats");
+        removed += sqlite3_changes(db_);
+    }
+    return removed;
+}
+
+// ── Stats queries ─────────────────────────────────────────────────────────────
+
+StatsQueryResult Database::QueryActivityStats(std::string_view since, std::string_view until,
+                                              const std::vector<std::string>& fields,
+                                              std::string_view ordering) const {
+    const auto known = pluck_column_names(activity_stats_column_info_);
+    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
+    const auto resolved = query_all_fields ? known : fields;
+
+    for (const auto& f : resolved)
+        if (std::ranges::find(known, f) == known.end())
+            throw std::runtime_error(std::format("Unknown activity_stats field: '{}'", f));
+
+    std::string col_list;
+    col_list.reserve(resolved.size() * 16);  // generous estimate per column name
+    for (size_t i = 0; i < resolved.size(); ++i) {
+        if (i) col_list += ", ";
+        col_list += resolved[i];
+    }
+
+    std::string order = "DESC";
+    if (ordering == "asc") order = "ASC";
+
+    auto sql = std::format(
+        "SELECT {} FROM activity_stats WHERE until >= ? AND until <= ? ORDER BY until {}", col_list,
+        order);
+    Statement stmt{db_, sql};
+    sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
+
+    StatsQueryResult result;
+    result.fields = resolved;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::vector<nlohmann::json> row;
+        row.reserve(resolved.size());
+        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
+            row.push_back(column_to_json(stmt, c));
+        }
+        result.data.push_back(std::move(row));
+    }
+    return result;
+}
+
+StatsQueryResult Database::QueryDatabaseStats(std::string_view since, std::string_view until,
+                                              const std::vector<std::string>& fields,
+                                              std::string_view ordering) const {
+    const auto known = pluck_column_names(db_stats_column_info_);
+    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
+    const auto resolved = query_all_fields ? known : fields;
+
+    for (const auto& f : resolved)
+        if (std::ranges::find(known, f) == known.end())
+            throw std::runtime_error(std::format("Unknown database_stats field: '{}'", f));
+
+    std::string col_list;
+    col_list.reserve(resolved.size() * 16);
+    for (size_t i = 0; i < resolved.size(); ++i) {
+        if (i) col_list += ", ";
+        col_list += resolved[i];
+    }
+
+    std::string order = "DESC";
+    if (ordering == "asc") order = "ASC";
+
+    auto sql = std::format(
+        "SELECT {} FROM database_stats WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp "
+        "{}",
+        col_list, order);
+    Statement stmt{db_, sql};
+    sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
+
+    StatsQueryResult result;
+    result.fields = resolved;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::vector<nlohmann::json> row;
+        row.reserve(resolved.size());
+        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
+            row.push_back(column_to_json(stmt, c));
+        }
+        result.data.push_back(std::move(row));
+    }
+    return result;
 }
 
 // ── Migrations ────────────────────────────────────────────────────────────────

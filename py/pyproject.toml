@@ -1,16 +1,35 @@
 [project]
 name = "loglite"
-version = "1.0.0"
+version = "1.1.0"
 description = "Lightweight log service — Python CLI and harvester layer over the loglite C++ core"
-authors = [{ name = "namoshizun", email = "dilu3100@gmail.com" }]
+authors = [{ name = "Di Lu", email = "dilu3100@gmail.com" }]
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = [
-    "loguru>=0.7.3",
-    "typer>=0.15.2",
-    "aiofiles>=25.1.0",
-    "orjson>=3.10.15",
+dependencies = ["loguru>=0.7.3", "typer>=0.15.2"]
+keywords = ["logging", "metrics", "sqlite", "lightweight", "c++"]
+
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX",
+    "Topic :: System :: Logging",
+    "Topic :: System :: Monitoring",
 ]
+
+[project.urls]
+Documentation = "https://loglite.lu-d.com/"
+Homepage = "https://loglite.lu-d.com/"
+Issues = "https://github.com/namoshizun/loglite/issues"
+Repository = "https://github.com/namoshizun/loglite"
 
 [project.optional-dependencies]
 zmq = ["pyzmq>=26.0.0"]

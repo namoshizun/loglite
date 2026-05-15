@@ -1,5 +1,11 @@
 ## Changelog
 
+### 1.1.0
+
+- refactor: `Backlog::IsFull` becomes true when the buffer is at least 95% full, rather than when it reaches the exact hard capacity.
+- feat: add metrics tracking for backlog drops, insert batches, and SSE sessions.
+- refactor: remove the python's file harvester (always use the C++ implementation). remove orjson and aiofiles dependencies.
+
 ### 1.0.0
 
 A whole new shape ✨. Loglite can now be deployed as a standalone C++ binary or as a Python package. Core functionality is implemented in C++ for stronger performance and a smoother fit on embedded targets.

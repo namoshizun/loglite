@@ -1,12 +1,16 @@
 #ifndef LOGLITE_UTILS_HPP_
 #define LOGLITE_UTILS_HPP_
 
+#include <date/date.h>
+
+#include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <format>
-#include <limits>
-#include <mutex>
+#include <optional>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -44,7 +48,7 @@ inline int64_t parse_size_to_bytes(std::string_view s) {
 
 inline double bytes_to_mb(int64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); }
 
-// ── RAII timer ────────────────────────────────────────────────────────────────
+// ── Timer ────────────────────────────────────────────────────────────────
 
 class Timer {
     using Clock = std::chrono::steady_clock;
@@ -54,54 +58,14 @@ class Timer {
     Timer() = default;
 
     double elapsed_ms() const {
-        return std::chrono::duration<double, std::milli>(Clock::now() - start_).count();
+        using std::chrono_literals::operator""ms;
+        return (Clock::now() - start_) / 1.0ms;
     }
 
-    double elapsed_s() const { return elapsed_ms() / 1000.0; }
-};
-
-// ── Stats tracker ─────────────────────────────────────────────────────────────
-
-class StatsTracker {
-   public:
-    struct Snapshot {
-        int64_t count{};
-        double total_ms{};
-        double avg_ms{};
-        double max_ms{};
-        double min_ms{};
-    };
-
-    void collect(int64_t n, double cost_ms) {
-        std::lock_guard lk(mtx_);
-        count_ += n;
-        total_ms_ += cost_ms;
-        max_ms_ = std::max(max_ms_, cost_ms);
-        min_ms_ = std::min(min_ms_, cost_ms);
+    double elapsed_s() const {
+        using std::chrono_literals::operator""s;
+        return (Clock::now() - start_) / 1.0s;
     }
-
-    Snapshot get_and_reset() {
-        std::lock_guard lk(mtx_);
-        Snapshot s{
-            count_,
-            total_ms_,
-            count_ > 0 ? total_ms_ / static_cast<double>(count_) : 0.0,
-            max_ms_,
-            min_ms_ == std::numeric_limits<double>::max() ? 0.0 : min_ms_,
-        };
-        count_ = 0;
-        total_ms_ = 0;
-        max_ms_ = 0;
-        min_ms_ = std::numeric_limits<double>::max();
-        return s;
-    }
-
-   private:
-    std::mutex mtx_;
-    int64_t count_{};
-    double total_ms_{};
-    double max_ms_{};
-    double min_ms_{std::numeric_limits<double>::max()};
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
@@ -126,6 +90,58 @@ inline std::string url_decode(std::string_view s) {
         }
     }
     return out;
+}
+
+// Trims leading and trailing characters for which std::isspace is true (calls use unsigned char).
+inline std::string_view strip_spaces(std::string_view s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
+    return s;
+}
+
+// ── Time utils ───────────────────────────────────────────────────────────────
+inline std::string format_utc(std::chrono::system_clock::time_point tp) {
+    auto secs = std::chrono::floor<std::chrono::seconds>(tp.time_since_epoch());
+    return date::format("%Y-%m-%dT%H:%M:%SZ", date::sys_seconds{secs});
+}
+
+// RFC 3339 / ISO 8601 instant: full date-time with 'T', optional fractional seconds, and optional
+// offset ('Z', ±HH:MM via %Ez, or ±HHMM via %z). No time zone ⇒ fields are interpreted as UTC
+// (same as a plain sys_time parse). Date-only inputs are rejected.
+inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::string_view s) {
+    using std::chrono::system_clock;
+
+    std::string_view t = strip_spaces(s);
+    if (t.find('T') == std::string_view::npos) return std::nullopt;
+
+    const std::string buf{t};
+    date::sys_time<std::chrono::nanoseconds> parsed{};
+
+    constexpr const char* fmts[] = {
+        "%FT%TZ",
+        "%FT%T%Ez",
+        "%FT%T%z",
+        "%FT%T",
+    };
+    for (const char* fmt : fmts) {
+        std::istringstream is(buf);
+        parsed = {};
+        // NOTE: Use date::from_stream directly: libstdc++ (GCC 14+) also provides
+        // std::chrono::from_stream for sys_time, so date::parse()'s unqualified
+        // from_stream(...) is ambiguous on Linux.
+        date::from_stream(is, fmt, parsed);
+        if (is.fail()) continue;
+
+        while (is.peek() != std::istringstream::traits_type::eof() &&
+               std::isspace(static_cast<unsigned char>(is.peek()))) {
+            static_cast<void>(is.get());
+        }
+        if (is.peek() != std::istringstream::traits_type::eof()) continue;
+
+        return system_clock::time_point(
+            std::chrono::duration_cast<system_clock::duration>(parsed.time_since_epoch()));
+    }
+    return std::nullopt;
 }
 
 }  // namespace loglite

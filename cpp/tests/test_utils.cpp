@@ -22,50 +22,6 @@ TEST(UtilsTest, TimerElapsedS) {
     EXPECT_GE(t.elapsed_s(), 0.04);
 }
 
-// ── StatsTracker ─────────────────────────────────────────────────────────────
-
-TEST(UtilsTest, StatsTrackerSingleCollect) {
-    StatsTracker st;
-    st.collect(1, 10.0);
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 1);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.avg_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 10.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 10.0);
-}
-
-TEST(UtilsTest, StatsTrackerMultipleCollects) {
-    StatsTracker st;
-    st.collect(1, 100.0);
-    st.collect(2, 200.0);
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 3);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 300.0);
-    EXPECT_DOUBLE_EQ(snap.avg_ms, 100.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 200.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 100.0);
-}
-
-TEST(UtilsTest, StatsTrackerResetAfterGet) {
-    StatsTracker st;
-    st.collect(5, 50.0);
-    st.get_and_reset();
-    auto snap = st.get_and_reset();
-    EXPECT_EQ(snap.count, 0);
-    EXPECT_DOUBLE_EQ(snap.total_ms, 0.0);
-    EXPECT_DOUBLE_EQ(snap.max_ms, 0.0);
-    EXPECT_DOUBLE_EQ(snap.min_ms, 0.0);
-}
-
-TEST(UtilsTest, StatsTrackerMinAfterReset) {
-    StatsTracker st;
-    st.collect(1, 42.0);
-    st.get_and_reset();
-    auto snap = st.get_and_reset();
-    EXPECT_DOUBLE_EQ(snap.min_ms, 0.0);
-}
-
 // ── url_decode ───────────────────────────────────────────────────────────────
 
 TEST(UtilsTest, UrlDecodeNoEncoding) { EXPECT_EQ(url_decode("hello"), "hello"); }
@@ -80,6 +36,17 @@ TEST(UtilsTest, UrlDecodePercent) {
 TEST(UtilsTest, UrlDecodeInvalidHex) { EXPECT_EQ(url_decode("test%GG"), "test"); }
 
 TEST(UtilsTest, UrlDecodeEmpty) { EXPECT_EQ(url_decode(""), ""); }
+
+// ── strip_spaces ─────────────────────────────────────────────────────────────
+
+TEST(UtilsTest, StripSpacesTrimsEnds) {
+    EXPECT_EQ(strip_spaces("  query_avg  "), "query_avg");
+    EXPECT_EQ(strip_spaces("\tfoo\n"), "foo");
+}
+
+TEST(UtilsTest, StripSpacesAllBlank) { EXPECT_TRUE(strip_spaces(" \t ").empty()); }
+
+TEST(UtilsTest, StripSpacesEmpty) { EXPECT_TRUE(strip_spaces("").empty()); }
 
 // ── ParseIntParam ────────────────────────────────────────────────────────────
 
@@ -106,6 +73,55 @@ TEST(UtilsTest, ParseIntParamOverflow) {
 TEST(UtilsTest, BytesToMb) {
     EXPECT_DOUBLE_EQ(bytes_to_mb(1048576), 1.0);
     EXPECT_DOUBLE_EQ(bytes_to_mb(0), 0.0);
+}
+
+// ── parse_iso8601 / format_utc ──────────────────────────────────────────────
+
+TEST(UtilsTest, ParseIso8601WithZRoundTripsViaFormatUtc) {
+    auto tp = parse_iso8601("2024-06-15T08:30:00Z");
+    ASSERT_TRUE(tp.has_value());
+    EXPECT_EQ(format_utc(*tp), "2024-06-15T08:30:00Z");
+}
+
+TEST(UtilsTest, ParseIso8601WithoutZ) {
+    auto tp = parse_iso8601("2024-01-01T00:00:00");
+    ASSERT_TRUE(tp.has_value());
+    EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00Z");
+}
+
+TEST(UtilsTest, ParseIso8601FractionalPreservesSubseconds) {
+    auto whole = parse_iso8601("2024-01-01T12:34:56Z");
+    auto frac = parse_iso8601("2024-01-01T12:34:56.999999Z");
+    ASSERT_TRUE(whole.has_value());
+    ASSERT_TRUE(frac.has_value());
+    EXPECT_NE(*whole, *frac);
+    EXPECT_LT(*whole, *frac);
+}
+
+TEST(UtilsTest, ParseIso8601NumericOffsetColoned) {
+    auto utc = parse_iso8601("2023-12-31T16:00:00Z");
+    auto east = parse_iso8601("2024-01-01T00:00:00+08:00");
+    ASSERT_TRUE(utc.has_value());
+    ASSERT_TRUE(east.has_value());
+    EXPECT_EQ(*utc, *east);
+}
+
+TEST(UtilsTest, ParseIso8601NumericOffsetCompact) {
+    auto tp = parse_iso8601("2024-01-01T00:00:30+0030");
+    auto expected = parse_iso8601("2023-12-31T23:30:30Z");
+    ASSERT_TRUE(tp.has_value());
+    ASSERT_TRUE(expected.has_value());
+    EXPECT_EQ(*tp, *expected);
+}
+
+TEST(UtilsTest, ParseIso8601DateOnlyRejected) {
+    EXPECT_EQ(parse_iso8601("2024-01-01"), std::nullopt);
+}
+
+TEST(UtilsTest, ParseIso8601InvalidRejected) {
+    EXPECT_EQ(parse_iso8601(""), std::nullopt);
+    EXPECT_EQ(parse_iso8601("not-a-time"), std::nullopt);
+    EXPECT_EQ(parse_iso8601("2024-13-40T99:99:99Z"), std::nullopt);
 }
 
 // ── SplitURLTarget ───────────────────────────────────────────────────────────

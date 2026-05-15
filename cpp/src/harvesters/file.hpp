@@ -9,9 +9,9 @@
 #include <format>
 #include <thread>
 
-using namespace std::literals::chrono_literals;
-
 namespace loglite::harvesters {
+
+using namespace std::chrono_literals;
 
 // ── FileHarvester ──────────────────────────────────────────────────────────────
 //

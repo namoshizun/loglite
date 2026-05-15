@@ -8,6 +8,7 @@ class LogliteConan(ConanFile):
     options = {"with_tests": [True, False], "with_python": [True, False]}
     default_options = {
         "boost/*:header_only": True,
+        "date/*:tz_db": "system",
         "with_tests": True,
         "with_python": False,
     }
@@ -18,6 +19,7 @@ class LogliteConan(ConanFile):
         self.requires("nlohmann_json/3.12.0")
         self.requires("sqlite3/3.53.0")
         self.requires("yaml-cpp/0.9.0")
+        self.requires("date/3.0.4")
 
         if self.options.with_tests:
             self.requires("gtest/1.17.0")

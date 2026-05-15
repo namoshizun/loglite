@@ -89,12 +89,29 @@ TEST(UtilsTest, ParseIso8601WithoutZ) {
     EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00Z");
 }
 
-TEST(UtilsTest, ParseIso8601FractionalTruncatesToSecond) {
+TEST(UtilsTest, ParseIso8601FractionalPreservesSubseconds) {
     auto whole = parse_iso8601("2024-01-01T12:34:56Z");
     auto frac = parse_iso8601("2024-01-01T12:34:56.999999Z");
     ASSERT_TRUE(whole.has_value());
     ASSERT_TRUE(frac.has_value());
-    EXPECT_EQ(*whole, *frac);
+    EXPECT_NE(*whole, *frac);
+    EXPECT_LT(*whole, *frac);
+}
+
+TEST(UtilsTest, ParseIso8601NumericOffsetColoned) {
+    auto utc = parse_iso8601("2023-12-31T16:00:00Z");
+    auto east = parse_iso8601("2024-01-01T00:00:00+08:00");
+    ASSERT_TRUE(utc.has_value());
+    ASSERT_TRUE(east.has_value());
+    EXPECT_EQ(*utc, *east);
+}
+
+TEST(UtilsTest, ParseIso8601NumericOffsetCompact) {
+    auto tp = parse_iso8601("2024-01-01T00:00:30+0030");
+    auto expected = parse_iso8601("2023-12-31T23:30:30Z");
+    ASSERT_TRUE(tp.has_value());
+    ASSERT_TRUE(expected.has_value());
+    EXPECT_EQ(*tp, *expected);
 }
 
 TEST(UtilsTest, ParseIso8601DateOnlyRejected) {

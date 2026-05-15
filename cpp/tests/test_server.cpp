@@ -401,6 +401,51 @@ TEST_F(ServerTest, StatsAcceptsFractionalIso8601) {
         "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
     EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_TRUE(body.contains("activities"));
+    EXPECT_TRUE(body.contains("database"));
+    EXPECT_TRUE(body["activities"].contains("fields"));
+    EXPECT_TRUE(body["activities"].contains("data"));
+    EXPECT_TRUE(body["database"].contains("fields"));
+    EXPECT_TRUE(body["database"].contains("data"));
+}
+
+TEST_F(ServerTest, StatsAcceptsColonTimezoneOffsetsEncodedPlus) {
+    // '+' must be %2B in query values — url_decode maps '+' to space.
+    auto url =
+        "/stats?since=2024-06-15T08:30:00%2B08:00&until=2024-06-15T09:30:00%2B08:00"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_TRUE(body.contains("activities"));
+    EXPECT_TRUE(body.contains("database"));
+}
+
+TEST_F(ServerTest, StatsAcceptsCompactTimezoneOffsetsEncodedPlus) {
+    auto url =
+        "/stats?since=2024-06-15T08:30:00%2B0830&until=2024-06-15T09:30:00%2B0830"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_TRUE(body.contains("activities"));
+    EXPECT_TRUE(body.contains("database"));
+}
+
+TEST_F(ServerTest, StatsAcceptsFractionalSecondsWithNegativeOffset) {
+    auto url =
+        "/stats?since=2024-06-14T19:30:00.500-05:00&until=2024-06-14T20:30:00.250-05:00"
+        "&activity_stats_fields=*&database_stats_fields=*&ordering=asc";
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_TRUE(body.contains("activities"));
+    EXPECT_TRUE(body.contains("database"));
 }
 
 TEST_F(ServerTest, StatsTrimsCommaSeparatedFieldNames) {

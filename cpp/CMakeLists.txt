@@ -23,6 +23,7 @@ find_package(SQLite3 REQUIRED CONFIG)
 find_package(yaml-cpp REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED CONFIG)
 find_package(CLI11 REQUIRED CONFIG)
+find_package(date REQUIRED CONFIG)
 
 option(LOGLITE_PYTHON "Build the pybind11 extension module (_core)" OFF)
 if(LOGLITE_PYTHON)
@@ -53,6 +54,7 @@ target_link_libraries(loglite_lib PUBLIC
     yaml-cpp::yaml-cpp
     nlohmann_json::nlohmann_json
     CLI11::CLI11
+    date::date
 )
 target_compile_options(loglite_lib PUBLIC -Wall -Wextra -Wno-unused-parameter)
 

@@ -1,7 +1,7 @@
 #ifndef LOGLITE_UTILS_HPP_
 #define LOGLITE_UTILS_HPP_
 
-#include <boost/date_time/posix_time/posix_time.hpp>
+#include <date/date.h>
 
 #include <algorithm>
 #include <chrono>
@@ -10,6 +10,7 @@
 #include <format>
 #include <optional>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -100,32 +101,43 @@ inline std::string_view strip_spaces(std::string_view s) {
 
 // ── Time utils ───────────────────────────────────────────────────────────────
 inline std::string format_utc(std::chrono::system_clock::time_point tp) {
-    auto t = std::chrono::system_clock::to_time_t(tp);
-    std::tm tm{};
-    gmtime_r(&t, &tm);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return buf;
+    auto secs = std::chrono::floor<std::chrono::seconds>(tp.time_since_epoch());
+    return date::format("%Y-%m-%dT%H:%M:%SZ", date::sys_seconds{secs});
 }
 
-// RFC 3339–style UTC (…Z) with optional fractional seconds. Boost's extended ISO parser does not
-// accept a trailing 'Z' on the time-of-day; sub-second precision is truncated when converting to
-// time_t. Requires a full date-time ('T'); date-only inputs are rejected.
+// RFC 3339 / ISO 8601 instant: full date-time with 'T', optional fractional seconds, and optional
+// offset ('Z', ±HH:MM via %Ez, or ±HHMM via %z). No time zone ⇒ fields are interpreted as UTC
+// (same as a plain sys_time parse). Date-only inputs are rejected.
 inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::string_view s) {
-    if (s.find('T') == std::string_view::npos) return std::nullopt;
+    using std::chrono::system_clock;
 
-    std::string str{s};
-    if (!str.empty() && str.back() == 'Z') str.pop_back();
+    std::string_view t = strip_spaces(s);
+    if (t.find('T') == std::string_view::npos) return std::nullopt;
 
-    boost::posix_time::ptime pt;
-    try {
-        pt = boost::posix_time::from_iso_extended_string(str);
-    } catch (const std::exception&) {
-        return std::nullopt;
+    const std::string buf{t};
+    date::sys_time<std::chrono::nanoseconds> parsed{};
+
+    constexpr const char* fmts[] = {
+        "%FT%TZ",
+        "%FT%T%Ez",
+        "%FT%T%z",
+        "%FT%T",
+    };
+    for (const char* fmt : fmts) {
+        std::istringstream is(buf);
+        is >> date::parse(fmt, parsed);
+        if (is.fail()) continue;
+
+        while (is.peek() != std::istringstream::traits_type::eof() &&
+               std::isspace(static_cast<unsigned char>(is.peek()))) {
+            static_cast<void>(is.get());
+        }
+        if (is.peek() != std::istringstream::traits_type::eof()) continue;
+
+        return system_clock::time_point(
+            std::chrono::duration_cast<system_clock::duration>(parsed.time_since_epoch()));
     }
-    if (pt.is_special()) return std::nullopt;
-
-    return std::chrono::system_clock::from_time_t(boost::posix_time::to_time_t(pt));
+    return std::nullopt;
 }
 
 }  // namespace loglite

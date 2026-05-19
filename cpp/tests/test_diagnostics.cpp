@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "config.hpp"
-#include "database.hpp"
+#include "reader_database.hpp"
+#include "writer_database.hpp"
 #include "metrics.hpp"
 #include "tasks/diagnostics.hpp"
 
@@ -22,6 +23,7 @@ class DiagnosticsTest : public ::testing::Test {
 
     void TearDown() override {
         metrics::MetricsRegistry::Instance().Reset();
+        reader_.reset();
         if (db_) db_.reset();
         fs::remove_all(tmp_);
     }
@@ -47,14 +49,17 @@ class DiagnosticsTest : public ::testing::Test {
         m.rollback = {"DROP TABLE IF EXISTS TestLog"};
         cfg_.migrations.push_back(m);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
         db_->Initialize();
+        reader_ = std::make_unique<ReaderDatabase>(cfg_, db_->catalog());
+        reader_->Open();
     }
 
     fs::path tmp_;
     Config cfg_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
+    std::unique_ptr<ReaderDatabase> reader_;
 };
 
 // ── round_stat ──────────────────────────────────────────────────────────────
@@ -425,7 +430,7 @@ TEST_F(DiagnosticsTest, QueryActivityStatsAllFields) {
                                           5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
 
     auto result =
-        db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
+        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
     EXPECT_EQ(result.data.size(), 2u);
     EXPECT_EQ(result.fields[0], "id");
     EXPECT_EQ(result.fields[1], "since");
@@ -439,8 +444,8 @@ TEST_F(DiagnosticsTest, QueryActivityStatsSpecificFields) {
     EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 42, 2, 10,
                                           6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
 
-    auto result = db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z",
-                                          {"query_count", "query_avg"}, "desc");
+    auto result = reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z",
+                                              {"query_count", "query_avg"}, "desc");
     ASSERT_EQ(result.data.size(), 1u);
     EXPECT_EQ(result.fields.size(), 2u);
     EXPECT_EQ(result.fields[0], "query_count");
@@ -451,8 +456,8 @@ TEST_F(DiagnosticsTest, QueryActivityStatsSpecificFields) {
 
 TEST_F(DiagnosticsTest, QueryActivityStatsUnknownFieldThrows) {
     init_db();
-    EXPECT_THROW(db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
-                                         {"no_such_field"}, "desc"),
+    EXPECT_THROW(reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
+                                             {"no_such_field"}, "desc"),
                  std::runtime_error);
 }
 
@@ -466,11 +471,12 @@ TEST_F(DiagnosticsTest, QueryActivityStatsTimeWindow) {
 
     // Only in range
     auto result =
-        db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T23:59:59Z", {"*"}, "desc");
+        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T23:59:59Z", {"*"}, "desc");
     EXPECT_EQ(result.data.size(), 1u);
 
     // Empty range
-    result = db_->QueryActivityStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
+    result =
+        reader_->QueryActivityStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
     EXPECT_TRUE(result.data.empty());
 }
 
@@ -483,14 +489,14 @@ TEST_F(DiagnosticsTest, QueryActivityStatsOrdering) {
                                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
 
     auto desc =
-        db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
+        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
     ASSERT_EQ(desc.data.size(), 2u);
     constexpr int kUntilCol = 2;  // id, since, until, ...
     EXPECT_EQ(desc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
     EXPECT_EQ(desc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
 
     auto asc =
-        db_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "asc");
+        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "asc");
     ASSERT_EQ(asc.data.size(), 2u);
     EXPECT_EQ(asc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
     EXPECT_EQ(asc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
@@ -503,7 +509,7 @@ TEST_F(DiagnosticsTest, QueryDatabaseStatsAllFields) {
     EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 200, 8192}));
 
     auto result =
-        db_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", {"*"}, "desc");
+        reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", {"*"}, "desc");
     EXPECT_EQ(result.fields[0], "id");
     EXPECT_EQ(result.fields[1], "timestamp");
     EXPECT_EQ(result.fields[2], "rows_count");
@@ -516,8 +522,8 @@ TEST_F(DiagnosticsTest, QueryDatabaseStatsSpecificFields) {
 
     EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:00:00Z", 100, 4096}));
 
-    auto result = db_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
-                                          {"rows_count", "db_size"}, "desc");
+    auto result = reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
+                                              {"rows_count", "db_size"}, "desc");
     ASSERT_EQ(result.data.size(), 1u);
     EXPECT_EQ(result.fields.size(), 2u);
     EXPECT_EQ(result.data[0][0].get<int64_t>(), 100);
@@ -526,8 +532,8 @@ TEST_F(DiagnosticsTest, QueryDatabaseStatsSpecificFields) {
 
 TEST_F(DiagnosticsTest, QueryDatabaseStatsUnknownFieldThrows) {
     init_db();
-    EXPECT_THROW(db_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
-                                         {"bad_column"}, "desc"),
+    EXPECT_THROW(reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
+                                             {"bad_column"}, "desc"),
                  std::runtime_error);
 }
 
@@ -535,7 +541,7 @@ TEST_F(DiagnosticsTest, QueryDatabaseStatsEmptyResult) {
     init_db();
 
     auto result =
-        db_->QueryDatabaseStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
+        reader_->QueryDatabaseStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
     EXPECT_TRUE(result.data.empty());
     EXPECT_FALSE(result.fields.empty());
 }

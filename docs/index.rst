@@ -71,6 +71,7 @@ A minimal example:
        auto_vacuum: INCREMENTAL
        journal_mode: WAL  # Highly recommended
        synchronous: NORMAL
+       busy_timeout: 5000
     migrations:
       - version: 1
         rollout:

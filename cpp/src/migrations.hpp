@@ -7,11 +7,11 @@
 
 namespace loglite {
 
-class Database;
+class WriterDatabase;
 
 class MigrationManager {
    public:
-    MigrationManager(Database& db, std::span<const Migration> migrations);
+    MigrationManager(WriterDatabase& db, std::span<const Migration> migrations);
 
     // Apply the first unapplied migration with version > start_version.
     // Mirrors Python's behaviour: one migration per call.
@@ -23,7 +23,7 @@ class MigrationManager {
     bool RollbackMigration(int version, bool force = false);
 
    private:
-    Database& db_;
+    WriterDatabase& db_;
     std::vector<Migration> migrations_;  // sorted by version asc
 };
 

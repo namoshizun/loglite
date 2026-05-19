@@ -18,7 +18,7 @@ using namespace std::chrono_literals;
 namespace detail {
 
 // Remove log entries older than max_age_days; returns deleted count.
-inline int remove_stale_logs(Database& db, const Config& cfg) {
+inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
     auto min_ts = db.GetMinTimestamp();
     if (min_ts.empty()) return 0;
 
@@ -41,7 +41,7 @@ inline int remove_stale_logs(Database& db, const Config& cfg) {
 }
 
 // Delete oldest logs until DB size is below target; returns deleted count.
-inline int remove_excessive_logs(Database& db, const Config& cfg) {
+inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg) {
     double db_mb = db.GetSizeMB();
     double max_mb = bytes_to_mb(cfg.vacuum_max_size_bytes);
     double target_mb = bytes_to_mb(cfg.vacuum_target_size_bytes);
@@ -69,7 +69,7 @@ inline int remove_excessive_logs(Database& db, const Config& cfg) {
     return removed;
 }
 
-inline int incremental_vacuum_pass(Database& db, int max_size_mb) {
+inline int incremental_vacuum_pass(WriterDatabase& db, int max_size_mb) {
     auto freelist = db.GetPragma("freelist_count");
     if (freelist.empty() || freelist == "0") return 0;
 
@@ -103,31 +103,31 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
         // All vacuum operations mutate the DB → run on write strand.
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
-        ctx.db.WALCheckpoint("TRUNCATE");
+        ctx.db_write.WALCheckpoint("TRUNCATE");
 
-        auto vacuum_mode_str = ctx.db.GetPragma("auto_vacuum");
+        auto vacuum_mode_str = ctx.db_write.GetPragma("auto_vacuum");
         int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
 
         if (vacuum_mode == 2) {  // INCREMENTAL
-            int remain = detail::incremental_vacuum_pass(ctx.db, cfg.task_vacuum_max_size);
+            int remain = detail::incremental_vacuum_pass(ctx.db_write, cfg.task_vacuum_max_size);
             if (remain > 0) {
                 co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
                 continue;
             }
         }
 
-        bool has_ts = std::ranges::any_of(ctx.db.GetColumnInfo(), [&](const ColumnInfo& ci) {
+        bool has_ts = std::ranges::any_of(ctx.db_write.GetColumnInfo(), [&](const ColumnInfo& ci) {
             return ci.name == cfg.log_timestamp_field;
         });
 
-        if (has_ts) detail::remove_stale_logs(ctx.db, cfg);
+        if (has_ts) detail::remove_stale_logs(ctx.db_write, cfg);
 
-        detail::remove_excessive_logs(ctx.db, cfg);
+        detail::remove_excessive_logs(ctx.db_write, cfg);
 
         if (vacuum_mode == 1) {  // FULL
             Timer t;
-            ctx.db.Vacuum();
-            ctx.db.WALCheckpoint("FULL");
+            ctx.db_write.Vacuum();
+            ctx.db_write.WALCheckpoint("FULL");
             log::info(std::format("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s()));
         }
 

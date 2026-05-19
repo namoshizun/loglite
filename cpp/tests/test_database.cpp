@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "config.hpp"
-#include "database.hpp"
 #include "migrations.hpp"
+#include "reader_database.hpp"
+#include "writer_database.hpp"
 #include "utils.hpp"
 
 #include <filesystem>
@@ -40,24 +41,28 @@ class DatabaseTest : public ::testing::Test {
         m.rollback = {"DROP TABLE IF EXISTS TestLog"};
         cfg_.migrations.push_back(m);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
-        db_->Initialize();  // creates internal tables + applies migration v1
+        db_->Initialize();
+        reader_ = std::make_unique<ReaderDatabase>(cfg_, db_->catalog());
+        reader_->Open();
     }
 
     void TearDown() override {
+        reader_.reset();
         db_.reset();
         fs::remove_all(db_dir_);
     }
 
     Config cfg_;
     fs::path db_dir_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
+    std::unique_ptr<ReaderDatabase> reader_;
 };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-TEST_F(DatabaseTest, Ping) { EXPECT_TRUE(db_->Ping()); }
+TEST_F(DatabaseTest, Ping) { EXPECT_TRUE(reader_->Ping()); }
 
 TEST_F(DatabaseTest, InsertAndQuery) {
     nlohmann::json log{
@@ -70,7 +75,7 @@ TEST_F(DatabaseTest, InsertAndQuery) {
     int inserted = db_->Insert(logs);
     EXPECT_EQ(inserted, 1);
 
-    auto result = db_->Query({"*"}, {}, 10, 0);
+    auto result = reader_->Query({"*"}, {}, 10, 0);
     EXPECT_EQ(result.total, 1);
     ASSERT_EQ(result.results.size(), 1u);
     EXPECT_EQ(result.results[0]["message"].get<std::string>(), "hello world");
@@ -94,7 +99,7 @@ TEST_F(DatabaseTest, InsertBatch) {
     }
     EXPECT_EQ(db_->Insert(logs), 5);
 
-    auto result = db_->Query({"*"}, {}, 100, 0);
+    auto result = reader_->Query({"*"}, {}, 100, 0);
     EXPECT_EQ(result.total, 5);
 }
 
@@ -105,7 +110,7 @@ TEST_F(DatabaseTest, QueryWithEqualFilter) {
     };
     db_->Insert(logs);
 
-    auto result = db_->Query({"*"}, {{"level", "=", "ERROR"}}, 10, 0);
+    auto result = reader_->Query({"*"}, {{"level", "=", "ERROR"}}, 10, 0);
     EXPECT_EQ(result.total, 1);
     EXPECT_EQ(result.results[0]["level"].get<std::string>(), "ERROR");
 }
@@ -119,7 +124,7 @@ TEST_F(DatabaseTest, QuerySubstringFilter) {
     };
     db_->Insert(logs);
 
-    auto result = db_->Query({"*"}, {{"message", "~=", "timeout"}}, 10, 0);
+    auto result = reader_->Query({"*"}, {{"message", "~=", "timeout"}}, 10, 0);
     EXPECT_EQ(result.total, 1);
     EXPECT_TRUE(result.results[0]["message"].get<std::string>().find("timeout") !=
                 std::string::npos);
@@ -136,8 +141,8 @@ TEST_F(DatabaseTest, QueryPagination) {
     }
     db_->Insert(logs);
 
-    auto page1 = db_->Query({"*"}, {}, 5, 0);
-    auto page2 = db_->Query({"*"}, {}, 5, 5);
+    auto page1 = reader_->Query({"*"}, {}, 5, 0);
+    auto page2 = reader_->Query({"*"}, {}, 5, 5);
     EXPECT_EQ(page1.total, 10);
     EXPECT_EQ(page1.results.size(), 5u);
     EXPECT_EQ(page2.results.size(), 5u);
@@ -153,7 +158,7 @@ TEST_F(DatabaseTest, DeleteLogs) {
     int deleted = db_->DeleteLogs({{"level", "=", "ERROR"}});
     EXPECT_EQ(deleted, 1);
 
-    auto result = db_->Query({"*"}, {}, 10, 0);
+    auto result = reader_->Query({"*"}, {}, 10, 0);
     EXPECT_EQ(result.total, 1);
 }
 
@@ -208,7 +213,7 @@ TEST(MigrationLoopTest, AllMigrationsAppliedOnInitialize) {
     cfg.migrations.push_back({2, {"ALTER TABLE TestLog ADD COLUMN level TEXT"}, {}});
     cfg.migrations.push_back({3, {"ALTER TABLE TestLog ADD COLUMN service TEXT"}, {}});
 
-    Database db{cfg};
+    WriterDatabase db{cfg};
     db.Open();
     db.Initialize();  // must apply v1, v2, v3 — not just v1
 
@@ -234,35 +239,35 @@ TEST(MigrationLoopTest, AllMigrationsAppliedOnInitialize) {
 // ── SQL-injection prevention ───────────────────────────────────────────────────
 
 // Helper: insert a row so the table is non-empty (Query short-circuits on empty).
-static void seed_one_row(Database& db) {
+static void seed_one_row(WriterDatabase& db) {
     db.Insert({{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "seed"}, {"level", "INFO"}}});
 }
 
 TEST_F(DatabaseTest, QueryRejectsUnknownFieldInSelectList) {
     seed_one_row(*db_);
-    EXPECT_THROW(db_->Query({"__injected--field"}, {}, 10, 0), std::runtime_error);
+    EXPECT_THROW(reader_->Query({"__injected--field"}, {}, 10, 0), std::runtime_error);
 }
 
 TEST_F(DatabaseTest, QueryAllowsWildcard) {
     seed_one_row(*db_);
-    EXPECT_NO_THROW(db_->Query({"*"}, {}, 10, 0));
+    EXPECT_NO_THROW(reader_->Query({"*"}, {}, 10, 0));
 }
 
 TEST_F(DatabaseTest, QueryAllowsKnownFields) {
     seed_one_row(*db_);
-    EXPECT_NO_THROW(db_->Query({"id", "timestamp", "message", "level"}, {}, 10, 0));
+    EXPECT_NO_THROW(reader_->Query({"id", "timestamp", "message", "level"}, {}, 10, 0));
 }
 
 TEST_F(DatabaseTest, QueryRejectsUnknownFieldInFilter) {
     seed_one_row(*db_);
     QueryFilter bad{.field = "'; DROP TABLE TestLog; --", .op = "=", .value = "x"};
-    EXPECT_THROW(db_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
+    EXPECT_THROW(reader_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
 }
 
 TEST_F(DatabaseTest, QueryRejectsUnknownOperator) {
     seed_one_row(*db_);
     QueryFilter bad{.field = "level", .op = "LIKE", .value = "%INFO%"};
-    EXPECT_THROW(db_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
+    EXPECT_THROW(reader_->Query({"*"}, {bad}, 10, 0), std::runtime_error);
 }
 
 TEST_F(DatabaseTest, DeleteLogsRejectsUnknownField) {
@@ -275,7 +280,7 @@ TEST_F(DatabaseTest, AllQueryOperatorsAreAccepted) {
     seed_one_row(*db_);
     for (auto op : {"=", "!=", ">", ">=", "<", "<=", "~="}) {
         QueryFilter f{.field = "level", .op = op, .value = "INFO"};
-        EXPECT_NO_THROW(db_->Query({"*"}, {f}, 10, 0)) << "operator: " << op;
+        EXPECT_NO_THROW(reader_->Query({"*"}, {f}, 10, 0)) << "operator: " << op;
     }
 }
 
@@ -366,7 +371,7 @@ TEST_F(DatabaseTest, DeleteLogsById) {
     int deleted = db_->DeleteLogs({{"id", "=", 2}});
     EXPECT_EQ(deleted, 1);
 
-    auto result = db_->Query({"*"}, {}, 10, 0);
+    auto result = reader_->Query({"*"}, {}, 10, 0);
     EXPECT_EQ(result.total, 1);
     EXPECT_EQ(result.results[0]["message"], "keep");
 }

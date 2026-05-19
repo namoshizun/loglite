@@ -11,8 +11,6 @@
 
 namespace loglite {
 
-class Database;
-
 // ── In-memory enumeration dictionary ─────────────────────────────────────────
 //
 // For each compressed column, values are
@@ -27,15 +25,14 @@ using LookupTable = std::unordered_map<ColumnName, std::unordered_map<std::strin
 
 class ColumnDictionary {
    public:
-    // Callback used to persist a new (column, value, id) entry to the DB.
-    // Called asynchronously (fire-and-forget) so it must be thread-safe.
+    // Callback used to persist a new (column, value, id) entry to the DB (writer connection).
     using PersistFn =
         std::function<bool(const std::string& col, const std::string& value, ValueId id)>;
 
     explicit ColumnDictionary(LookupTable lookup, PersistFn persist);
 
     // Return the id for (col, value), creating a new entry if needed.
-    // Triggers an async DB persist for new entries via the PersistFn.
+    // Persists new entries via PersistFn before returning the new id.
     ValueId GetOrCreate(const std::string& col, const std::string& value);
 
     // Reverse lookup: id → original value string.

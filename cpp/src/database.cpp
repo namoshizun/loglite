@@ -117,7 +117,7 @@ std::vector<std::string> Database::pluck_column_names(const std::vector<ColumnIn
     return std::vector<std::string>(std::ranges::begin(view), std::ranges::end(view));
 }
 
-std::vector<ColumnInfo> Database::fetch_table_columns(std::string_view table_name) const {
+std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name) const {
     std::vector<ColumnInfo> out;
     auto sql = std::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
@@ -130,6 +130,14 @@ std::vector<ColumnInfo> Database::fetch_table_columns(std::string_view table_nam
         out.push_back(std::move(ci));
     }
     return out;
+}
+
+int64_t Database::EstimateLogRowCount() const {
+    auto sql =
+        std::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
+    return 0;
 }
 
 void Database::validate_field(std::string_view name) const {

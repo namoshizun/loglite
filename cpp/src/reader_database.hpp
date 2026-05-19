@@ -45,7 +45,7 @@ class ReadDatabasePool {
     ReadDatabasePool& operator=(const ReadDatabasePool&) = delete;
 
     template <std::invocable<ReaderDatabase&> F>
-    auto with_connection(F&& f) -> std::invoke_result_t<F, ReaderDatabase&> {
+    auto UseConnection(F&& f) -> std::invoke_result_t<F, ReaderDatabase&> {
         ConnectionLease lease{*this};
         return std::invoke(std::forward<F>(f), lease.db());
     }

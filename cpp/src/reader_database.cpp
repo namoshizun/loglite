@@ -33,6 +33,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
 
     auto [where, params] = build_where_clause(filters);
 
+    // Get total count of rows matching the filters.
     auto count_sql = std::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement count_stmt{db_, count_sql};
     for (int i = 0; i < static_cast<int>(params.size()); ++i)
@@ -40,9 +41,9 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
 
     int total = 0;
     if (sqlite3_step(count_stmt) == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
-
     if (total == 0) return {total, offset, limit, {}};
 
+    // Execute the main query.
     std::string field_list;
     for (size_t i = 0; i < effective_fields.size(); ++i) {
         if (i) field_list += ",";
@@ -57,6 +58,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     bind_param(sel, pi++, nlohmann::json(limit));
     bind_param(sel, pi++, nlohmann::json(offset));
 
+    // Build JSON results.
     std::vector<nlohmann::json> results;
     results.reserve(static_cast<size_t>(limit));
     while (sqlite3_step(sel) == SQLITE_ROW) {

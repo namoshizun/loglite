@@ -87,9 +87,9 @@ const std::vector<ColumnInfo>& WriterDatabase::GetColumnInfo() const {
 }
 
 void WriterDatabase::RefreshColumnInfo() {
-    catalog_->log_column_info = fetch_table_columns(cfg_.log_table_name);
-    catalog_->activity_stats_column_info = fetch_table_columns("activity_stats");
-    catalog_->db_stats_column_info = fetch_table_columns("database_stats");
+    catalog_->log_column_info = FetchTableColumns(cfg_.log_table_name);
+    catalog_->activity_stats_column_info = FetchTableColumns("activity_stats");
+    catalog_->db_stats_column_info = FetchTableColumns("database_stats");
 }
 
 int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
@@ -190,14 +190,6 @@ std::string WriterDatabase::GetMinTimestamp() const {
         return txt ? txt : "";
     }
     return "";
-}
-
-int64_t WriterDatabase::EstimateLogRowCount() const {
-    auto sql =
-        std::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
-    return 0;
 }
 
 std::string WriterDatabase::GetPragma(std::string_view name) const { return get_pragma(name); }

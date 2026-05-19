@@ -57,7 +57,7 @@ TEST(ReadDatabasePoolTest, ConcurrentReadsAndWriterInserts) {
     auto reader = [&](int thread_id) {
         start.arrive_and_wait();
         for (int i = 0; i < 30; ++i) {
-            pool.with_connection([&](ReaderDatabase& r) {
+            pool.UseConnection([&](ReaderDatabase& r) {
                 std::vector<QueryFilter> filters{{"level", "=", "INFO"}};
                 auto result = r.Query({"message"}, filters, 10, 0);
                 EXPECT_GE(result.total, 0);

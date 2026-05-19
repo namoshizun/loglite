@@ -67,11 +67,11 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
 
     // ── Execute queries ───────────────────────────────────────────────────────
     try {
-        auto activities = ctx.db_read.with_connection([&](ReaderDatabase& r) {
+        auto activities = ctx.db_read.UseConnection([&](ReaderDatabase& r) {
             return r.QueryActivityStats(since_str, until_str, split_fields(activity_fields_str),
                                         ordering);
         });
-        auto database = ctx.db_read.with_connection([&](ReaderDatabase& r) {
+        auto database = ctx.db_read.UseConnection([&](ReaderDatabase& r) {
             return r.QueryDatabaseStats(since_str, until_str, split_fields(database_fields_str),
                                         ordering);
         });

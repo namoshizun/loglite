@@ -56,6 +56,10 @@ class Database {
 
     void Close();
 
+    // DB query helpers
+    [[nodiscard]] std::vector<ColumnInfo> FetchTableColumns(std::string_view table_name) const;
+    [[nodiscard]] int64_t EstimateLogRowCount() const;
+
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
 
    protected:
@@ -76,8 +80,13 @@ class Database {
 
     [[nodiscard]] WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
     void validate_field(std::string_view name) const;
-    [[nodiscard]] std::vector<ColumnInfo> fetch_table_columns(std::string_view table_name) const;
 
+    // SQLite param helpers
+    void apply_params(AccessMode mode);
+    void set_pragma(std::string_view name, std::string_view value);
+    [[nodiscard]] std::string get_pragma(std::string_view name) const;
+
+    // Generic helpers
     void exec_sql(std::string_view sql) const;
     void ensure_ok(int rc, std::string_view ctx) const;
     static void bind_param(sqlite3_stmt* stmt, int idx, const nlohmann::json& v);
@@ -85,10 +94,6 @@ class Database {
     [[nodiscard]] static nlohmann::json serialize_value(const nlohmann::json& v);
     [[nodiscard]] static std::vector<std::string> pluck_column_names(
         const std::vector<ColumnInfo>& infos);
-
-    void apply_params(AccessMode mode);
-    void set_pragma(std::string_view name, std::string_view value);
-    [[nodiscard]] std::string get_pragma(std::string_view name) const;
 
     const Config& cfg_;
     sqlite3* db_{};

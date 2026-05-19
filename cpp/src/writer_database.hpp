@@ -29,7 +29,6 @@ class WriterDatabase final : public Database {
     int64_t GetMaxLogId() const;
     int64_t GetMinLogId() const;
     std::string GetMinTimestamp() const;
-    int64_t EstimateLogRowCount() const;
 
     std::string GetPragma(std::string_view name) const;
     void SetPragma(std::string_view name, std::string_view value);

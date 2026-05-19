@@ -22,6 +22,7 @@ Config make_cfg(const fs::path& tmp) {
     cfg.log_table_name = "TestLog";
     cfg.log_timestamp_field = "timestamp";
     cfg.auto_rollout = true;
+    cfg.sqlite_params["auto_vacuum"] = "INCREMENTAL";
     cfg.sqlite_params["journal_mode"] = "WAL";
 
     Migration m;

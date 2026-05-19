@@ -2,6 +2,7 @@
 #include "utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <ranges>
 #include <stdexcept>
@@ -56,9 +57,15 @@ void Database::set_pragma(std::string_view name, std::string_view value) {
 }
 
 void Database::apply_params(AccessMode mode) {
-    auto& params = cfg_.sqlite_params;
+    constexpr auto kWriterOnlyPragmas =
+        std::to_array<std::string_view>({"auto_vacuum", "journal_mode", "synchronous"});
 
-    for (const auto& [k, v] : params) {
+    for (const auto& [k, v] : cfg_.sqlite_params) {
+        if (mode == AccessMode::READ && range_contains(kWriterOnlyPragmas, k)) {
+            // Read-only connection cannot set pragmas that require write access.
+            continue;
+        }
+
         if (mode == AccessMode::WRITE && k == "auto_vacuum") {
             auto current = get_pragma("auto_vacuum");
             if (current != v) {

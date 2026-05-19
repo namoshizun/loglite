@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "config.hpp"
-#include "database.hpp"
+#include "reader_database.hpp"
+#include "writer_database.hpp"
 #include "tasks/vacuum.hpp"
 
 #include <filesystem>
@@ -37,12 +38,15 @@ class VacuumTest : public ::testing::Test {
         m.rollback = {"DROP TABLE IF EXISTS TestLog"};
         cfg_.migrations.push_back(m);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
         db_->Initialize();
+        reader_ = std::make_unique<ReaderDatabase>(cfg_, db_->catalog());
+        reader_->Open();
     }
 
     void TearDown() override {
+        reader_.reset();
         db_.reset();
         fs::remove_all(tmp_);
     }
@@ -61,7 +65,8 @@ class VacuumTest : public ::testing::Test {
 
     fs::path tmp_;
     Config cfg_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
+    std::unique_ptr<ReaderDatabase> reader_;
 };
 
 TEST_F(VacuumTest, RemoveStaleLogsEmptyDb) {
@@ -76,7 +81,7 @@ TEST_F(VacuumTest, RemoveStaleLogsNewData) {
     int removed = tasks::detail::remove_stale_logs(*db_, cfg_);
     EXPECT_EQ(removed, 0);
 
-    auto result = db_->Query({"*"}, {}, 100, 0);
+    auto result = reader_->Query({"*"}, {}, 100, 0);
     EXPECT_EQ(result.total, 10);
 }
 
@@ -125,7 +130,7 @@ TEST(VacuumUtilsTest, RemoveStaleLogsWithFreshData) {
     m.rollback = {"DROP TABLE IF EXISTS TsLog"};
     cfg.migrations.push_back(m);
 
-    Database db{cfg};
+    WriterDatabase db{cfg};
     db.Open();
     db.Initialize();
 

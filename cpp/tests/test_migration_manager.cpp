@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "config.hpp"
-#include "database.hpp"
+#include "writer_database.hpp"
 #include "migrations.hpp"
 #include "utils.hpp"
 
@@ -47,7 +47,7 @@ class MigrationManagerTest : public ::testing::Test {
         m3.rollback = {};
         cfg_.migrations.push_back(m3);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
         db_->CreateInternalTables();
     }
@@ -59,7 +59,7 @@ class MigrationManagerTest : public ::testing::Test {
 
     fs::path tmp_;
     Config cfg_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
 };
 
 TEST_F(MigrationManagerTest, ApplyPendingMigrationsAppliesFirstUnapplied) {

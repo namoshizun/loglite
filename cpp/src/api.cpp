@@ -1,7 +1,7 @@
 #include "api.hpp"
 
 #include "config.hpp"
-#include "database.hpp"
+#include "writer_database.hpp"
 #include "globals.hpp"
 #include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
@@ -53,29 +53,27 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     // Load config and init database
     auto cfg = Config::from_file(config_path);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
-    Database db{cfg};
-    db.Open();
-    db.Initialize();
+    WriterDatabase db_write{cfg};
+    db_write.Open();
+    db_write.Initialize();
 
-    // Init context
+    auto effective_threads =
+        thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
+    ReadDatabasePool db_read(cfg, db_write.catalog(), effective_threads);
+
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
     asio::thread_pool db_ops_pool{1u};
-    ServerContext ctx{
-        cfg, db, backlog, notifier, asio::make_strand(db_ops_pool.get_executor()),
-    };
+    ServerContext ctx{cfg,     db_write, db_read,
+                      backlog, notifier, asio::make_strand(db_ops_pool.get_executor())};
 
     g_backlog = &backlog;
 
-    // Build & start harvesters
     auto native = BuildNativeHarvesters(cfg, backlog);
     for (const auto& harvester : native) {
         harvester->Start();
     }
 
-    // Start server
-    auto effective_threads =
-        thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
     Server server{ctx, effective_threads};
     g_server = &server;
 
@@ -89,7 +87,8 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     for (const auto& harvester : native) {
         harvester->Stop();
     }
-    db.Close();
+    db_read.Close();
+    db_write.Close();
 }
 
 void StopServer() {
@@ -106,7 +105,7 @@ void Rollout(const std::filesystem::path& config_path, int start_version) {
     auto cfg = Config::from_file(config_path);
     cfg.auto_rollout = false;
 
-    Database db{cfg};
+    WriterDatabase db{cfg};
     db.Open();
     db.CreateInternalTables();
     MigrationManager mgr{db, cfg.migrations};
@@ -119,7 +118,7 @@ void Rollback(const std::filesystem::path& config_path, int version, bool force)
     auto cfg = Config::from_file(config_path);
     cfg.auto_rollout = false;
 
-    Database db{cfg};
+    WriterDatabase db{cfg};
     db.Open();
     db.CreateInternalTables();
     MigrationManager mgr{db, cfg.migrations};

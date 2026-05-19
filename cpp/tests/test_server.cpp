@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "config.hpp"
-#include "database.hpp"
+#include "writer_database.hpp"
 #include "globals.hpp"
 #include "metrics.hpp"
+#include "reader_database.hpp"
 #include "server.hpp"
 
 #include <boost/asio.hpp>
@@ -91,7 +92,7 @@ class ServerTest : public ::testing::Test {
         m.rollback = {"DROP TABLE IF EXISTS TestLog"};
         cfg_.migrations.push_back(m);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
         db_->Initialize();
 
@@ -100,9 +101,12 @@ class ServerTest : public ::testing::Test {
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
 
+        db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 2u);
+
         ctx_ = std::make_unique<ServerContext>(ServerContext{
             cfg_,
             *db_,
+            *db_read_,
             *backlog_,
             *notifier_,
             asio::make_strand(db_ops_pool_->get_executor()),
@@ -127,8 +131,11 @@ class ServerTest : public ::testing::Test {
         // Destroy context first — strand destructor posts cleanup to the
         // executor, which must still be alive.
         ctx_.reset();
+        if (db_read_) {
+            db_read_->Close();
+            db_read_.reset();
+        }
 
-        // Strand is dead; safe to tear down the pool.
         if (db_ops_pool_) {
             db_ops_pool_->stop();
             db_ops_pool_->join();
@@ -142,7 +149,8 @@ class ServerTest : public ::testing::Test {
 
     fs::path tmp_;
     Config cfg_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
+    std::unique_ptr<ReadDatabasePool> db_read_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<ServerContext> ctx_;

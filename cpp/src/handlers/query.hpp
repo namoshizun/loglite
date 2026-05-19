@@ -64,7 +64,8 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
 
     // ── Execute ───────────────────────────────────────────────────────────────
     try {
-        auto result = ctx.db.Query(fields, filters, limit, offset);
+        auto result = ctx.db_read.with_connection(
+            [&](ReaderDatabase& r) { return r.Query(fields, filters, limit, offset); });
         return MakeOKResp(result.to_json(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::error(std::format("Query error: {}", e.what()));

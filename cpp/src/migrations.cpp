@@ -1,5 +1,5 @@
 #include "migrations.hpp"
-#include "database.hpp"
+#include "writer_database.hpp"
 #include "log.hpp"
 #include "utils.hpp"
 
@@ -11,7 +11,7 @@
 
 namespace loglite {
 
-MigrationManager::MigrationManager(Database& db, std::span<const Migration> migrations)
+MigrationManager::MigrationManager(WriterDatabase& db, std::span<const Migration> migrations)
     : db_(db), migrations_(migrations.begin(), migrations.end()) {
     std::ranges::sort(migrations_, {}, &Migration::version);
 }

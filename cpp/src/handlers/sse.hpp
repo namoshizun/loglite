@@ -105,7 +105,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         };
         PaginatedQueryResult result;
         try {
-            result = ctx.db.Query(fields, id_filters, cfg.sse_limit, 0);
+            result = ctx.db_read.with_connection(
+                [&](ReaderDatabase& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
         } catch (const std::exception& e) {
             log::error(std::format("SSE query error: {}", e.what()));
             continue;

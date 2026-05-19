@@ -1,22 +1,19 @@
 #ifndef LOGLITE_DATABASE_HPP_
 #define LOGLITE_DATABASE_HPP_
 
-#include "column_dict.hpp"
 #include "config.hpp"
+#include "database_catalog.hpp"
 #include "types.hpp"
-#include "utils.hpp"
 
 #include <memory>
-#include <set>
 #include <sqlite3.h>
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace loglite {
 
-// ── SQLite3 RAII wrappers ─────────────────────────────────────────────────────
-
-// Prepared statement; automatically finalized on destruction.
 struct Statement {
     sqlite3_stmt* raw{};
 
@@ -31,107 +28,48 @@ struct Statement {
     Statement& operator=(const Statement&) = delete;
 };
 
-// ── Database ──────────────────────────────────────────────────────────────────
-
+// Shared connection + catalog; subclass for read vs write APIs.
 class Database {
    public:
-    explicit Database(const Config& cfg);
-    ~Database();
+    virtual ~Database();
 
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
 
-    // Open the connection and apply PRAGMAs.
-    void Open();
     void Close();
 
-    // Create only the internal loglite tables (versions, column_dictionary).
-    // Idempotent.  Called by both Initialize() and the migration CLI commands.
-    void CreateInternalTables();
+    [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
 
-    // Create internal tables, apply auto-migrations, load schema + dict.
-    void Initialize();
+   protected:
+    Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog);
 
-    // ── Schema ────────────────────────────────────────────────────────────────
-    // Column metadata for the configured log table
-    [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
-    void RefreshColumnInfo();
+    [[nodiscard]] sqlite3* connection() const noexcept { return db_; }
+    [[nodiscard]] const Config& config() const noexcept { return cfg_; }
+    [[nodiscard]] const DatabaseCatalog& catalog_ref() const noexcept { return *catalog_; }
 
-    // ── CRUD ──────────────────────────────────────────────────────────────────
-
-    // Returns number of rows actually inserted.
-    int Insert(const std::vector<nlohmann::json>& logs);
-
-    PaginatedQueryResult Query(const std::vector<std::string>& fields,
-                               const std::vector<QueryFilter>& filters, int limit,
-                               int offset) const;
-
-    int DeleteLogs(const std::vector<QueryFilter>& filters);
-
-    // ── Aggregate helpers ─────────────────────────────────────────────────────
-    int64_t GetMaxLogId() const;
-    int64_t GetMinLogId() const;
-    std::string GetMinTimestamp() const;  // ISO-8601 string
-    int64_t EstimateLogRowCount() const;
-
-    // ── SQLite PRAGMAs ────────────────────────────────────────────────────────
-    std::string GetPragma(std::string_view name) const;
-    void SetPragma(std::string_view name, std::string_view value);
-    void IncrementalVacuum(int page_count);
-    void Vacuum();
-    void WALCheckpoint(std::string_view mode = "TRUNCATE");
-    int64_t GetSizeBytes() const;
-    double GetSizeMB() const;
-
-    // ── Internal stats ────────────────────────────────────────────────────────
-    bool InsertActivityStats(const ActivityStatsRow& row);
-    bool InsertDatabaseStats(const DatabaseStatsRow& row);
-    int DeleteStatsBefore(std::string_view cutoff);
-
-    StatsQueryResult QueryActivityStats(std::string_view since, std::string_view until,
-                                        const std::vector<std::string>& fields,
-                                        std::string_view ordering) const;
-    StatsQueryResult QueryDatabaseStats(std::string_view since, std::string_view until,
-                                        const std::vector<std::string>& fields,
-                                        std::string_view ordering) const;
-
-    // ── Migrations ────────────────────────────────────────────────────────────
-
-    std::vector<int> GetAppliedVersions() const;
-    bool ApplyMigration(int version, const std::vector<std::string>& statements);
-    bool RollbackMigration(int version, const std::vector<std::string>& statements);
-
-    // ── Column dictionary ─────────────────────────────────────────────────────
-
-    std::vector<std::tuple<std::string, std::string, ValueId>> GetColumnDictRows() const;
-    bool InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
-
-    // ── Health ────────────────────────────────────────────────────────────────
-
-    bool Ping() const;
-
-   private:
-    // Build the WHERE clause + params vector from a filter list.
-    // Returns {"1=0", {}} immediately when a compressed-column filter has no
-    // candidates (short-circuit: guaranteed 0 results).
     struct WhereClause {
         std::string sql;
         std::vector<nlohmann::json> params;
     };
-    WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
-
-    // Throws std::runtime_error if `name` is not a known column in log_column_info_.
+    [[nodiscard]] WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
     void validate_field(std::string_view name) const;
+    [[nodiscard]] std::vector<ColumnInfo> fetch_table_columns(std::string_view table_name) const;
 
-    [[nodiscard]] std::vector<ColumnInfo> GetColumnInfo(std::string_view table_name) const;
+    void exec_sql(std::string_view sql) const;
+    void ensure_ok(int rc, std::string_view ctx) const;
+    static void bind_param(sqlite3_stmt* stmt, int idx, const nlohmann::json& v);
+    [[nodiscard]] static nlohmann::json column_to_json(sqlite3_stmt* stmt, int col);
+    [[nodiscard]] static nlohmann::json serialize_value(const nlohmann::json& v);
+    [[nodiscard]] static std::vector<std::string> pluck_column_names(
+        const std::vector<ColumnInfo>& infos);
+
+    void apply_sqlite_params(bool writer_connection);
+    void set_pragma(std::string_view name, std::string_view value);
+    [[nodiscard]] std::string get_pragma(std::string_view name) const;
 
     const Config& cfg_;
     sqlite3* db_{};
-    std::vector<ColumnInfo> log_column_info_;
-    std::vector<ColumnInfo> activity_stats_column_info_;
-    std::vector<ColumnInfo> db_stats_column_info_;
-    std::set<std::string> compressed_columns_;
-    std::unique_ptr<ColumnDictionary> col_dict_;
+    std::shared_ptr<DatabaseCatalog> catalog_;
 };
 
 }  // namespace loglite

@@ -8,7 +8,7 @@ namespace loglite::handlers {
 
 template <class Body>
 http::response<http::string_body> HandleHealth(const http::request<Body>& req, ServerContext& ctx) {
-    bool ok_flag = ctx.db.Ping();
+    bool ok_flag = ctx.db_read.with_connection([&](ReaderDatabase& r) { return r.Ping(); });
     if (ok_flag) {
         return MakeOKResp({{"status", "ok"}}, req, ctx.config.allow_origin);
     } else {

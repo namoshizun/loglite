@@ -2,8 +2,9 @@
 #define LOGLITE_GLOBALS_HPP_
 
 #include "backlog.hpp"
-#include "database.hpp"
 #include "config.hpp"
+#include "reader_database.hpp"
+#include "writer_database.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -56,11 +57,11 @@ class LogNotifier {
 
 struct ServerContext {
     Config& config;
-    Database& db;
+    WriterDatabase& db;  // use only on write_strand
+    ReadDatabasePool& db_read;
     Backlog& backlog;
     LogNotifier& notifier;
 
-    // Strand serialising all mutating DB operations.
     asio::strand<asio::thread_pool::executor_type> write_strand;
 };
 

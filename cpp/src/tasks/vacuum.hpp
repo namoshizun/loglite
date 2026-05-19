@@ -18,7 +18,7 @@ using namespace std::chrono_literals;
 namespace detail {
 
 // Remove log entries older than max_age_days; returns deleted count.
-inline int remove_stale_logs(Database& db, const Config& cfg) {
+inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
     auto min_ts = db.GetMinTimestamp();
     if (min_ts.empty()) return 0;
 
@@ -41,7 +41,7 @@ inline int remove_stale_logs(Database& db, const Config& cfg) {
 }
 
 // Delete oldest logs until DB size is below target; returns deleted count.
-inline int remove_excessive_logs(Database& db, const Config& cfg) {
+inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg) {
     double db_mb = db.GetSizeMB();
     double max_mb = bytes_to_mb(cfg.vacuum_max_size_bytes);
     double target_mb = bytes_to_mb(cfg.vacuum_target_size_bytes);
@@ -69,7 +69,7 @@ inline int remove_excessive_logs(Database& db, const Config& cfg) {
     return removed;
 }
 
-inline int incremental_vacuum_pass(Database& db, int max_size_mb) {
+inline int incremental_vacuum_pass(WriterDatabase& db, int max_size_mb) {
     auto freelist = db.GetPragma("freelist_count");
     if (freelist.empty() || freelist == "0") return 0;
 

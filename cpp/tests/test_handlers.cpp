@@ -5,7 +5,7 @@
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "config.hpp"
-#include "database.hpp"
+#include "writer_database.hpp"
 #include "globals.hpp"
 #include "backlog.hpp"
 #include "metrics.hpp"
@@ -52,7 +52,7 @@ class HandlersTest : public ::testing::Test {
         m.rollback = {"DROP TABLE IF EXISTS TestLog"};
         cfg_.migrations.push_back(m);
 
-        db_ = std::make_unique<Database>(cfg_);
+        db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
         db_->Initialize();
 
@@ -60,10 +60,12 @@ class HandlersTest : public ::testing::Test {
         notifier_ = std::make_unique<LogNotifier>();
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
+        db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 1u);
 
         ctx_ = std::make_unique<ServerContext>(ServerContext{
             cfg_,
             *db_,
+            *db_read_,
             *backlog_,
             *notifier_,
             asio::make_strand(db_ops_pool_->get_executor()),
@@ -72,6 +74,8 @@ class HandlersTest : public ::testing::Test {
 
     void TearDown() override {
         ctx_.reset();
+        db_read_->Close();
+        db_read_.reset();
         db_ops_pool_->join();
         db_ops_pool_.reset();
         db_->Close();
@@ -92,7 +96,8 @@ class HandlersTest : public ::testing::Test {
 
     fs::path tmp_;
     Config cfg_;
-    std::unique_ptr<Database> db_;
+    std::unique_ptr<WriterDatabase> db_;
+    std::unique_ptr<ReadDatabasePool> db_read_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;

@@ -16,8 +16,8 @@ WriterDatabase::WriterDatabase(const Config& cfg)
 void WriterDatabase::Open() {
     auto path = cfg_.db_path.string();
     ensure_ok(sqlite3_open(path.c_str(), &db_), "sqlite3_open");
-    apply_sqlite_params(true);
-    log::info(std::format("Opened SQLite database: {}", path));
+    apply_params(AccessMode::WRITE);
+    log::debug(std::format("Opened writer SQLite connection: {}", path));
 }
 
 void WriterDatabase::CreateInternalTables() {

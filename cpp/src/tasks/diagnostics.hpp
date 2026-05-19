@@ -131,13 +131,13 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
-        ctx.db.InsertActivityStats(row);
-        ctx.db.InsertDatabaseStats({
+        ctx.db_write.InsertActivityStats(row);
+        ctx.db_write.InsertDatabaseStats({
             row.until,
-            ctx.db.EstimateLogRowCount(),
-            ctx.db.GetSizeBytes(),
+            ctx.db_write.EstimateLogRowCount(),
+            ctx.db_write.GetSizeBytes(),
         });
-        int pruned = ctx.db.DeleteStatsBefore(cutoff);
+        int pruned = ctx.db_write.DeleteStatsBefore(cutoff);
 
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 

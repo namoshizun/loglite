@@ -61,19 +61,22 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
         thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
     ReadDatabasePool db_read(cfg, db_write.catalog(), effective_threads);
 
+    // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
-    asio::thread_pool db_ops_pool{1u};
+    asio::thread_pool db_write_pool{1u};
     ServerContext ctx{cfg,     db_write, db_read,
-                      backlog, notifier, asio::make_strand(db_ops_pool.get_executor())};
+                      backlog, notifier, asio::make_strand(db_write_pool.get_executor())};
 
     g_backlog = &backlog;
 
+    // Start harvesters
     auto native = BuildNativeHarvesters(cfg, backlog);
     for (const auto& harvester : native) {
         harvester->Start();
     }
 
+    // Run server
     Server server{ctx, effective_threads};
     g_server = &server;
 

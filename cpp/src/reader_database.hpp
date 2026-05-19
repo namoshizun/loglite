@@ -2,14 +2,16 @@
 #define LOGLITE_READER_DATABASE_HPP_
 
 #include "database.hpp"
-#include "database_catalog.hpp"
 
+#include <concepts>
 #include <condition_variable>
 #include <cstddef>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace loglite {
@@ -42,27 +44,30 @@ class ReadDatabasePool {
     ReadDatabasePool(const ReadDatabasePool&) = delete;
     ReadDatabasePool& operator=(const ReadDatabasePool&) = delete;
 
-    template <class F>
-    auto with_connection(F&& f) -> decltype(f(std::declval<ReaderDatabase&>())) {
-        ReaderDatabase& db = acquire();
-        try {
-            if constexpr (std::is_void_v<decltype(f(db))>) {
-                f(db);
-                release(db);
-            } else {
-                auto result = f(db);
-                release(db);
-                return result;
-            }
-        } catch (...) {
-            release(db);
-            throw;
-        }
+    template <std::invocable<ReaderDatabase&> F>
+    auto with_connection(F&& f) -> std::invoke_result_t<F, ReaderDatabase&> {
+        ConnectionLease lease{*this};
+        return std::invoke(std::forward<F>(f), lease.db());
     }
 
     void Close();
 
    private:
+    class ConnectionLease {
+       public:
+        explicit ConnectionLease(ReadDatabasePool& pool) : pool_(&pool), db_(&pool.acquire()) {}
+        ~ConnectionLease() { pool_->release(*db_); }
+
+        ConnectionLease(const ConnectionLease&) = delete;
+        ConnectionLease& operator=(const ConnectionLease&) = delete;
+
+        ReaderDatabase& db() const noexcept { return *db_; }
+
+       private:
+        ReadDatabasePool* pool_;
+        ReaderDatabase* db_;
+    };
+
     ReaderDatabase& acquire();
     void release(ReaderDatabase& db);
 

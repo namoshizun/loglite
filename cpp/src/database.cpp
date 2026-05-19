@@ -55,21 +55,19 @@ void Database::set_pragma(std::string_view name, std::string_view value) {
     exec_sql(std::format("PRAGMA {}={}", name, value));
 }
 
-void Database::apply_sqlite_params(bool writer_connection) {
+void Database::apply_params(AccessMode mode) {
     auto& params = cfg_.sqlite_params;
-    if (writer_connection) {
-        if (auto it = params.find("auto_vacuum"); it != params.end()) {
-            auto current = get_pragma("auto_vacuum");
-            if (current != it->second) {
-                set_pragma("auto_vacuum", it->second);
-                exec_sql("VACUUM");
-            }
-        }
-    }
 
     for (const auto& [k, v] : params) {
-        if (writer_connection && k == "auto_vacuum") continue;
-        set_pragma(k, v);
+        if (mode == AccessMode::WRITE && k == "auto_vacuum") {
+            auto current = get_pragma("auto_vacuum");
+            if (current != v) {
+                set_pragma("auto_vacuum", v);
+                exec_sql("VACUUM");
+            }
+        } else {
+            set_pragma(k, v);
+        }
     }
 }
 

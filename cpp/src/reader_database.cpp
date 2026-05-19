@@ -16,8 +16,8 @@ void ReaderDatabase::Open() {
     ensure_ok(
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
-    apply_sqlite_params(false);
-    log::debug(std::format("Opened read-only SQLite connection: {}", path));
+    apply_params(AccessMode::READ);
+    log::debug(std::format("Opened reader SQLite connection: {}", path));
 }
 
 PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,
@@ -195,6 +195,7 @@ void ReadDatabasePool::Close() {
 ReaderDatabase& ReadDatabasePool::acquire() {
     std::unique_lock lock(mtx_);
     cv_.wait(lock, [this] { return closed_ || !available_.empty(); });
+
     if (closed_) throw std::runtime_error("read database pool is closed");
     ReaderDatabase* db = available_.front();
     available_.pop();
@@ -204,6 +205,7 @@ ReaderDatabase& ReadDatabasePool::acquire() {
 void ReadDatabasePool::release(ReaderDatabase& db) {
     std::lock_guard lock(mtx_);
     if (closed_) return;
+
     available_.push(&db);
     cv_.notify_one();
 }

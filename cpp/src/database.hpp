@@ -2,17 +2,35 @@
 #define LOGLITE_DATABASE_HPP_
 
 #include "config.hpp"
-#include "database_catalog.hpp"
 #include "types.hpp"
+#include "column_dict.hpp"
 
 #include <memory>
 #include <sqlite3.h>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 namespace loglite {
+
+// Shared schema + column dictionary across writer and read-pool connections.
+// Populated by the writer during Initialize(); immutable schema for server lifetime.
+struct DatabaseCatalog {
+    explicit DatabaseCatalog(const Config& cfg) : cfg(cfg) {
+        if (cfg.compression.enabled) {
+            for (const auto& c : cfg.compression.columns) compressed_columns.insert(c);
+        }
+    }
+
+    const Config& cfg;
+    std::set<std::string> compressed_columns;
+    std::vector<ColumnInfo> log_column_info;
+    std::vector<ColumnInfo> activity_stats_column_info;
+    std::vector<ColumnInfo> db_stats_column_info;
+    std::shared_ptr<ColumnDictionary> col_dict;
+};
 
 struct Statement {
     sqlite3_stmt* raw{};
@@ -41,16 +59,21 @@ class Database {
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
 
    protected:
-    Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog);
-
-    [[nodiscard]] sqlite3* connection() const noexcept { return db_; }
-    [[nodiscard]] const Config& config() const noexcept { return cfg_; }
-    [[nodiscard]] const DatabaseCatalog& catalog_ref() const noexcept { return *catalog_; }
-
     struct WhereClause {
         std::string sql;
         std::vector<nlohmann::json> params;
     };
+
+    enum class AccessMode {
+        READ,
+        WRITE,
+    };
+
+    Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog);
+
+    [[nodiscard]] sqlite3* connection() const noexcept { return db_; }
+    [[nodiscard]] const Config& config() const noexcept { return cfg_; }
+
     [[nodiscard]] WhereClause build_where_clause(const std::vector<QueryFilter>& filters) const;
     void validate_field(std::string_view name) const;
     [[nodiscard]] std::vector<ColumnInfo> fetch_table_columns(std::string_view table_name) const;
@@ -63,7 +86,7 @@ class Database {
     [[nodiscard]] static std::vector<std::string> pluck_column_names(
         const std::vector<ColumnInfo>& infos);
 
-    void apply_sqlite_params(bool writer_connection);
+    void apply_params(AccessMode mode);
     void set_pragma(std::string_view name, std::string_view value);
     [[nodiscard]] std::string get_pragma(std::string_view name) const;
 

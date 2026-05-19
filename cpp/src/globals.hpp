@@ -57,7 +57,7 @@ class LogNotifier {
 
 struct ServerContext {
     Config& config;
-    WriterDatabase& db;  // use only on write_strand
+    WriterDatabase& db_write;
     ReadDatabasePool& db_read;
     Backlog& backlog;
     LogNotifier& notifier;

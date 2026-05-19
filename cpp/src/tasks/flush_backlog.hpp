@@ -49,8 +49,8 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
         Timer t;
-        int count = ctx.db.Insert(logs);
-        int64_t max = ctx.db.GetMaxLogId();
+        int count = ctx.db_write.Insert(logs);
+        int64_t max = ctx.db_write.GetMaxLogId();
 
         // Leave the strand by posting back to the generic pool executor.
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));

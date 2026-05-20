@@ -24,6 +24,25 @@ namespace loglite::handlers {
 
 using namespace std::chrono_literals;
 
+// ── Connection check ─────────────────────────────────────────────────────────
+
+inline bool IsSocketConnected(asio::ip::tcp::socket& socket) {
+    if (!socket.is_open()) return false;
+    char buf[1];
+    boost::system::error_code ec;
+    socket.non_blocking(true, ec);
+    if (ec) return false;
+
+    auto bytes = socket.receive(asio::buffer(buf), asio::socket_base::message_peek, ec);
+    if (ec == asio::error::would_block) {
+        return true;  // Still connected
+    }
+    if (bytes == 0 || ec) {
+        return false;  // Connection closed or error
+    }
+    return true;
+}
+
 // ── SSE handler ────────────────────────────────────────────────────────────────
 //
 // Long-running coroutine that owns the TCP stream.  It:
@@ -77,6 +96,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
 
     int64_t pushed_id = ctx.notifier.GetLastId();
     auto last_push_tp = std::chrono::steady_clock::time_point{};
+    auto last_write_tp = std::chrono::steady_clock::now();
 
     auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
     log::info(std::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
@@ -90,8 +110,26 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
 
+        if (!IsSocketConnected(stream.socket())) {
+            break;  // Client disconnected during sleep
+        }
+
         int64_t current_id = ctx.notifier.GetLastId();
-        if (current_id <= pushed_id) continue;  // nothing new
+        if (current_id <= pushed_id) {
+            // Keep-alive: send an empty comment chunk every 15s to keep proxy/client connection
+            // open and force socket write to detect disconnects.
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_write_tp >= 15s) {
+                auto chunk = http::make_chunk(net::buffer(":\r\n\r\n"));
+                try {
+                    co_await net::async_write(stream, chunk, asio::use_awaitable);
+                    last_write_tp = now;
+                } catch (...) {
+                    break;  // write failed -> client disconnected
+                }
+            }
+            continue;  // nothing new
+        }
 
         // Apply debounce: do not push more than once per debounce window.
         auto now = std::chrono::steady_clock::now();
@@ -136,6 +174,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
 
         pushed_id = current_id;
         last_push_tp = now;
+        last_write_tp = now;
 
         if (cfg.debug)
             log::debug(

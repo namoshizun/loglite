@@ -52,3 +52,4 @@ jobs:
           files: py/coverage.xml
           flags: python,py-${{ matrix.python-version }}
           fail_ci_if_error: false
+          use_pypi: true

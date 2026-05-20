@@ -49,3 +49,4 @@ jobs:
           files: cpp/build/linux-${{ matrix.arch }}/debug/coverage.info
           flags: cpp
           fail_ci_if_error: false
+          use_pypi: true

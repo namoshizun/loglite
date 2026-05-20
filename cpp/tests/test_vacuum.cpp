@@ -91,6 +91,29 @@ TEST_F(VacuumTest, RemoveExcessiveLogsUnderLimit) {
     EXPECT_EQ(removed, 0);
 }
 
+TEST_F(VacuumTest, RemoveExcessiveLogsOverLimit) {
+    insert_logs(20);
+
+    // Force deletion of oldest 50% of logs.
+    cfg_.vacuum_max_size_bytes = 1;
+    cfg_.vacuum_target_size_bytes = db_->GetSizeBytes() / 2;
+    cfg_.vacuum_delete_batch_size = 3;  // multiple batches of size 3
+
+    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_);
+    EXPECT_EQ(removed, 10);
+
+    auto result = reader_->Query({"id"}, {}, 100, 0);
+    EXPECT_EQ(result.total, 10);
+
+    // Verify remaining IDs are exactly 11 to 20 (continuous, no Swiss-cheese holes).
+    std::vector<int> remaining_ids;
+    for (const auto& log : result.results) {
+        remaining_ids.push_back(log["id"].get<int>());
+    }
+    std::vector<int> expected_ids = {20, 19, 18, 17, 16, 15, 14, 13, 12, 11};
+    EXPECT_EQ(remaining_ids, expected_ids);
+}
+
 TEST_F(VacuumTest, IncrementalVacuumPassNoOp) {
     // No data deleted, so no freelist
     int remain = tasks::detail::incremental_vacuum_pass(*db_, 20);

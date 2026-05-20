@@ -62,7 +62,7 @@ inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg) {
     int removed = 0;
     for (int64_t start = min_id; start <= remove_max_id; start += cfg.vacuum_delete_batch_size) {
         int64_t end_id = std::min(start + cfg.vacuum_delete_batch_size - 1, remove_max_id);
-        std::vector<QueryFilter> flt{{"id", "<=", end_id}, {"id", ">", start}};
+        std::vector<QueryFilter> flt{{"id", "<=", end_id}, {"id", ">=", start}};
         removed += db.DeleteLogs(flt);
         log::info(std::format("[vacuum] ... removed {} entries so far", removed));
     }

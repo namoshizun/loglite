@@ -3,7 +3,7 @@
 The Python package is a thin convenience layer on top of the [loglite C++ core](https://github.com/namoshizun/loglite/tree/main/cpp). It provides:
 
 - **CLI** (`loglite server run`, `loglite migrate rollout/rollback`) — delegates directly to the C++ server via a pybind11 extension (`_core`).
-- **Built-in harvesters** — `FileHarvester`, `SocketHarvester`, and (optional) `ZMQHarvester`.
+- **Built-in harvesters** — `SocketHarvester` and (optional) `ZMQHarvester`.
 - **Custom harvesters** — subclass `loglite.Harvester[Config]` to write custom log ingestors in Python. Ingested entries are pushed directly into the C++ server's backlog in the same process.
 
 The C++ core handles everything else: the HTTP server, SQLite read/write, migrations, SSE, and vacuuming. The Python package adds zero server-side overhead.

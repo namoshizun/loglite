@@ -267,7 +267,7 @@ connection counts.
   - ``ingest_size_min`` — min request body size (bytes).
   - ``ingest_size_max`` — max request body size (bytes).
   - ``ingest_size_avg`` — average request body size (bytes).
-  - ``ingest_drop_count`` — log entries discarded from the backlog due to buffer task_backlog_flush_interval
+  - ``ingest_drop_count`` — log entries discarded from the backlog due to buffer overflow.
 
 - *Log insertion fields*
 

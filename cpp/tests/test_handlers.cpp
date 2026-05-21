@@ -2,6 +2,8 @@
 
 #include "handlers/common.hpp"
 #include "handlers/health.hpp"
+#include "handlers/version_route.hpp"
+#include "version.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "config.hpp"
@@ -119,6 +121,15 @@ TEST_F(HandlersTest, HealthContainsCorsHeaders) {
     auto req = make_req(http::verb::get, "/health");
     auto res = handlers::HandleHealth(req, *ctx_);
     EXPECT_EQ(res[http::field::access_control_allow_origin], "*");
+}
+
+TEST_F(HandlersTest, VersionReturnsProjectVersion) {
+    auto req = make_req(http::verb::get, "/version");
+    auto res = handlers::HandleVersion(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["version"], kVersion);
 }
 
 // ── Insert handler ──────────────────────────────────────────────────────────

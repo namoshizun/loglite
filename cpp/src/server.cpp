@@ -5,6 +5,7 @@
 #include <csignal>
 
 #include "handlers/health.hpp"
+#include "handlers/version_route.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "handlers/sse.hpp"
@@ -162,6 +163,8 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
         res = handlers::HandleQuery(req, ctx_);
     } else if (path == "/health" && method == http::verb::get) {
         res = handlers::HandleHealth(req, ctx_);
+    } else if (path == "/version" && method == http::verb::get) {
+        res = handlers::HandleVersion(req, ctx_);
     } else if (path == "/stats" && method == http::verb::get) {
         res = handlers::HandleStats(req, ctx_);
     } else {

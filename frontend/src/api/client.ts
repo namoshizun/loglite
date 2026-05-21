@@ -4,6 +4,10 @@ export interface HealthResponse {
   status: 'ok' | 'error';
 }
 
+export interface VersionResponse {
+  version: string;
+}
+
 export interface StatsResponse {
   activities: {
     fields: string[];
@@ -120,6 +124,14 @@ export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch('/health');
   if (!res.ok) {
     throw new Error('Health check failed');
+  }
+  return res.json();
+}
+
+export async function fetchVersion(): Promise<VersionResponse> {
+  const res = await fetch('/version');
+  if (!res.ok) {
+    throw new Error('Failed to fetch version');
   }
   return res.json();
 }

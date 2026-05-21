@@ -11,6 +11,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/health': 'http://localhost:7788',
+      '/version': 'http://localhost:7788',
       '/logs': 'http://localhost:7788',
       '/stats': 'http://localhost:7788',
     },

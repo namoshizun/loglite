@@ -6,7 +6,7 @@
 - When asked to review the code, GO BY THE BOOK! As if you are a reviewer in bad mood.
 
 
-## Python coding guide
+## Python dev
 
 - Your implementation must be elegant, intuitive and Pythonic.
 - All method parameters **must** be typed, all variables **should** be typed wherever sensible.
@@ -14,7 +14,7 @@
 - Use loguru instead of the builtin logging module
 - Write all Python tests as `pytest` style functions, not `unittest` classes.
 
-## C++ coding style
+## C++ dev
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
 - Use C++ 20. Prefer modern features over legacy ones.
@@ -22,3 +22,11 @@
 - Use CMake and GTest
 - Use `cpp/build.sh` to build the debug / release binary.
 - Use `cpp/run-tests.sh` to execute unit tests.
+
+
+## Frontend dev
+
+- Sources: `frontend/`. Dev: `npm run dev` (backend on **7788**). Check: `npm run build`, `npm run lint`.
+- Stack: React 19, TypeScript, Vite, Tailwind v4, TanStack Query + Router, Recharts, lucide-react.
+- HTTP/SSE and query encoding: `src/api/client.ts` only; do not duplicate in components.
+- Live SSE in dev uses direct `localhost:7788` (`getSSEUrl`) — do not route SSE through the Vite proxy.

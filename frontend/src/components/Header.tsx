@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchHealth, fetchStats } from '../api/client';
+import { fetchHealth, fetchStats, fetchVersion } from '../api/client';
 import { Database, Layers, Radio } from 'lucide-react';
 
 export function formatBytes(bytes: number, decimals = 2) {
@@ -18,6 +18,12 @@ export default function Header() {
     queryFn: fetchHealth,
     refetchInterval: 10000,
     retry: true,
+  });
+
+  const { data: versionData } = useQuery({
+    queryKey: ['version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
   });
 
   // Fetch stats for the last hour to display database summary metrics
@@ -48,7 +54,14 @@ export default function Header() {
           <h1 className="text-xl font-bold tracking-tight m-0 text-foreground flex items-center gap-2">
             LogLite <span className="text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">Admin</span>
           </h1>
-          <p className="text-xs text-muted-foreground">Lightweight SQLite Log Dashboard</p>
+          <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+            <span>Lightweight SQLite Log Dashboard</span>
+            {versionData?.version && (
+              <span className="font-mono text-zinc-500 border-l border-border pl-2">
+                v{versionData.version}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 

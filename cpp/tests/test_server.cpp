@@ -170,6 +170,14 @@ TEST_F(ServerTest, HealthReturnsOk) {
     EXPECT_EQ(body["status"], "ok");
 }
 
+TEST_F(ServerTest, VersionReturnsOk) {
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/version");
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_FALSE(body["version"].get<std::string>().empty());
+}
+
 // ── CORS preflight ──────────────────────────────────────────────────────────
 
 TEST_F(ServerTest, OptionsReturnsNoContentWithCorsHeaders) {

@@ -5,6 +5,7 @@ import JsonViewer from './JsonViewer';
 import { getLevelStyles } from '../logLevelStyles';
 import { useTheme } from '../theme';
 import { useI18n } from '../i18n/locale';
+import { formatDateTimeMs, formatTimeMs } from '../utils/formatTimestamp';
 
 interface LogRecord {
   id: number;
@@ -237,7 +238,7 @@ export default function LiveConsole() {
                 >
                   {/* Timestamp */}
                   <span className="text-muted-foreground select-none whitespace-nowrap">
-                    {new Date(log.timestamp).toLocaleTimeString()}
+                    {formatTimeMs(log.timestamp)}
                   </span>
 
                   {/* Level Pill */}
@@ -297,7 +298,7 @@ export default function LiveConsole() {
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
                 <span className="text-muted-foreground">{t('live.field.timestamp')}</span>
                 <span className="text-foreground select-all">
-                  {new Date(selectedLog.timestamp).toISOString()}
+                  {formatDateTimeMs(selectedLog.timestamp)}
                 </span>
               </div>
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">

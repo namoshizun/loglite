@@ -192,7 +192,7 @@ background; the response returns immediately with ``{"status": "accepted"}``.
    curl -X POST http://localhost:7788/logs \
      -H "Content-Type: application/json" \
      -d '{
-       "timestamp": "2026-05-05T12:34:56Z",
+       "timestamp": "2026-05-05T12:34:56.123Z",
        "message": "User signed in",
        "level": "INFO",
        "service": "auth"

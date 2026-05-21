@@ -2,6 +2,7 @@
 #define LOGLITE_HARVESTERS_FILE_HPP_
 
 #include "base.hpp"
+#include "../utils.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -95,9 +96,7 @@ class FileHarvester final : public Harvester {
         try {
             auto entry = nlohmann::json::parse(line);
             if (!entry.contains("timestamp")) {
-                // Add UTC timestamp if missing.
-                auto now = std::chrono::system_clock::now();
-                entry["timestamp"] = std::format("{:%Y-%m-%dT%H:%M:%SZ}", now);
+                entry["timestamp"] = format_utc(std::chrono::system_clock::now());
             }
             Ingest(std::move(entry));
         } catch (const nlohmann::json::parse_error&) {

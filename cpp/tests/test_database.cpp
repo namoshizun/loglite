@@ -81,6 +81,19 @@ TEST_F(DatabaseTest, InsertAndQuery) {
     EXPECT_EQ(result.results[0]["message"].get<std::string>(), "hello world");
 }
 
+TEST_F(DatabaseTest, InsertPreservesFractionalTimestamp) {
+    nlohmann::json log{
+        {"timestamp", "2024-01-01T00:00:00.123Z"},
+        {"message", "with ms"},
+        {"level", "INFO"},
+    };
+    EXPECT_EQ(db_->Insert({log}), 1);
+
+    auto result = reader_->Query({"timestamp"}, {}, 10, 0);
+    ASSERT_EQ(result.results.size(), 1u);
+    EXPECT_EQ(result.results[0]["timestamp"].get<std::string>(), "2024-01-01T00:00:00.123Z");
+}
+
 TEST_F(DatabaseTest, InsertSkipsRequiredFieldMissing) {
     nlohmann::json bad{{"service", "svc"}};  // missing timestamp + message + level
     std::vector<nlohmann::json> logs{bad};

@@ -130,7 +130,9 @@ TEST_F(FileHarvesterTest, AddsTimestampWhenMissing) {
     auto entries = backlog_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_TRUE(entries[0].contains("timestamp")) << "timestamp field should have been injected";
-    EXPECT_FALSE(entries[0]["timestamp"].get<std::string>().empty());
+    const auto& ts = entries[0]["timestamp"].get<std::string>();
+    EXPECT_FALSE(ts.empty());
+    EXPECT_NE(ts.find('.'), std::string::npos) << "injected timestamp should include milliseconds";
 }
 
 TEST_F(FileHarvesterTest, PreservesExistingTimestamp) {

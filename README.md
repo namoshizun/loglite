@@ -123,7 +123,7 @@ Send a log:
 ```bash
 curl -X POST http://localhost:7788/logs \
   -H "Content-Type: application/json" \
-  -d '{"timestamp":"2026-05-05T12:00:00Z","message":"hello","level":"INFO","service":"demo"}'
+  -d '{"timestamp":"2026-05-05T12:00:00.123Z","message":"hello","level":"INFO","service":"demo"}'
 ```
 
 Tail in real time:

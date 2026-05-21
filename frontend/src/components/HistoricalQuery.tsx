@@ -8,6 +8,7 @@ import JsonViewer from './JsonViewer';
 import { getLevelTableClasses } from '../logLevelStyles';
 import { useTheme } from '../theme';
 import { useI18n } from '../i18n/locale';
+import { formatDateTimeMs } from '../utils/formatTimestamp';
 
 const DEFAULT_COLUMNS = ['id', 'timestamp', 'level', 'service', 'message'];
 
@@ -342,7 +343,7 @@ export default function HistoricalQuery() {
                             key={col}
                             className="py-2 px-4 whitespace-nowrap text-muted-foreground font-mono"
                           >
-                            {new Date(val).toLocaleString()}
+                            {formatDateTimeMs(val)}
                           </td>
                         );
                       }

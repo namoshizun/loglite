@@ -1,5 +1,11 @@
 ## Changelog
 
+### 1.2.0
+
+- feat: optional dashboard frontend ✨
+- feat: `GET /version` returns the core version.
+- feat: `GET /settings` returns the loglite configuration as key-value pairs.
+
 ### 1.1.0
 
 - feat: add metrics tracking for backlog drops, insert batches, and SSE sessions.

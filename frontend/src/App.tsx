@@ -13,7 +13,8 @@ import Header from './components/Header';
 import StatsDashboard from './components/StatsDashboard';
 import LiveConsole from './components/LiveConsole';
 import HistoricalQuery from './components/HistoricalQuery';
-import { Activity, Radio, Search } from 'lucide-react';
+import SettingsPanel from './components/SettingsPanel';
+import { Activity, Radio, Search, Settings } from 'lucide-react';
 
 // Setup TanStack Query client
 const queryClient = new QueryClient({
@@ -27,7 +28,7 @@ const queryClient = new QueryClient({
 
 // Setup TanStack Router route schema
 interface DashboardSearch {
-  tab?: 'analytics' | 'live' | 'search';
+  tab?: 'analytics' | 'live' | 'search' | 'settings';
 }
 
 const rootRoute = createRootRoute({
@@ -47,7 +48,10 @@ const dashboardRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): DashboardSearch => {
     const tab = search.tab as string | undefined;
     return {
-      tab: tab === 'analytics' || tab === 'live' || tab === 'search' ? tab : 'analytics',
+      tab:
+        tab === 'analytics' || tab === 'live' || tab === 'search' || tab === 'settings'
+          ? tab
+          : 'analytics',
     };
   },
   component: DashboardContent,
@@ -71,7 +75,7 @@ function DashboardContent() {
   const navigate = useNavigate({ from: '/' });
   const activeTab = search.tab || 'analytics';
 
-  const handleTabChange = (tab: 'analytics' | 'live' | 'search') => {
+  const handleTabChange = (tab: 'analytics' | 'live' | 'search' | 'settings') => {
     navigate({
       search: (prev) => ({ ...prev, tab }),
     });
@@ -114,6 +118,17 @@ function DashboardContent() {
           <Search size={16} />
           <span>Log Browser</span>
         </button>
+        <button
+          onClick={() => handleTabChange('settings')}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all duration-150 cursor-pointer ${
+            activeTab === 'settings'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Settings size={16} />
+          <span>Settings</span>
+        </button>
       </div>
 
       {/* Tab components */}
@@ -121,6 +136,7 @@ function DashboardContent() {
         {activeTab === 'analytics' && <StatsDashboard />}
         {activeTab === 'live' && <LiveConsole />}
         {activeTab === 'search' && <HistoricalQuery />}
+        {activeTab === 'settings' && <SettingsPanel />}
       </div>
     </div>
   );

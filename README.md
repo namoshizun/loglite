@@ -144,7 +144,7 @@ Full configuration reference, HTTP API, harvester plugin guide, and recipes:
 - [x] Harvester plugin system (file / socket / ZMQ / custom)
 - [x] Native C++ core
 - [x] `/stats` endpoint for DB and background-task metrics
-- [ ] Built-in web UI for browsing logs
+- [x] Built-in web UI for browsing logs
 - [ ] Time-based partitioning (one SQLite file per day or month)
 
 ## License

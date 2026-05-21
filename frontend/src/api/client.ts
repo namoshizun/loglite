@@ -8,6 +8,16 @@ export interface VersionResponse {
   version: string;
 }
 
+export interface SettingEntry {
+  key: string;
+  value: string | number | boolean | Record<string, string> | string[];
+  description: string;
+}
+
+export interface SettingsResponse {
+  settings: SettingEntry[];
+}
+
 export interface StatsResponse {
   activities: {
     fields: string[];
@@ -124,6 +134,15 @@ export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch('/health');
   if (!res.ok) {
     throw new Error('Health check failed');
+  }
+  return res.json();
+}
+
+export async function fetchSettings(): Promise<SettingsResponse> {
+  const res = await fetch('/settings');
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.error || 'Failed to fetch settings');
   }
   return res.json();
 }

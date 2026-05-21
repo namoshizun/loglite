@@ -4,6 +4,7 @@
 #include "handlers/health.hpp"
 #include "handlers/version_route.hpp"
 #include "handlers/settings.hpp"
+#include "handlers/schema.hpp"
 #include "version.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
@@ -162,6 +163,39 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     ASSERT_FALSE(types.is_null());
     ASSERT_EQ(types["value"].size(), 1u);
     EXPECT_EQ(types["value"][0], "loglite.harvesters.FileHarvester");
+}
+
+TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
+    auto req = make_req(http::verb::get, "/schema");
+    auto res = handlers::HandleSchema(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["table"], "TestLog");
+    ASSERT_TRUE(body["columns"].is_array());
+    ASSERT_GE(body["columns"].size(), 4u);
+
+    auto find_col = [&](const char* name) -> nlohmann::json {
+        for (const auto& col : body["columns"]) {
+            if (col["name"] == name) return col;
+        }
+        return nlohmann::json();
+    };
+
+    auto id = find_col("id");
+    ASSERT_FALSE(id.is_null());
+    EXPECT_EQ(id["kind"], "integer");
+    EXPECT_TRUE(id["primary_key"].get<bool>());
+
+    auto ts = find_col("timestamp");
+    ASSERT_FALSE(ts.is_null());
+    EXPECT_EQ(ts["kind"], "text");
+    EXPECT_EQ(ts["sqlite_type"], "TEXT");
+
+    auto level = find_col("level");
+    ASSERT_FALSE(level.is_null());
+    EXPECT_EQ(level["kind"], "text");
+    EXPECT_FALSE(level["compressed"].get<bool>());
 }
 
 TEST_F(HandlersTest, VersionReturnsProjectVersion) {

@@ -35,6 +35,29 @@ export interface QueryFilter {
   value: string;
 }
 
+export type LogColumnKind =
+  | 'integer'
+  | 'number'
+  | 'text'
+  | 'datetime'
+  | 'json'
+  | 'blob'
+  | 'boolean';
+
+export interface LogSchemaColumn {
+  name: string;
+  kind: LogColumnKind;
+  sqlite_type: string;
+  compressed: boolean;
+  not_null: boolean;
+  primary_key: boolean;
+}
+
+export interface LogSchemaResponse {
+  table: string;
+  columns: LogSchemaColumn[];
+}
+
 export interface QueryLogsParams {
   fields?: string;
   limit: number;
@@ -174,6 +197,15 @@ export async function fetchStats(
   }
   const data: StatsResponse = await res.json();
   return transformStats(data);
+}
+
+export async function fetchLogSchema(): Promise<LogSchemaResponse> {
+  const res = await fetch('/schema');
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.error || 'Failed to fetch log schema');
+  }
+  return res.json();
 }
 
 export async function fetchLogs(params: QueryLogsParams): Promise<PaginatedLogs> {

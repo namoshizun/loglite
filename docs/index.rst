@@ -391,6 +391,50 @@ Included settings:
 - ``harvester_types`` (array of harvester ``type`` strings from the config)
 
 
+``GET /schema``
+~~~~~~~~~~~~~~~
+
+Returns the schema of the configured log table (column names and types). Clients
+use this to build type-aware query filters for ``GET /logs``.
+
+Response:
+
+.. code-block:: json
+
+   {
+     "table": "Log",
+     "columns": [
+       {
+         "name": "timestamp",
+         "kind": "datetime",
+         "sqlite_type": "DATETIME",
+         "compressed": false,
+         "not_null": true,
+         "primary_key": false
+       },
+       {
+         "name": "service",
+         "kind": "text",
+         "sqlite_type": "INTEGER",
+         "compressed": true,
+         "not_null": true,
+         "primary_key": false
+       }
+     ]
+   }
+
+Each column object includes:
+
+- ``name`` — column name
+- ``sqlite_type`` — declarative type from SQLite ``PRAGMA table_info``
+- ``kind`` — normalized type for UI and validation: ``integer``, ``number``,
+  ``text``, ``datetime``, ``json``, ``blob``, or ``boolean``
+- ``compressed`` — when ``true``, the column is stored as integers but filtered
+  using canonical string values (dictionary compression); ``kind`` is always
+  ``text`` for compressed columns
+- ``not_null``, ``primary_key`` — from the table definition
+
+
 Harvesters
 ----------
 

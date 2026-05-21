@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'react-day-picker/style.css';
 
 @theme {
   --color-background: var(--background);
@@ -117,4 +118,38 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+.filter-datetime-popover .filter-datetime-picker {
+  --rdp-accent-color: var(--primary);
+  --rdp-accent-background-color: color-mix(in srgb, var(--primary) 22%, transparent);
+  --rdp-day-height: 2rem;
+  --rdp-day-width: 2rem;
+  --rdp-day_button-height: 2rem;
+  --rdp-day_button-width: 2rem;
+  --rdp-selected-border: 2px solid var(--primary);
+  font-size: 0.75rem;
+  color: var(--foreground);
+}
+
+.filter-datetime-popover .rdp-month_caption {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.filter-datetime-popover .rdp-weekday {
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+}
+
+.filter-datetime-popover .rdp-button_previous,
+.filter-datetime-popover .rdp-button_next {
+  color: var(--muted-foreground);
+}
+
+.filter-datetime-popover .rdp-button_previous:hover,
+.filter-datetime-popover .rdp-button_next:hover {
+  background: var(--muted);
+  color: var(--foreground);
 }

@@ -15,6 +15,7 @@ export default defineConfig({
       '/logs': 'http://localhost:7788',
       '/stats': 'http://localhost:7788',
       '/settings': 'http://localhost:7788',
+      '/schema': 'http://localhost:7788',
     },
   },
 });

@@ -129,7 +129,7 @@ curl -X POST http://localhost:7788/logs \
 Tail in real time:
 
 ```bash
-curl -N -H "Accept: text/event-stream" "http://localhost:7788/logs/sse?fields=*"
+curl -N --output - -H "Accept: text/event-stream" "http://localhost:7788/logs/sse?fields=message,timestamp,level"
 ```
 
 ## Documentation

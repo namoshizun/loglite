@@ -328,7 +328,7 @@ coalesced according to ``sse_debounce_ms``.
 
 .. code-block:: bash
 
-   curl -N -H "Accept: text/event-stream" \
+   curl -N --output - -H "Accept: text/event-stream" \
      "http://localhost:7788/logs/sse?fields=message,timestamp,level"
 
 

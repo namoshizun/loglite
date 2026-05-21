@@ -100,6 +100,7 @@ class ServerTest : public ::testing::Test {
 
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
+        notifier_->Notify(db_->GetMaxLogId());
 
         db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 2u);
 

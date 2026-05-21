@@ -77,6 +77,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     http::response<http::empty_body> res{http::status::ok, req.version()};
     res.set(http::field::content_type, "text/event-stream");
     res.set(http::field::cache_control, "no-cache");
+    res.set(http::field::connection, "keep-alive");
+    res.set("X-Accel-Buffering", "no");
     res.set(http::field::access_control_allow_origin, origin);
     res.chunked(true);
 
@@ -120,7 +122,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
             // open and force socket write to detect disconnects.
             auto now = std::chrono::steady_clock::now();
             if (now - last_write_tp >= 15s) {
-                auto chunk = http::make_chunk(net::buffer(":\r\n\r\n"));
+                auto chunk = http::make_chunk(net::buffer(std::string_view(":\r\n\r\n")));
                 try {
                     co_await net::async_write(stream, chunk, asio::use_awaitable);
                     last_write_tp = now;

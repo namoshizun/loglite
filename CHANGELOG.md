@@ -3,11 +3,12 @@
 ### 1.1.0
 
 - feat: add metrics tracking for backlog drops, insert batches, and SSE sessions.
+- fix: SSE handler did not actively check for connection drops.
+- fix: SSE data message should not end with null terminator.
 - refactor: `Backlog::IsFull` becomes true when the buffer is at least 95% full, rather than when it reaches the exact hard capacity.
 - refactor: remove the python's file harvester (always use the C++ implementation). remove orjson and aiofiles dependencies.
 - refactor: remove the default 5s busy timeout. The user should set it in the sqlite_params if needed.
 - refactor: separate reader and writer database connections.
-- fix: SSE handler did not actively check for connection drops.
 
 ### 1.0.0
 

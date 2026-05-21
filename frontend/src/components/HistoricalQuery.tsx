@@ -7,11 +7,13 @@ import { Search, Plus, X, ChevronLeft, ChevronRight, Settings2, Eye } from 'luci
 import JsonViewer from './JsonViewer';
 import { getLevelTableClasses } from '../logLevelStyles';
 import { useTheme } from '../theme';
+import { useI18n } from '../i18n/locale';
 
 const DEFAULT_COLUMNS = ['id', 'timestamp', 'level', 'service', 'message'];
 
 export default function HistoricalQuery() {
   const { theme } = useTheme();
+  const { t } = useI18n();
   const levelColors = getLevelTableClasses(theme);
   const serviceTagClass =
     theme === 'light'
@@ -104,14 +106,14 @@ export default function HistoricalQuery() {
       {/* 1. Filter Builder Panel */}
       <div className="bg-muted/40 p-4 border border-border/80 rounded-lg space-y-4">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-          <Search size={13} /> Query Builder
+          <Search size={13} /> {t('query.builder')}
         </h3>
 
         {/* Filter input fields */}
         <form onSubmit={handleAddFilter} className="flex flex-wrap items-center gap-3">
           {/* Field selection */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground font-mono">Field</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{t('query.field')}</span>
             <select
               value={newField}
               onChange={(e) => setNewField(e.target.value)}
@@ -127,7 +129,9 @@ export default function HistoricalQuery() {
 
           {/* Operator Selection */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground font-mono">Operator</span>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {t('query.operator')}
+            </span>
             <select
               value={newOp}
               onChange={(e) => setNewOp(e.target.value as any)}
@@ -145,10 +149,10 @@ export default function HistoricalQuery() {
 
           {/* Value entry */}
           <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
-            <span className="text-[10px] text-muted-foreground font-mono">Value</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{t('query.value')}</span>
             <input
               type="text"
-              placeholder="e.g. ERROR, AuthServer..."
+              placeholder={t('query.valuePlaceholder')}
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
               className="bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
@@ -161,7 +165,7 @@ export default function HistoricalQuery() {
               type="submit"
               className="bg-primary hover:bg-primary/95 text-primary-foreground font-bold px-3 py-1.5 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <Plus size={14} /> Add Filter
+              <Plus size={14} /> {t('query.addFilter')}
             </button>
           </div>
         </form>
@@ -197,13 +201,13 @@ export default function HistoricalQuery() {
             onClick={() => setShowColumnSettings(!showColumnSettings)}
             className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-card border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded transition-colors"
           >
-            <Settings2 size={13} /> Visible Columns
+            <Settings2 size={13} /> {t('query.visibleColumns')}
           </button>
 
           {showColumnSettings && (
             <div className="absolute z-10 top-8 left-0 bg-card border border-border p-3 rounded-lg shadow-lg w-48 text-xs flex flex-col gap-1.5">
               <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">
-                Select columns:
+                {t('query.selectColumns')}
               </span>
               {allAvailableColumns.map((col) => (
                 <label
@@ -227,14 +231,16 @@ export default function HistoricalQuery() {
         <div className="flex items-center gap-3 text-xs">
           {data && (
             <span className="text-muted-foreground font-mono">
-              Total match:{' '}
+              {t('query.totalMatch')}{' '}
               <strong className="text-foreground font-semibold">
                 {data.total.toLocaleString()}
               </strong>{' '}
               rows
             </span>
           )}
-          <span className="text-muted-foreground border-l border-border pl-3">Rows:</span>
+          <span className="text-muted-foreground border-l border-border pl-3">
+            {t('query.rows')}
+          </span>
           <select
             value={limit}
             onChange={(e) => {
@@ -279,7 +285,7 @@ export default function HistoricalQuery() {
                   >
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                      <span>Querying database logs...</span>
+                      <span>{t('query.loading')}</span>
                     </div>
                   </td>
                 </tr>
@@ -289,7 +295,7 @@ export default function HistoricalQuery() {
                     colSpan={visibleColumns.length + 1}
                     className="py-20 text-center text-destructive"
                   >
-                    <p className="font-semibold">Query failed</p>
+                    <p className="font-semibold">{t('query.failed')}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {(error as any)?.message || 'Unknown error'}
                     </p>
@@ -301,7 +307,7 @@ export default function HistoricalQuery() {
                     colSpan={visibleColumns.length + 1}
                     className="py-20 text-center text-muted-foreground italic"
                   >
-                    No log records match the selected filters.
+                    {t('query.noResults')}
                   </td>
                 </tr>
               ) : (
@@ -382,12 +388,12 @@ export default function HistoricalQuery() {
         {selectedLog && (
           <div className="w-full lg:w-[420px] bg-muted/30 border border-border rounded-lg p-4 flex flex-col gap-4 overflow-y-auto max-h-[600px]">
             <div className="flex items-center justify-between border-b border-border pb-2">
-              <span className="text-xs font-bold text-foreground">Log Details</span>
+              <span className="text-xs font-bold text-foreground">{t('query.details')}</span>
               <button
                 onClick={() => setSelectedLog(null)}
                 className="text-xs text-muted-foreground hover:text-foreground bg-secondary border border-border px-2 py-0.5 rounded transition-colors"
               >
-                Close
+                {t('query.close')}
               </button>
             </div>
 
@@ -408,7 +414,7 @@ export default function HistoricalQuery() {
 
             {/* Structured payload */}
             <div className="mt-2 flex-1">
-              <JsonViewer data={selectedLog} title="Full Log Matrix" />
+              <JsonViewer data={selectedLog} title={t('query.fullMatrix')} />
             </div>
           </div>
         )}
@@ -418,12 +424,15 @@ export default function HistoricalQuery() {
       {!isLoading && !isError && data && data.total > 0 && (
         <div className="flex items-center justify-between border-t border-border pt-4">
           <div className="text-xs text-muted-foreground font-mono">
-            Showing <span className="text-foreground font-medium">{offset + 1}</span> to{' '}
+            {t('query.pagination.showing')}{' '}
+            <span className="text-foreground font-medium">{offset + 1}</span>{' '}
+            {t('query.pagination.to')}{' '}
             <span className="text-foreground font-medium">
               {Math.min(offset + limit, data.total)}
             </span>{' '}
-            of <span className="text-foreground font-semibold">{data.total.toLocaleString()}</span>{' '}
-            entries
+            {t('query.pagination.of')}{' '}
+            <span className="text-foreground font-semibold">{data.total.toLocaleString()}</span>{' '}
+            {t('query.pagination.entries')}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -435,7 +444,9 @@ export default function HistoricalQuery() {
               <ChevronLeft size={16} />
             </button>
             <span className="text-xs font-mono text-muted-foreground px-2">
-              Page <strong className="text-foreground font-semibold">{currentPage}</strong> of{' '}
+              {t('query.pagination.page')}{' '}
+              <strong className="text-foreground font-semibold">{currentPage}</strong>{' '}
+              {t('query.pagination.ofPages')}{' '}
               <strong className="text-foreground font-semibold">{totalPages}</strong>
             </span>
             <button

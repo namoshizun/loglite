@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { useTheme } from '../theme';
+import { useI18n } from '../i18n/locale';
 
 interface JsonViewerProps {
   data: any;
@@ -44,6 +45,7 @@ function highlightJson(json: string, theme: 'dark' | 'light') {
 
 export default function JsonViewer({ data, title }: JsonViewerProps) {
   const { theme } = useTheme();
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const formattedJson =
@@ -66,7 +68,9 @@ export default function JsonViewer({ data, title }: JsonViewerProps) {
   return (
     <div className="bg-background border border-border rounded-lg overflow-hidden flex flex-col font-mono text-xs w-full">
       <div className="bg-muted px-4 py-2 border-b border-border flex items-center justify-between">
-        <span className="text-muted-foreground font-semibold">{title || 'Data Payload'}</span>
+        <span className="text-muted-foreground font-semibold">
+          {title || t('json.dataPayload')}
+        </span>
         <button
           type="button"
           onClick={handleCopy}
@@ -76,12 +80,12 @@ export default function JsonViewer({ data, title }: JsonViewerProps) {
           {copied ? (
             <>
               <Check size={12} className="text-green-500" />
-              <span className="text-[10px] text-green-600 font-bold">Copied!</span>
+              <span className="text-[10px] text-green-600 font-bold">{t('json.copied')}</span>
             </>
           ) : (
             <>
               <Copy size={12} />
-              <span className="text-[10px]">Copy</span>
+              <span className="text-[10px]">{t('json.copy')}</span>
             </>
           )}
         </button>

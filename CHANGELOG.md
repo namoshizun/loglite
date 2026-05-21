@@ -2,7 +2,7 @@
 
 ### 1.2.0
 
-- feat: optional dashboard frontend ✨
+- feat: dashboard frontend (optional & standalone) ✨
 - feat: `GET /version` returns the core version.
 - feat: `GET /settings` returns the loglite configuration as key-value pairs.
 

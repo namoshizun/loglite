@@ -4,6 +4,7 @@ import { Play, Pause, Trash2, Search, ArrowDown, AlignLeft, Eye } from 'lucide-r
 import JsonViewer from './JsonViewer';
 import { getLevelStyles } from '../logLevelStyles';
 import { useTheme } from '../theme';
+import { useI18n } from '../i18n/locale';
 
 interface LogRecord {
   id: number;
@@ -19,6 +20,7 @@ const TOOLBAR_INACTIVE =
 
 export default function LiveConsole() {
   const { theme } = useTheme();
+  const { t } = useI18n();
   const levelClasses = getLevelStyles(theme);
   const serviceTagClass =
     theme === 'light'
@@ -129,12 +131,12 @@ export default function LiveConsole() {
             {isPaused ? (
               <>
                 <Play size={13} fill="currentColor" />
-                <span>Resume Stream</span>
+                <span>{t('live.resume')}</span>
               </>
             ) : (
               <>
                 <Pause size={13} fill="currentColor" />
-                <span>Pause Stream</span>
+                <span>{t('live.pause')}</span>
               </>
             )}
           </button>
@@ -145,7 +147,7 @@ export default function LiveConsole() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${TOOLBAR_INACTIVE}`}
           >
             <Trash2 size={13} />
-            <span>Clear Screen</span>
+            <span>{t('live.clear')}</span>
           </button>
 
           {/* Auto Scroll Toggle */}
@@ -156,7 +158,7 @@ export default function LiveConsole() {
             }`}
           >
             <ArrowDown size={13} className={autoScroll ? 'animate-bounce' : ''} />
-            <span>Auto Scroll</span>
+            <span>{t('live.autoScroll')}</span>
           </button>
 
           {/* Line Wrap Toggle */}
@@ -167,7 +169,7 @@ export default function LiveConsole() {
             }`}
           >
             <AlignLeft size={13} />
-            <span>Wrap Text</span>
+            <span>{t('live.wrap')}</span>
           </button>
         </div>
 
@@ -180,7 +182,7 @@ export default function LiveConsole() {
             </span>
             <input
               type="text"
-              placeholder="Search stream message, service..."
+              placeholder={t('live.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-background border border-border text-xs rounded-md pl-9 pr-4 py-1.5 w-full text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
@@ -192,7 +194,7 @@ export default function LiveConsole() {
       {/* Log Levels Filter Bar */}
       <div className="bg-muted/40 px-4 py-2 border-b border-border/60 flex flex-wrap items-center gap-2">
         <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mr-2">
-          Toggle Levels:
+          {t('live.toggleLevels')}
         </span>
         {Object.keys(levelClasses).map((lvl) => {
           const colors = levelClasses[lvl];
@@ -220,11 +222,7 @@ export default function LiveConsole() {
           {filteredLogs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1 mt-10">
               <div className="w-1.5 h-4 bg-primary rounded animate-pulse inline-block mr-1"></div>
-              <span>
-                {isPaused
-                  ? 'Stream is paused. Resume to view incoming logs.'
-                  : 'Listening for incoming log records...'}
-              </span>
+              <span>{isPaused ? t('live.paused') : t('live.listening')}</span>
             </div>
           ) : (
             filteredLogs.map((log) => {
@@ -282,28 +280,28 @@ export default function LiveConsole() {
         {selectedLog && (
           <div className="w-full lg:w-[420px] border-t lg:border-t-0 lg:border-l border-border bg-card p-4 overflow-y-auto flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-border pb-2.5">
-              <span className="text-xs font-bold text-foreground">Log Details</span>
+              <span className="text-xs font-bold text-foreground">{t('live.details')}</span>
               <button
                 onClick={() => setSelectedLog(null)}
                 className="text-xs text-muted-foreground hover:text-foreground bg-secondary border border-border px-2 py-0.5 rounded"
               >
-                Close
+                {t('live.close')}
               </button>
             </div>
 
             <div className="space-y-2 text-xs">
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
-                <span className="text-muted-foreground">ID:</span>
+                <span className="text-muted-foreground">{t('live.field.id')}</span>
                 <span className="text-foreground font-semibold select-all">{selectedLog.id}</span>
               </div>
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
-                <span className="text-muted-foreground">Timestamp:</span>
+                <span className="text-muted-foreground">{t('live.field.timestamp')}</span>
                 <span className="text-foreground select-all">
                   {new Date(selectedLog.timestamp).toISOString()}
                 </span>
               </div>
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
-                <span className="text-muted-foreground">Level:</span>
+                <span className="text-muted-foreground">{t('live.field.level')}</span>
                 <span
                   className={`font-semibold ${
                     levelClasses[selectedLog.level?.toUpperCase()]?.text || 'text-muted-foreground'
@@ -313,7 +311,7 @@ export default function LiveConsole() {
                 </span>
               </div>
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
-                <span className="text-muted-foreground">Service:</span>
+                <span className="text-muted-foreground">{t('live.field.service')}</span>
                 <span className="text-blue-400 font-semibold select-all">
                   {selectedLog.service}
                 </span>
@@ -322,7 +320,7 @@ export default function LiveConsole() {
 
             {/* In-depth payload json */}
             <div className="mt-2 flex-1">
-              <JsonViewer data={selectedLog} title="Raw Log Entry" />
+              <JsonViewer data={selectedLog} title={t('live.rawEntry')} />
             </div>
           </div>
         )}

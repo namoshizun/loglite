@@ -1,6 +1,5 @@
 {
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
   "prettier.requireConfig": true,
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -13,6 +12,12 @@
   },
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
   },
   "cSpell.words": [
     "Loglite"

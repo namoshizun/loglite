@@ -15,6 +15,7 @@ import LiveConsole from './components/LiveConsole';
 import HistoricalQuery from './components/HistoricalQuery';
 import SettingsPanel from './components/SettingsPanel';
 import { Activity, Radio, Search, Settings } from 'lucide-react';
+import { useI18n } from './i18n/locale';
 
 // Setup TanStack Query client
 const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ declare module '@tanstack/react-router' {
 }
 
 function DashboardContent() {
+  const { t } = useI18n();
   const search = useSearch({ from: '/' });
   const navigate = useNavigate({ from: '/' });
   const activeTab = search.tab || 'analytics';
@@ -94,7 +96,7 @@ function DashboardContent() {
           }`}
         >
           <Activity size={16} />
-          <span>Analytics & Stats</span>
+          <span>{t('tabs.analytics')}</span>
         </button>
         <button
           onClick={() => handleTabChange('live')}
@@ -105,7 +107,7 @@ function DashboardContent() {
           }`}
         >
           <Radio size={16} />
-          <span>Live Stream</span>
+          <span>{t('tabs.live')}</span>
         </button>
         <button
           onClick={() => handleTabChange('search')}
@@ -116,7 +118,7 @@ function DashboardContent() {
           }`}
         >
           <Search size={16} />
-          <span>Log Browser</span>
+          <span>{t('tabs.search')}</span>
         </button>
         <button
           onClick={() => handleTabChange('settings')}
@@ -127,7 +129,7 @@ function DashboardContent() {
           }`}
         >
           <Settings size={16} />
-          <span>Settings</span>
+          <span>{t('tabs.settings')}</span>
         </button>
       </div>
 

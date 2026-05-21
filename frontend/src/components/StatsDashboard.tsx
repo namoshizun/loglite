@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from '../api/client';
 import type { ActivityStatRecord } from '../api/client';
@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { BarChart3, Calendar, LineChart as ChartIcon } from 'lucide-react';
 import { useTheme } from '../theme';
+import { useI18n } from '../i18n/locale';
 
 const CHART_GRID = 'var(--chart-grid)';
 const CHART_AXIS = 'var(--chart-axis)';
@@ -49,45 +50,6 @@ const DEFAULT_SUB_METRICS: SubMetricsState = {
   connections: { http: true, sse: false },
 };
 
-const ACTIVITY_CATEGORIES: {
-  id: ActivityCategory;
-  label: string;
-  subs: { id: string; label: string }[];
-}[] = [
-  {
-    id: 'query',
-    label: 'Query',
-    subs: [
-      { id: 'count', label: 'Request count' },
-      { id: 'latency', label: 'Processing latency' },
-    ],
-  },
-  {
-    id: 'ingestion',
-    label: 'Ingestion',
-    subs: [
-      { id: 'count', label: 'Request count' },
-      { id: 'size', label: 'Payload size' },
-    ],
-  },
-  {
-    id: 'insertion',
-    label: 'Insertion',
-    subs: [
-      { id: 'count', label: 'Log count' },
-      { id: 'cost', label: 'Time cost' },
-    ],
-  },
-  {
-    id: 'connections',
-    label: 'Connections',
-    subs: [
-      { id: 'http', label: 'HTTP' },
-      { id: 'sse', label: 'SSE' },
-    ],
-  },
-];
-
 function enrichActivityRows(rows: ActivityStatRecord[]) {
   return rows.map((row) => ({
     ...row,
@@ -96,7 +58,47 @@ function enrichActivityRows(rows: ActivityStatRecord[]) {
 }
 
 export default function StatsDashboard() {
-  useTheme(); // re-render charts when theme changes
+  useTheme();
+  const { t } = useI18n();
+
+  const activityCategories = useMemo(
+    () => [
+      {
+        id: 'query' as ActivityCategory,
+        label: t('stats.cat.query'),
+        subs: [
+          { id: 'count', label: t('stats.sub.requestCount') },
+          { id: 'latency', label: t('stats.sub.latency') },
+        ],
+      },
+      {
+        id: 'ingestion' as ActivityCategory,
+        label: t('stats.cat.ingestion'),
+        subs: [
+          { id: 'count', label: t('stats.sub.requestCount') },
+          { id: 'size', label: t('stats.sub.payloadSize') },
+        ],
+      },
+      {
+        id: 'insertion' as ActivityCategory,
+        label: t('stats.cat.insertion'),
+        subs: [
+          { id: 'count', label: t('stats.sub.logCount') },
+          { id: 'cost', label: t('stats.sub.timeCost') },
+        ],
+      },
+      {
+        id: 'connections' as ActivityCategory,
+        label: t('stats.cat.connections'),
+        subs: [
+          { id: 'http', label: t('stats.sub.http') },
+          { id: 'sse', label: t('stats.sub.sse') },
+        ],
+      },
+    ],
+    [t],
+  );
+
   const [timeRange, setTimeRange] = useState<TimeRange>('6h');
   const [viewMode, setViewMode] = useState<ViewMode>('activity');
   const [activityCategory, setActivityCategory] = useState<ActivityCategory>('query');
@@ -192,7 +194,7 @@ export default function StatsDashboard() {
               <Bar
                 yAxisId="left"
                 dataKey="query_count"
-                name="Query count"
+                name={t('stats.chart.queryCount')}
                 fill="#10b981"
                 fillOpacity={0.85}
                 radius={[2, 2, 0, 0]}
@@ -203,7 +205,7 @@ export default function StatsDashboard() {
                 <Area
                   yAxisId={needsRight ? 'right' : 'left'}
                   dataKey="query_latency_range"
-                  name="Latency (min–max)"
+                  name={t('stats.chart.latencyBand')}
                   fill="#f59e0b"
                   fillOpacity={0.22}
                   stroke="none"
@@ -213,7 +215,7 @@ export default function StatsDashboard() {
                   yAxisId={needsRight ? 'right' : 'left'}
                   type="monotone"
                   dataKey="query_avg"
-                  name="Avg latency (ms)"
+                  name={t('stats.chart.avgLatency')}
                   stroke="#f59e0b"
                   strokeWidth={2}
                   dot={false}
@@ -243,7 +245,7 @@ export default function StatsDashboard() {
               <Bar
                 yAxisId="left"
                 dataKey="ingest_count"
-                name="Ingest count"
+                name={t('stats.chart.ingestCount')}
                 fill="#3b82f6"
                 fillOpacity={0.85}
                 radius={[2, 2, 0, 0]}
@@ -254,7 +256,7 @@ export default function StatsDashboard() {
                 yAxisId={needsRight ? 'right' : 'left'}
                 type="monotone"
                 dataKey="ingest_size_avg"
-                name="Avg body size (bytes)"
+                name={t('stats.chart.avgBodySize')}
                 stroke="#60a5fa"
                 strokeWidth={2}
                 dot={false}
@@ -283,7 +285,7 @@ export default function StatsDashboard() {
               <Bar
                 yAxisId="left"
                 dataKey="insert_total_count"
-                name="Rows inserted"
+                name={t('stats.chart.rowsInserted')}
                 fill="#14b8a6"
                 fillOpacity={0.85}
                 radius={[2, 2, 0, 0]}
@@ -294,7 +296,7 @@ export default function StatsDashboard() {
                 yAxisId={needsRight ? 'right' : 'left'}
                 type="monotone"
                 dataKey="insert_total_cost"
-                name="Insert cost (ms)"
+                name={t('stats.chart.insertCost')}
                 stroke="#2dd4bf"
                 strokeWidth={2}
                 dot={false}
@@ -315,7 +317,7 @@ export default function StatsDashboard() {
                 yAxisId="left"
                 type="monotone"
                 dataKey="http_conn_count"
-                name="HTTP connections"
+                name={t('stats.chart.httpConn')}
                 stroke="#ec4899"
                 strokeWidth={2}
                 dot={false}
@@ -327,7 +329,7 @@ export default function StatsDashboard() {
                 yAxisId="left"
                 type="monotone"
                 dataKey="sse_session_count"
-                name="SSE sessions"
+                name={t('stats.chart.sseSessions')}
                 stroke="#8b5cf6"
                 strokeWidth={2}
                 dot={false}
@@ -346,7 +348,7 @@ export default function StatsDashboard() {
         <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <span>Loading stats...</span>
+            <span>{t('stats.loading')}</span>
           </div>
         </div>
       );
@@ -356,7 +358,7 @@ export default function StatsDashboard() {
       return (
         <div className="h-[300px] flex items-center justify-center text-destructive bg-destructive/5 border border-destructive/20 rounded-lg p-6 text-center">
           <div>
-            <p className="font-semibold">Failed to fetch stats</p>
+            <p className="font-semibold">{t('stats.loadFailed')}</p>
             <p className="text-xs text-muted-foreground mt-1">
               {(error as Error)?.message || 'Unknown error'}
             </p>
@@ -369,7 +371,7 @@ export default function StatsDashboard() {
       if (!stats?.activities?.length) {
         return (
           <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
-            No activity stats recorded in this period.
+            {t('stats.noActivity')}
           </div>
         );
       }
@@ -384,7 +386,7 @@ export default function StatsDashboard() {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
-              Select at least one metric below.
+              {t('stats.selectMetric')}
             </div>
           )}
         </div>
@@ -394,7 +396,7 @@ export default function StatsDashboard() {
     if (!stats?.database?.length) {
       return (
         <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
-          No database stats recorded in this period.
+          {t('stats.noDatabase')}
         </div>
       );
     }
@@ -408,7 +410,7 @@ export default function StatsDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
           <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
-            <ChartIcon size={12} className="text-blue-400" /> Database Size (MB)
+            <ChartIcon size={12} className="text-blue-400" /> {t('stats.dbSizeChart')}
           </h4>
           <ResponsiveContainer width="100%" height="90%">
             <AreaChart data={formattedDbStats} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
@@ -439,7 +441,7 @@ export default function StatsDashboard() {
 
         <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
           <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
-            <BarChart3 size={12} className="text-purple-400" /> Total Stored Rows
+            <BarChart3 size={12} className="text-purple-400" /> {t('stats.rowsChart')}
           </h4>
           <ResponsiveContainer width="100%" height="90%">
             <AreaChart data={formattedDbStats} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
@@ -484,7 +486,7 @@ export default function StatsDashboard() {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            System Activity
+            {t('stats.systemActivity')}
           </button>
           <button
             type="button"
@@ -495,13 +497,13 @@ export default function StatsDashboard() {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Database Growth
+            {t('stats.databaseGrowth')}
           </button>
         </div>
 
         <div className="flex items-center gap-2">
           <Calendar size={14} className="text-muted-foreground" />
-          <span className="text-xs text-muted-foreground mr-1">Time Range:</span>
+          <span className="text-xs text-muted-foreground mr-1">{t('stats.timeRange')}</span>
           <div className="flex bg-muted p-1 rounded-lg border border-border">
             {(['1h', '3h', '6h', '12h', '24h'] as TimeRange[]).map((range) => (
               <button
@@ -526,12 +528,12 @@ export default function StatsDashboard() {
 
         <div className="lg:col-span-3 lg:border-l lg:border-border lg:pl-6 flex flex-col justify-start">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            {viewMode === 'activity' ? 'System activity' : 'Database status'}
+            {viewMode === 'activity' ? t('stats.metricCategory') : t('stats.databaseStatus')}
           </h4>
 
           {viewMode === 'activity' ? (
             <div className="flex flex-col gap-2">
-              {ACTIVITY_CATEGORIES.map((cat) => {
+              {activityCategories.map((cat) => {
                 const isActive = activityCategory === cat.id;
                 const catSubs = subMetrics[cat.id];
                 return (
@@ -579,14 +581,8 @@ export default function StatsDashboard() {
             </div>
           ) : (
             <div className="text-xs text-muted-foreground space-y-2 bg-muted/50 p-3 rounded-lg border border-border/60">
-              <p>
-                Database size and row counts are gathered automatically in the background by the
-                LogLite diagnostics engine.
-              </p>
-              <p className="text-muted-foreground mt-1">
-                Vacuuming triggers automatically or on a schedule to recycle unused SQLite database
-                pages.
-              </p>
+              <p>{t('stats.dbStatusHint')}</p>
+              <p className="text-muted-foreground mt-1">{t('stats.vacuumHint')}</p>
             </div>
           )}
         </div>

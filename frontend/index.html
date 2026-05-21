@@ -5,6 +5,8 @@
       (function () {
         var t = localStorage.getItem('loglite-theme');
         document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+        var l = localStorage.getItem('loglite-locale');
+        document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
       })();
     </script>
     <meta charset="UTF-8" />

@@ -35,6 +35,17 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");
 
+    AppendSetting(settings, "task_diagnostics_interval", cfg.task_diagnostics_interval,
+                  "Seconds between activity and database stats collection passes.");
+    AppendSetting(settings, "task_vacuum_interval", cfg.task_vacuum_interval,
+                  "Seconds between incremental SQLite vacuum passes.");
+    AppendSetting(settings, "task_backlog_flush_interval", cfg.task_backlog_flush_interval,
+                  "Seconds between backlog flush passes to SQLite.");
+    AppendSetting(settings, "task_backlog_max_size", cfg.task_backlog_max_size,
+                  "Maximum backlog entries before a forced flush to the database.");
+    AppendSetting(settings, "task_vacuum_max_size", cfg.task_vacuum_max_size,
+                  "Megabyte budget per incremental vacuum pass.");
+
     AppendSetting(settings, "vacuum_max_days", cfg.vacuum_max_days,
                   "Drop log rows older than this many days during vacuum.");
     AppendSetting(settings, "vacuum_max_size", cfg.vacuum_max_size,
@@ -43,17 +54,6 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
                   "After vacuum, trim oldest rows until the database is under this size.");
     AppendSetting(settings, "vacuum_delete_batch_size", cfg.vacuum_delete_batch_size,
                   "Number of row IDs deleted per batch when vacuum removes old logs.");
-
-    AppendSetting(settings, "task_diagnostics_interval", cfg.task_diagnostics_interval,
-                  "Seconds between activity and database stats collection passes.");
-    AppendSetting(settings, "task_backlog_flush_interval", cfg.task_backlog_flush_interval,
-                  "Seconds between backlog flush passes to SQLite.");
-    AppendSetting(settings, "task_backlog_max_size", cfg.task_backlog_max_size,
-                  "Maximum backlog entries before a forced flush to the database.");
-    AppendSetting(settings, "task_vacuum_interval", cfg.task_vacuum_interval,
-                  "Seconds between incremental SQLite vacuum passes.");
-    AppendSetting(settings, "task_vacuum_max_size", cfg.task_vacuum_max_size,
-                  "Megabyte budget per incremental vacuum pass.");
     AppendSetting(settings, "stats_retention_hours", cfg.stats_retention_hours,
                   "Hours to retain collected stats rows before pruning.");
 

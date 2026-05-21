@@ -4,6 +4,7 @@ import { Database, Layers, Moon, Sun } from 'lucide-react';
 import { useTheme, type Theme } from '../theme';
 import { useI18n, type Locale } from '../i18n/locale';
 import { formatBytes } from '../utils/formatBytes';
+import logoUrl from '../../../docs/logo.svg?url';
 
 export default function Header() {
   const { theme, setTheme } = useTheme();
@@ -37,36 +38,27 @@ export default function Header() {
   const dbSizeBytes = dbStats?.db_size ?? 0;
 
   return (
-    <header className="border-b border-border bg-card px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <header className="border-b border-border bg-card px-6 py-2 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-3">
-        <div className="bg-primary/10 text-primary p-2.5 rounded-lg border border-primary/20">
-          <Layers size={22} className="animate-pulse" />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight m-0 text-foreground flex items-center gap-2.5">
-            LogLite
-            <span
-              className="relative flex h-2.5 w-2.5 shrink-0"
-              title={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
-              aria-label={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
-            >
-              {isHealthy && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
-              )}
-              <span
-                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                  isHealthy ? 'bg-green-500' : 'bg-red-500'
-                }`}
-              />
-            </span>
-          </h1>
-          <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-            {versionData?.version && (
-              <span className="font-mono text-muted-foreground border-l border-border">
-                v{versionData.version}
-              </span>
+        <img src={logoUrl} alt="LogLite" className="h-14 w-auto max-w-[min(100%,22rem)] sm:h-16" />
+        <div className="flex items-center gap-2.5 shrink-0">
+          <span
+            className="relative flex h-2.5 w-2.5 shrink-0"
+            title={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
+            aria-label={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
+          >
+            {isHealthy && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
             )}
-          </p>
+            <span
+              className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                isHealthy ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+          </span>
+          {versionData?.version && (
+            <span className="text-xs text-muted-foreground font-mono">v{versionData.version}</span>
+          )}
         </div>
       </div>
 

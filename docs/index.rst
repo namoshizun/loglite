@@ -1,6 +1,6 @@
 :hide-toc:
 
-.. image:: loglite.png
+.. image:: logo.svg
    :alt: LogLite logo
    :width: 270
    :align: center

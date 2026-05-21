@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchHealth, fetchStats, fetchVersion } from '../api/client';
-import { Database, Layers, Radio } from 'lucide-react';
+import { Database, Layers, Moon, Sun } from 'lucide-react';
+import { useTheme, type Theme } from '../theme';
 
 export function formatBytes(bytes: number, decimals = 2) {
   if (!bytes || bytes === 0) return '0 Bytes';
@@ -12,6 +13,7 @@ export function formatBytes(bytes: number, decimals = 2) {
 }
 
 export default function Header() {
+  const { theme, setTheme } = useTheme();
   // Poll health every 10 seconds
   const { data: healthData, isError: isHealthError } = useQuery({
     queryKey: ['health'],
@@ -51,13 +53,27 @@ export default function Header() {
           <Layers size={22} className="animate-pulse" />
         </div>
         <div>
-          <h1 className="text-xl font-bold tracking-tight m-0 text-foreground flex items-center gap-2">
-            LogLite <span className="text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">Admin</span>
+          <h1 className="text-xl font-bold tracking-tight m-0 text-foreground flex items-center gap-2.5">
+            LogLite
+            <span
+              className="relative flex h-2.5 w-2.5 shrink-0"
+              title={isHealthy ? 'Server online' : 'Server offline'}
+              aria-label={isHealthy ? 'Server online' : 'Server offline'}
+            >
+              {isHealthy && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                  isHealthy ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+            </span>
           </h1>
           <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
             <span>Lightweight SQLite Log Dashboard</span>
             {versionData?.version && (
-              <span className="font-mono text-zinc-500 border-l border-border pl-2">
+              <span className="font-mono text-muted-foreground border-l border-border pl-2">
                 v{versionData.version}
               </span>
             )}
@@ -65,10 +81,33 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Stats Summary Panel */}
       <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+        <div className="flex bg-muted p-1 rounded-lg border border-border">
+          {(
+            [
+              { id: 'dark' as Theme, label: 'Dark', icon: Moon },
+              { id: 'light' as Theme, label: 'Light', icon: Sun },
+            ] as const
+          ).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTheme(id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-all duration-200 ${
+                theme === id
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              aria-pressed={theme === id}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Database Size Metric */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900 border border-border">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted border border-border">
           <Database size={16} className="text-blue-400" />
           <div className="text-left">
             <div className="text-xs text-muted-foreground">DB Size</div>
@@ -77,22 +116,11 @@ export default function Header() {
         </div>
 
         {/* Database Rows Metric */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900 border border-border">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted border border-border">
           <Layers size={16} className="text-purple-400" />
           <div className="text-left">
             <div className="text-xs text-muted-foreground">Log Count</div>
             <div className="text-xs font-mono font-semibold">{rowCount.toLocaleString()} rows</div>
-          </div>
-        </div>
-
-        {/* Status Pill */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900 border border-border">
-          <Radio size={16} className={isHealthy ? "text-green-500 animate-ping" : "text-red-500"} />
-          <div className="text-left flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Server:</span>
-            <span className={`text-xs font-bold ${isHealthy ? 'text-green-400' : 'text-red-400'}`}>
-              {isHealthy ? 'ONLINE' : 'OFFLINE'}
-            </span>
           </div>
         </div>
       </div>

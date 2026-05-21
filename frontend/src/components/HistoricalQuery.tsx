@@ -5,18 +5,18 @@ import { fetchLogs } from '../api/client';
 import type { QueryFilter } from '../api/client';
 import { Search, Plus, X, ChevronLeft, ChevronRight, Settings2, Eye } from 'lucide-react';
 import JsonViewer from './JsonViewer';
-
-const LEVEL_COLORS: Record<string, string> = {
-  DEBUG: 'text-zinc-400 bg-zinc-800/40 border-zinc-700/60',
-  INFO: 'text-green-400 bg-green-950/20 border-green-800/30',
-  WARNING: 'text-amber-400 bg-amber-950/20 border-amber-800/30',
-  ERROR: 'text-red-400 bg-red-950/20 border-red-800/30',
-  CRITICAL: 'text-purple-400 bg-purple-950/20 border-purple-800/30',
-};
+import { getLevelTableClasses } from '../logLevelStyles';
+import { useTheme } from '../theme';
 
 const DEFAULT_COLUMNS = ['id', 'timestamp', 'level', 'service', 'message'];
 
 export default function HistoricalQuery() {
+  const { theme } = useTheme();
+  const levelColors = getLevelTableClasses(theme);
+  const serviceTagClass =
+    theme === 'light'
+      ? 'text-blue-700 font-semibold font-mono bg-blue-50 px-1 border border-blue-200 rounded'
+      : 'text-blue-400/90 font-semibold font-mono bg-blue-950/20 px-1 border border-blue-900/10 rounded';
   // Query States
   const [limit, setLimit] = useState(20);
   const [offset, setOffset] = useState(0);
@@ -101,7 +101,7 @@ export default function HistoricalQuery() {
   return (
     <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-6">
       {/* 1. Filter Builder Panel */}
-      <div className="bg-zinc-950 p-4 border border-border/80 rounded-lg space-y-4">
+      <div className="bg-muted/40 p-4 border border-border/80 rounded-lg space-y-4">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <Search size={13} /> Query Builder
         </h3>
@@ -110,11 +110,11 @@ export default function HistoricalQuery() {
         <form onSubmit={handleAddFilter} className="flex flex-wrap items-center gap-3">
           {/* Field selection */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-zinc-500 font-mono">Field</span>
+            <span className="text-[10px] text-muted-foreground font-mono">Field</span>
             <select
               value={newField}
               onChange={(e) => setNewField(e.target.value)}
-              className="bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary font-mono"
+              className="bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary font-mono"
             >
               {allAvailableColumns.map((col) => (
                 <option key={col} value={col}>
@@ -126,11 +126,11 @@ export default function HistoricalQuery() {
 
           {/* Operator Selection */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-zinc-500 font-mono">Operator</span>
+            <span className="text-[10px] text-muted-foreground font-mono">Operator</span>
             <select
               value={newOp}
               onChange={(e) => setNewOp(e.target.value as any)}
-              className="bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary font-mono font-bold"
+              className="bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary font-mono font-bold"
             >
               <option value="=">=</option>
               <option value="!=">!=</option>
@@ -144,13 +144,13 @@ export default function HistoricalQuery() {
 
           {/* Value entry */}
           <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
-            <span className="text-[10px] text-zinc-500 font-mono">Value</span>
+            <span className="text-[10px] text-muted-foreground font-mono">Value</span>
             <input
               type="text"
               placeholder="e.g. ERROR, AuthServer..."
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
-              className="bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-zinc-600 focus:outline-none focus:border-primary"
+              className="bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
             />
           </div>
 
@@ -167,18 +167,18 @@ export default function HistoricalQuery() {
 
         {/* List of active filters */}
         {activeFilters.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-900">
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
             {activeFilters.map((filter, idx) => (
               <span
                 key={idx}
-                className="bg-zinc-900 border border-zinc-800 text-[11px] font-mono pl-2.5 pr-1 py-1 rounded-md flex items-center gap-1 text-zinc-300"
+                className="bg-background border border-border text-[11px] font-mono pl-2.5 pr-1 py-1 rounded-md flex items-center gap-1 text-foreground"
               >
-                <span className="text-zinc-500">{filter.field}</span>
+                <span className="text-muted-foreground">{filter.field}</span>
                 <span className="text-primary font-bold">{filter.op}</span>
                 <span className="text-foreground">{filter.value}</span>
                 <button
                   onClick={() => handleRemoveFilter(idx)}
-                  className="text-zinc-500 hover:text-zinc-300 p-0.5 rounded transition-colors"
+                  className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
                 >
                   <X size={12} />
                 </button>
@@ -189,28 +189,28 @@ export default function HistoricalQuery() {
       </div>
 
       {/* 2. Controls Row: Columns Toggle & Page Limits */}
-      <div className="flex justify-between items-center bg-zinc-900/20 p-2.5 border border-border rounded-lg">
+      <div className="flex justify-between items-center bg-muted/30 p-2.5 border border-border rounded-lg">
         {/* Toggle Column settings drawer */}
         <div className="relative">
           <button
             onClick={() => setShowColumnSettings(!showColumnSettings)}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-zinc-900 border border-border hover:bg-zinc-800 text-zinc-400 hover:text-foreground rounded transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-card border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded transition-colors"
           >
             <Settings2 size={13} /> Visible Columns
           </button>
 
           {showColumnSettings && (
-            <div className="absolute z-10 top-8 left-0 bg-zinc-900 border border-border p-3 rounded-lg shadow-lg w-48 text-xs flex flex-col gap-1.5">
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider mb-1">
+            <div className="absolute z-10 top-8 left-0 bg-card border border-border p-3 rounded-lg shadow-lg w-48 text-xs flex flex-col gap-1.5">
+              <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mb-1">
                 Select columns:
               </span>
               {allAvailableColumns.map((col) => (
-                <label key={col} className="flex items-center gap-2 cursor-pointer text-zinc-350 hover:text-foreground">
+                <label key={col} className="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
                   <input
                     type="checkbox"
                     checked={visibleColumns.includes(col)}
                     onChange={() => toggleColumn(col)}
-                    className="rounded bg-zinc-950 border-zinc-800 text-primary focus:ring-primary"
+                    className="rounded bg-background border-border text-primary focus:ring-primary"
                   />
                   <span className="font-mono">{col}</span>
                 </label>
@@ -226,14 +226,14 @@ export default function HistoricalQuery() {
               Total match: <strong className="text-foreground font-semibold">{data.total.toLocaleString()}</strong> rows
             </span>
           )}
-          <span className="text-zinc-500 border-l border-zinc-800 pl-3">Rows:</span>
+          <span className="text-muted-foreground border-l border-border pl-3">Rows:</span>
           <select
             value={limit}
             onChange={(e) => {
               setLimit(Number(e.target.value));
               setOffset(0);
             }}
-            className="bg-zinc-900 border border-zinc-800 text-xs px-2 py-0.5 rounded text-foreground font-mono"
+            className="bg-background border border-border text-xs px-2 py-0.5 rounded text-foreground font-mono"
           >
             {[20, 50, 100].map((num) => (
               <option key={num} value={num}>
@@ -247,10 +247,10 @@ export default function HistoricalQuery() {
       {/* 3. Core Database Logs Grid */}
       <div className="flex flex-col lg:flex-row gap-5 overflow-hidden min-h-[400px]">
         {/* Main Logs Table */}
-        <div className="flex-1 overflow-x-auto border border-border rounded-lg bg-zinc-950/20">
+        <div className="flex-1 overflow-x-auto border border-border rounded-lg bg-background">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-zinc-900 border-b border-border">
+              <tr className="bg-muted border-b border-border">
                 {visibleColumns.map((col) => (
                   <th key={col} className="py-2.5 px-4 font-mono font-bold text-muted-foreground capitalize select-none">
                     {col}
@@ -278,7 +278,7 @@ export default function HistoricalQuery() {
                 </tr>
               ) : !data || data.results.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleColumns.length + 1} className="py-20 text-center text-zinc-500 italic">
+                  <td colSpan={visibleColumns.length + 1} className="py-20 text-center text-muted-foreground italic">
                     No log records match the selected filters.
                   </td>
                 </tr>
@@ -287,8 +287,8 @@ export default function HistoricalQuery() {
                   <tr
                     key={row.id ?? idx}
                     onClick={() => setSelectedLog(row)}
-                    className={`hover:bg-zinc-900/40 cursor-pointer border-l-2 border-transparent transition-colors ${
-                      selectedLog && selectedLog.id === row.id ? 'bg-zinc-900 border-l-primary' : ''
+                    className={`hover:bg-muted cursor-pointer border-l-2 border-transparent transition-colors ${
+                      selectedLog && selectedLog.id === row.id ? 'bg-muted border-l-primary' : ''
                     }`}
                   >
                     {visibleColumns.map((col) => {
@@ -296,7 +296,7 @@ export default function HistoricalQuery() {
                       // Format specific fields for visualization
                       if (col === 'level') {
                         const levelStr = String(val).toUpperCase();
-                        const levelColor = LEVEL_COLORS[levelStr] || LEVEL_COLORS.DEBUG;
+                        const levelColor = levelColors[levelStr] || levelColors.DEBUG;
                         return (
                           <td key={col} className="py-2 px-4 whitespace-nowrap">
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${levelColor}`}>
@@ -308,7 +308,7 @@ export default function HistoricalQuery() {
                       
                       if (col === 'timestamp') {
                         return (
-                          <td key={col} className="py-2 px-4 whitespace-nowrap text-zinc-500 font-mono">
+                          <td key={col} className="py-2 px-4 whitespace-nowrap text-muted-foreground font-mono">
                             {new Date(val).toLocaleString()}
                           </td>
                         );
@@ -318,9 +318,7 @@ export default function HistoricalQuery() {
                         return (
                           <td key={col} className="py-2 px-4 whitespace-nowrap">
                             {val ? (
-                              <span className="text-blue-400/90 font-semibold font-mono bg-blue-950/20 px-1 border border-blue-900/10 rounded">
-                                {val}
-                              </span>
+                              <span className={serviceTagClass}>{val}</span>
                             ) : '-'}
                           </td>
                         );
@@ -334,7 +332,7 @@ export default function HistoricalQuery() {
                         <td
                           key={col}
                           className={`py-2 px-4 font-mono ${
-                            col === 'message' ? 'text-zinc-200' : 'text-zinc-400'
+                            col === 'message' ? 'text-foreground' : 'text-muted-foreground'
                           } max-w-xs md:max-w-md lg:max-w-lg truncate`}
                           title={displayVal}
                         >
@@ -342,8 +340,8 @@ export default function HistoricalQuery() {
                         </td>
                       );
                     })}
-                    <td className="py-2 px-4 text-right text-zinc-650">
-                      <Eye size={13} className="inline opacity-0 group-hover:opacity-100 hover:text-zinc-200 transition-opacity" />
+                    <td className="py-2 px-4 text-right text-muted-foreground">
+                      <Eye size={13} className="inline opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity" />
                     </td>
                   </tr>
                 ))
@@ -354,12 +352,12 @@ export default function HistoricalQuery() {
 
         {/* Side Details Drawer */}
         {selectedLog && (
-          <div className="w-full lg:w-[420px] bg-zinc-900/30 border border-border rounded-lg p-4 flex flex-col gap-4 overflow-y-auto max-h-[600px]">
+          <div className="w-full lg:w-[420px] bg-muted/30 border border-border rounded-lg p-4 flex flex-col gap-4 overflow-y-auto max-h-[600px]">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <span className="text-xs font-bold text-foreground">Log Details</span>
               <button
                 onClick={() => setSelectedLog(null)}
-                className="text-xs text-zinc-400 hover:text-zinc-250 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded transition-colors"
+                className="text-xs text-muted-foreground hover:text-foreground bg-secondary border border-border px-2 py-0.5 rounded transition-colors"
               >
                 Close
               </button>
@@ -372,7 +370,7 @@ export default function HistoricalQuery() {
                   typeof selectedLog[col] !== 'object' && (
                     <div key={col} className="flex justify-between border-b border-border/30 py-1">
                       <span className="text-muted-foreground select-none">{col}:</span>
-                      <span className="text-zinc-300 break-all select-all ml-4 text-right">
+                      <span className="text-foreground break-all select-all ml-4 text-right">
                         {String(selectedLog[col])}
                       </span>
                     </div>
@@ -403,18 +401,18 @@ export default function HistoricalQuery() {
             <button
               onClick={() => handlePageChange('prev')}
               disabled={offset === 0}
-              className="p-1 rounded bg-zinc-900 border border-border text-zinc-400 hover:text-foreground disabled:opacity-30 disabled:hover:text-zinc-450 hover:bg-zinc-800 transition-all cursor-pointer"
+              className="p-1 rounded bg-secondary border border-border text-muted-foreground hover:text-foreground disabled:opacity-30 hover:bg-muted transition-all cursor-pointer"
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="text-xs font-mono text-zinc-400 px-2">
+            <span className="text-xs font-mono text-muted-foreground px-2">
               Page <strong className="text-foreground font-semibold">{currentPage}</strong> of{' '}
               <strong className="text-foreground font-semibold">{totalPages}</strong>
             </span>
             <button
               onClick={() => handlePageChange('next')}
               disabled={offset + limit >= data.total}
-              className="p-1 rounded bg-zinc-900 border border-border text-zinc-400 hover:text-foreground disabled:opacity-30 disabled:hover:text-zinc-450 hover:bg-zinc-800 transition-all cursor-pointer"
+              className="p-1 rounded bg-secondary border border-border text-muted-foreground hover:text-foreground disabled:opacity-30 hover:bg-muted transition-all cursor-pointer"
             >
               <ChevronRight size={16} />
             </button>

@@ -16,6 +16,15 @@ import {
   YAxis,
 } from "recharts";
 import { BarChart3, Calendar, LineChart as ChartIcon } from "lucide-react";
+import { useTheme } from "../theme";
+
+const CHART_GRID = "var(--chart-grid)";
+const CHART_AXIS = "var(--chart-axis)";
+const tooltipStyle = {
+  backgroundColor: "var(--chart-tooltip-bg)",
+  borderColor: "var(--chart-tooltip-border)",
+  color: "var(--chart-tooltip-fg)",
+};
 
 type TimeRange = "1h" | "3h" | "6h" | "12h" | "24h";
 type ViewMode = "activity" | "database";
@@ -79,12 +88,6 @@ const ACTIVITY_CATEGORIES: {
   },
 ];
 
-const tooltipStyle = {
-  backgroundColor: "#18181b",
-  borderColor: "#27272a",
-  color: "#fafafa",
-};
-
 function enrichActivityRows(rows: ActivityStatRecord[]) {
   return rows.map((row) => ({
     ...row,
@@ -93,6 +96,7 @@ function enrichActivityRows(rows: ActivityStatRecord[]) {
 }
 
 export default function StatsDashboard() {
+  useTheme(); // re-render charts when theme changes
   const [timeRange, setTimeRange] = useState<TimeRange>("6h");
   const [viewMode, setViewMode] = useState<ViewMode>("activity");
   const [activityCategory, setActivityCategory] =
@@ -162,11 +166,11 @@ export default function StatsDashboard() {
 
     const common = (
       <>
-        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
         <XAxis
           dataKey="until"
           tickFormatter={formatTime}
-          stroke="#71717a"
+          stroke={CHART_AXIS}
           fontSize={11}
         />
         <Tooltip
@@ -192,13 +196,13 @@ export default function StatsDashboard() {
           >
             {common}
             {needsLeft && (
-              <YAxis yAxisId="left" stroke="#71717a" fontSize={11} />
+              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
             )}
             {needsRight && (
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                stroke="#71717a"
+                stroke={CHART_AXIS}
                 fontSize={11}
               />
             )}
@@ -250,13 +254,13 @@ export default function StatsDashboard() {
           >
             {common}
             {needsLeft && (
-              <YAxis yAxisId="left" stroke="#71717a" fontSize={11} />
+              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
             )}
             {needsRight && (
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                stroke="#71717a"
+                stroke={CHART_AXIS}
                 fontSize={11}
               />
             )}
@@ -297,13 +301,13 @@ export default function StatsDashboard() {
           >
             {common}
             {needsLeft && (
-              <YAxis yAxisId="left" stroke="#71717a" fontSize={11} />
+              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
             )}
             {needsRight && (
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                stroke="#71717a"
+                stroke={CHART_AXIS}
                 fontSize={11}
               />
             )}
@@ -340,7 +344,7 @@ export default function StatsDashboard() {
             margin={{ top: 10, right: 10, left: -12, bottom: 0 }}
           >
             {common}
-            <YAxis yAxisId="left" stroke="#71717a" fontSize={11} />
+            <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
             {conn.http && (
               <Line
                 yAxisId="left"
@@ -374,7 +378,7 @@ export default function StatsDashboard() {
   const renderActiveCharts = () => {
     if (isLoading) {
       return (
-        <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-zinc-950/20 border border-border rounded-lg">
+        <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             <span>Loading stats...</span>
@@ -399,7 +403,7 @@ export default function StatsDashboard() {
     if (viewMode === "activity") {
       if (!stats?.activities?.length) {
         return (
-          <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-zinc-950/20 border border-border rounded-lg">
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
             No activity stats recorded in this period.
           </div>
         );
@@ -414,7 +418,7 @@ export default function StatsDashboard() {
               {chart}
             </ResponsiveContainer>
           ) : (
-            <div className="h-full flex items-center justify-center text-muted-foreground bg-zinc-950/20 border border-border rounded-lg">
+            <div className="h-full flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
               Select at least one metric below.
             </div>
           )}
@@ -424,7 +428,7 @@ export default function StatsDashboard() {
 
     if (!stats?.database?.length) {
       return (
-        <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-zinc-950/20 border border-border rounded-lg">
+        <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
           No database stats recorded in this period.
         </div>
       );
@@ -437,7 +441,7 @@ export default function StatsDashboard() {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="h-[280px] bg-zinc-900/40 p-3 rounded-lg border border-border">
+        <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
           <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
             <ChartIcon size={12} className="text-blue-400" /> Database Size (MB)
           </h4>
@@ -446,14 +450,14 @@ export default function StatsDashboard() {
               data={formattedDbStats}
               margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={formatTime}
-                stroke="#71717a"
+                stroke={CHART_AXIS}
                 fontSize={10}
               />
-              <YAxis stroke="#71717a" fontSize={10} />
+              <YAxis stroke={CHART_AXIS} fontSize={10} />
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelFormatter={(value) =>
@@ -473,7 +477,7 @@ export default function StatsDashboard() {
           </ResponsiveContainer>
         </div>
 
-        <div className="h-[280px] bg-zinc-900/40 p-3 rounded-lg border border-border">
+        <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
           <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
             <BarChart3 size={12} className="text-purple-400" /> Total Stored
             Rows
@@ -483,14 +487,14 @@ export default function StatsDashboard() {
               data={formattedDbStats}
               margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={formatTime}
-                stroke="#71717a"
+                stroke={CHART_AXIS}
                 fontSize={10}
               />
-              <YAxis stroke="#71717a" fontSize={10} />
+              <YAxis stroke={CHART_AXIS} fontSize={10} />
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelFormatter={(value) =>
@@ -519,13 +523,13 @@ export default function StatsDashboard() {
   return (
     <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-border">
-        <div className="flex bg-zinc-900 p-1 rounded-lg border border-border">
+        <div className="flex bg-muted p-1 rounded-lg border border-border">
           <button
             type="button"
             onClick={() => setViewMode("activity")}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
               viewMode === "activity"
-                ? "bg-zinc-800 text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -536,7 +540,7 @@ export default function StatsDashboard() {
             onClick={() => setViewMode("database")}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
               viewMode === "database"
-                ? "bg-zinc-800 text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -549,7 +553,7 @@ export default function StatsDashboard() {
           <span className="text-xs text-muted-foreground mr-1">
             Time Range:
           </span>
-          <div className="flex bg-zinc-900 p-1 rounded-lg border border-border">
+          <div className="flex bg-muted p-1 rounded-lg border border-border">
             {(["1h", "3h", "6h", "12h", "24h"] as TimeRange[]).map((range) => (
               <button
                 key={range}
@@ -557,7 +561,7 @@ export default function StatsDashboard() {
                 onClick={() => setTimeRange(range)}
                 className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all duration-200 ${
                   timeRange === range
-                    ? "bg-zinc-800 text-foreground shadow-sm font-bold"
+                    ? "bg-card text-foreground shadow-sm font-bold"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -586,7 +590,7 @@ export default function StatsDashboard() {
                     key={cat.id}
                     className={`rounded-lg border transition-colors ${
                       isActive
-                        ? "bg-zinc-800/50 border-primary/40"
+                        ? "bg-card/80 border-primary/40"
                         : "border-border/60"
                     }`}
                   >
@@ -596,7 +600,7 @@ export default function StatsDashboard() {
                       className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
                         isActive
                           ? "text-foreground"
-                          : "text-foreground/90 hover:bg-zinc-900/60"
+                          : "text-foreground/90 hover:bg-muted"
                       }`}
                     >
                       <span className="text-xs font-semibold">{cat.label}</span>
@@ -617,7 +621,7 @@ export default function StatsDashboard() {
                                   sub.id as keyof SubMetricsState[typeof cat.id],
                                 )
                               }
-                              className="rounded bg-zinc-950 border-zinc-700 text-primary focus:ring-primary"
+                              className="rounded bg-background border-border text-primary focus:ring-primary"
                             />
                             <span>{sub.label}</span>
                           </label>
@@ -629,12 +633,12 @@ export default function StatsDashboard() {
               })}
             </div>
           ) : (
-            <div className="text-xs text-muted-foreground space-y-2 bg-zinc-950/40 p-3 rounded-lg border border-border/60">
+            <div className="text-xs text-muted-foreground space-y-2 bg-muted/50 p-3 rounded-lg border border-border/60">
               <p>
                 Database size and row counts are gathered automatically in the
                 background by the LogLite diagnostics engine.
               </p>
-              <p className="text-zinc-500 mt-1">
+              <p className="text-muted-foreground mt-1">
                 Vacuuming triggers automatically or on a schedule to recycle
                 unused SQLite database pages.
               </p>

@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchStats } from "../api/client";
-import type { ActivityStatRecord } from "../api/client";
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchStats } from '../api/client';
+import type { ActivityStatRecord } from '../api/client';
 import {
   Area,
   AreaChart,
@@ -14,26 +14,26 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "recharts";
-import { BarChart3, Calendar, LineChart as ChartIcon } from "lucide-react";
-import { useTheme } from "../theme";
+} from 'recharts';
+import { BarChart3, Calendar, LineChart as ChartIcon } from 'lucide-react';
+import { useTheme } from '../theme';
 
-const CHART_GRID = "var(--chart-grid)";
-const CHART_AXIS = "var(--chart-axis)";
+const CHART_GRID = 'var(--chart-grid)';
+const CHART_AXIS = 'var(--chart-axis)';
 const tooltipStyle = {
-  backgroundColor: "var(--chart-tooltip-bg)",
-  borderColor: "var(--chart-tooltip-border)",
-  color: "var(--chart-tooltip-fg)",
+  backgroundColor: 'var(--chart-tooltip-bg)',
+  borderColor: 'var(--chart-tooltip-border)',
+  color: 'var(--chart-tooltip-fg)',
 };
 
-type TimeRange = "1h" | "3h" | "6h" | "12h" | "24h";
-type ViewMode = "activity" | "database";
-type ActivityCategory = "query" | "ingestion" | "insertion" | "connections";
+type TimeRange = '1h' | '3h' | '6h' | '12h' | '24h';
+type ViewMode = 'activity' | 'database';
+type ActivityCategory = 'query' | 'ingestion' | 'insertion' | 'connections';
 
-type QuerySub = "count" | "latency";
-type IngestionSub = "count" | "size";
-type InsertionSub = "count" | "cost";
-type ConnectionsSub = "http" | "sse";
+type QuerySub = 'count' | 'latency';
+type IngestionSub = 'count' | 'size';
+type InsertionSub = 'count' | 'cost';
+type ConnectionsSub = 'http' | 'sse';
 
 type SubMetricsState = {
   query: Record<QuerySub, boolean>;
@@ -55,35 +55,35 @@ const ACTIVITY_CATEGORIES: {
   subs: { id: string; label: string }[];
 }[] = [
   {
-    id: "query",
-    label: "Query",
+    id: 'query',
+    label: 'Query',
     subs: [
-      { id: "count", label: "Request count" },
-      { id: "latency", label: "Processing latency" },
+      { id: 'count', label: 'Request count' },
+      { id: 'latency', label: 'Processing latency' },
     ],
   },
   {
-    id: "ingestion",
-    label: "Ingestion",
+    id: 'ingestion',
+    label: 'Ingestion',
     subs: [
-      { id: "count", label: "Request count" },
-      { id: "size", label: "Payload size" },
+      { id: 'count', label: 'Request count' },
+      { id: 'size', label: 'Payload size' },
     ],
   },
   {
-    id: "insertion",
-    label: "Insertion",
+    id: 'insertion',
+    label: 'Insertion',
     subs: [
-      { id: "count", label: "Log count" },
-      { id: "cost", label: "Time cost" },
+      { id: 'count', label: 'Log count' },
+      { id: 'cost', label: 'Time cost' },
     ],
   },
   {
-    id: "connections",
-    label: "Connections",
+    id: 'connections',
+    label: 'Connections',
     subs: [
-      { id: "http", label: "HTTP" },
-      { id: "sse", label: "SSE" },
+      { id: 'http', label: 'HTTP' },
+      { id: 'sse', label: 'SSE' },
     ],
   },
 ];
@@ -97,12 +97,10 @@ function enrichActivityRows(rows: ActivityStatRecord[]) {
 
 export default function StatsDashboard() {
   useTheme(); // re-render charts when theme changes
-  const [timeRange, setTimeRange] = useState<TimeRange>("6h");
-  const [viewMode, setViewMode] = useState<ViewMode>("activity");
-  const [activityCategory, setActivityCategory] =
-    useState<ActivityCategory>("query");
-  const [subMetrics, setSubMetrics] =
-    useState<SubMetricsState>(DEFAULT_SUB_METRICS);
+  const [timeRange, setTimeRange] = useState<TimeRange>('6h');
+  const [viewMode, setViewMode] = useState<ViewMode>('activity');
+  const [activityCategory, setActivityCategory] = useState<ActivityCategory>('query');
+  const [subMetrics, setSubMetrics] = useState<SubMetricsState>(DEFAULT_SUB_METRICS);
 
   const toggleSubMetric = <C extends ActivityCategory>(
     category: C,
@@ -123,11 +121,11 @@ export default function StatsDashboard() {
   const now = new Date();
   const getSinceDate = (range: TimeRange) => {
     const msMap: Record<TimeRange, number> = {
-      "1h": 60 * 60 * 1000,
-      "3h": 3 * 60 * 60 * 1000,
-      "6h": 6 * 60 * 60 * 1000,
-      "12h": 12 * 60 * 60 * 1000,
-      "24h": 24 * 60 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '3h': 3 * 60 * 60 * 1000,
+      '6h': 6 * 60 * 60 * 1000,
+      '12h': 12 * 60 * 60 * 1000,
+      '24h': 24 * 60 * 60 * 1000,
     };
     return new Date(now.getTime() - msMap[range]);
   };
@@ -141,7 +139,7 @@ export default function StatsDashboard() {
     isError,
     error,
   } = useQuery({
-    queryKey: ["stats", timeRange],
+    queryKey: ['stats', timeRange],
     queryFn: () => fetchStats(since, until),
     refetchInterval: 15000,
   });
@@ -149,17 +147,15 @@ export default function StatsDashboard() {
   const formatTime = (isoString: string) => {
     try {
       return new Date(isoString).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
+        hour: '2-digit',
+        minute: '2-digit',
       });
     } catch {
       return isoString;
     }
   };
 
-  const renderActivityChart = (
-    chartData: ReturnType<typeof enrichActivityRows>,
-  ) => {
+  const renderActivityChart = (chartData: ReturnType<typeof enrichActivityRows>) => {
     if (!hasEnabledSub) {
       return null;
     }
@@ -167,24 +163,17 @@ export default function StatsDashboard() {
     const common = (
       <>
         <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-        <XAxis
-          dataKey="until"
-          tickFormatter={formatTime}
-          stroke={CHART_AXIS}
-          fontSize={11}
-        />
+        <XAxis dataKey="until" tickFormatter={formatTime} stroke={CHART_AXIS} fontSize={11} />
         <Tooltip
           contentStyle={tooltipStyle}
-          labelFormatter={(value) =>
-            `Time: ${new Date(String(value)).toLocaleString()}`
-          }
+          labelFormatter={(value) => `Time: ${new Date(String(value)).toLocaleString()}`}
         />
         <Legend verticalAlign="top" height={36} />
       </>
     );
 
     switch (activityCategory) {
-      case "query": {
+      case 'query': {
         const q = subMetrics.query;
         const needsLeft = q.count;
         const needsRight = q.latency;
@@ -195,16 +184,9 @@ export default function StatsDashboard() {
             margin={{ top: 10, right: marginRight, left: -12, bottom: 0 }}
           >
             {common}
-            {needsLeft && (
-              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
-            )}
+            {needsLeft && <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />}
             {needsRight && (
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                stroke={CHART_AXIS}
-                fontSize={11}
-              />
+              <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS} fontSize={11} />
             )}
             {q.count && (
               <Bar
@@ -219,7 +201,7 @@ export default function StatsDashboard() {
             {q.latency && (
               <>
                 <Area
-                  yAxisId={needsRight ? "right" : "left"}
+                  yAxisId={needsRight ? 'right' : 'left'}
                   dataKey="query_latency_range"
                   name="Latency (min–max)"
                   fill="#f59e0b"
@@ -228,7 +210,7 @@ export default function StatsDashboard() {
                   activeDot={false}
                 />
                 <Line
-                  yAxisId={needsRight ? "right" : "left"}
+                  yAxisId={needsRight ? 'right' : 'left'}
                   type="monotone"
                   dataKey="query_avg"
                   name="Avg latency (ms)"
@@ -242,7 +224,7 @@ export default function StatsDashboard() {
           </ComposedChart>
         );
       }
-      case "ingestion": {
+      case 'ingestion': {
         const ing = subMetrics.ingestion;
         const needsLeft = ing.count;
         const needsRight = ing.size;
@@ -253,16 +235,9 @@ export default function StatsDashboard() {
             margin={{ top: 10, right: marginRight, left: -12, bottom: 0 }}
           >
             {common}
-            {needsLeft && (
-              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
-            )}
+            {needsLeft && <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />}
             {needsRight && (
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                stroke={CHART_AXIS}
-                fontSize={11}
-              />
+              <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS} fontSize={11} />
             )}
             {ing.count && (
               <Bar
@@ -276,7 +251,7 @@ export default function StatsDashboard() {
             )}
             {ing.size && (
               <Line
-                yAxisId={needsRight ? "right" : "left"}
+                yAxisId={needsRight ? 'right' : 'left'}
                 type="monotone"
                 dataKey="ingest_size_avg"
                 name="Avg body size (bytes)"
@@ -289,7 +264,7 @@ export default function StatsDashboard() {
           </ComposedChart>
         );
       }
-      case "insertion": {
+      case 'insertion': {
         const ins = subMetrics.insertion;
         const needsLeft = ins.count;
         const needsRight = ins.cost;
@@ -300,16 +275,9 @@ export default function StatsDashboard() {
             margin={{ top: 10, right: marginRight, left: -12, bottom: 0 }}
           >
             {common}
-            {needsLeft && (
-              <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
-            )}
+            {needsLeft && <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />}
             {needsRight && (
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                stroke={CHART_AXIS}
-                fontSize={11}
-              />
+              <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS} fontSize={11} />
             )}
             {ins.count && (
               <Bar
@@ -323,7 +291,7 @@ export default function StatsDashboard() {
             )}
             {ins.cost && (
               <Line
-                yAxisId={needsRight ? "right" : "left"}
+                yAxisId={needsRight ? 'right' : 'left'}
                 type="monotone"
                 dataKey="insert_total_cost"
                 name="Insert cost (ms)"
@@ -336,13 +304,10 @@ export default function StatsDashboard() {
           </ComposedChart>
         );
       }
-      case "connections": {
+      case 'connections': {
         const conn = subMetrics.connections;
         return (
-          <ComposedChart
-            data={chartData}
-            margin={{ top: 10, right: 10, left: -12, bottom: 0 }}
-          >
+          <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
             {common}
             <YAxis yAxisId="left" stroke={CHART_AXIS} fontSize={11} />
             {conn.http && (
@@ -393,14 +358,14 @@ export default function StatsDashboard() {
           <div>
             <p className="font-semibold">Failed to fetch stats</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {(error as Error)?.message || "Unknown error"}
+              {(error as Error)?.message || 'Unknown error'}
             </p>
           </div>
         </div>
       );
     }
 
-    if (viewMode === "activity") {
+    if (viewMode === 'activity') {
       if (!stats?.activities?.length) {
         return (
           <div className="h-[300px] flex items-center justify-center text-muted-foreground bg-muted/40 border border-border rounded-lg">
@@ -446,10 +411,7 @@ export default function StatsDashboard() {
             <ChartIcon size={12} className="text-blue-400" /> Database Size (MB)
           </h4>
           <ResponsiveContainer width="100%" height="90%">
-            <AreaChart
-              data={formattedDbStats}
-              margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
-            >
+            <AreaChart data={formattedDbStats} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
               <XAxis
                 dataKey="timestamp"
@@ -460,10 +422,8 @@ export default function StatsDashboard() {
               <YAxis stroke={CHART_AXIS} fontSize={10} />
               <Tooltip
                 contentStyle={tooltipStyle}
-                labelFormatter={(value) =>
-                  `Time: ${new Date(String(value)).toLocaleString()}`
-                }
-                formatter={(value) => [`${value} MB`, "Database Size"]}
+                labelFormatter={(value) => `Time: ${new Date(String(value)).toLocaleString()}`}
+                formatter={(value) => [`${value} MB`, 'Database Size']}
               />
               <Area
                 type="monotone"
@@ -479,14 +439,10 @@ export default function StatsDashboard() {
 
         <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
           <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
-            <BarChart3 size={12} className="text-purple-400" /> Total Stored
-            Rows
+            <BarChart3 size={12} className="text-purple-400" /> Total Stored Rows
           </h4>
           <ResponsiveContainer width="100%" height="90%">
-            <AreaChart
-              data={formattedDbStats}
-              margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
-            >
+            <AreaChart data={formattedDbStats} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
               <XAxis
                 dataKey="timestamp"
@@ -497,13 +453,8 @@ export default function StatsDashboard() {
               <YAxis stroke={CHART_AXIS} fontSize={10} />
               <Tooltip
                 contentStyle={tooltipStyle}
-                labelFormatter={(value) =>
-                  `Time: ${new Date(String(value)).toLocaleString()}`
-                }
-                formatter={(value) => [
-                  Number(value).toLocaleString(),
-                  "Row Count",
-                ]}
+                labelFormatter={(value) => `Time: ${new Date(String(value)).toLocaleString()}`}
+                formatter={(value) => [Number(value).toLocaleString(), 'Row Count']}
               />
               <Area
                 type="monotone"
@@ -526,22 +477,22 @@ export default function StatsDashboard() {
         <div className="flex bg-muted p-1 rounded-lg border border-border">
           <button
             type="button"
-            onClick={() => setViewMode("activity")}
+            onClick={() => setViewMode('activity')}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
-              viewMode === "activity"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
+              viewMode === 'activity'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             System Activity
           </button>
           <button
             type="button"
-            onClick={() => setViewMode("database")}
+            onClick={() => setViewMode('database')}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
-              viewMode === "database"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
+              viewMode === 'database'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Database Growth
@@ -550,19 +501,17 @@ export default function StatsDashboard() {
 
         <div className="flex items-center gap-2">
           <Calendar size={14} className="text-muted-foreground" />
-          <span className="text-xs text-muted-foreground mr-1">
-            Time Range:
-          </span>
+          <span className="text-xs text-muted-foreground mr-1">Time Range:</span>
           <div className="flex bg-muted p-1 rounded-lg border border-border">
-            {(["1h", "3h", "6h", "12h", "24h"] as TimeRange[]).map((range) => (
+            {(['1h', '3h', '6h', '12h', '24h'] as TimeRange[]).map((range) => (
               <button
                 key={range}
                 type="button"
                 onClick={() => setTimeRange(range)}
                 className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all duration-200 ${
                   timeRange === range
-                    ? "bg-card text-foreground shadow-sm font-bold"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? 'bg-card text-foreground shadow-sm font-bold'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {range}
@@ -577,10 +526,10 @@ export default function StatsDashboard() {
 
         <div className="lg:col-span-3 lg:border-l lg:border-border lg:pl-6 flex flex-col justify-start">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            {viewMode === "activity" ? "System activity" : "Database status"}
+            {viewMode === 'activity' ? 'System activity' : 'Database status'}
           </h4>
 
-          {viewMode === "activity" ? (
+          {viewMode === 'activity' ? (
             <div className="flex flex-col gap-2">
               {ACTIVITY_CATEGORIES.map((cat) => {
                 const isActive = activityCategory === cat.id;
@@ -589,18 +538,14 @@ export default function StatsDashboard() {
                   <div
                     key={cat.id}
                     className={`rounded-lg border transition-colors ${
-                      isActive
-                        ? "bg-card/80 border-primary/40"
-                        : "border-border/60"
+                      isActive ? 'bg-card/80 border-primary/40' : 'border-border/60'
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => setActivityCategory(cat.id)}
                       className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                        isActive
-                          ? "text-foreground"
-                          : "text-foreground/90 hover:bg-muted"
+                        isActive ? 'text-foreground' : 'text-foreground/90 hover:bg-muted'
                       }`}
                     >
                       <span className="text-xs font-semibold">{cat.label}</span>
@@ -635,12 +580,12 @@ export default function StatsDashboard() {
           ) : (
             <div className="text-xs text-muted-foreground space-y-2 bg-muted/50 p-3 rounded-lg border border-border/60">
               <p>
-                Database size and row counts are gathered automatically in the
-                background by the LogLite diagnostics engine.
+                Database size and row counts are gathered automatically in the background by the
+                LogLite diagnostics engine.
               </p>
               <p className="text-muted-foreground mt-1">
-                Vacuuming triggers automatically or on a schedule to recycle
-                unused SQLite database pages.
+                Vacuuming triggers automatically or on a schedule to recycle unused SQLite database
+                pages.
               </p>
             </div>
           )}

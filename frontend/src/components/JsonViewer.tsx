@@ -23,16 +23,21 @@ function highlightJson(json: string, theme: 'dark' | 'light') {
   const defaultCls = light ? 'text-amber-800' : 'text-amber-400';
 
   return escaped.replace(tokenRegex, (match) => {
-    let cls = defaultCls;
-    if (/^"/.test(match)) {
-      cls = /:$/.test(match) ? keyCls : stringCls;
-    } else if (/true|false/.test(match)) {
-      cls = boolCls;
-    } else if (/null/.test(match)) {
-      cls = nullCls;
-    } else {
-      cls = numCls;
-    }
+    const cls = (() => {
+      if (/^"/.test(match)) {
+        return /:$/.test(match) ? keyCls : stringCls;
+      }
+      if (/true|false/.test(match)) {
+        return boolCls;
+      }
+      if (/null/.test(match)) {
+        return nullCls;
+      }
+      if (/^-?\d/.test(match)) {
+        return numCls;
+      }
+      return defaultCls;
+    })();
     return `<span class="${cls}">${match}</span>`;
   });
 }
@@ -85,7 +90,9 @@ export default function JsonViewer({ data, title }: JsonViewerProps) {
       <div className="p-4 overflow-x-auto max-h-[350px] text-left leading-relaxed text-foreground">
         <pre
           className="whitespace-pre-wrap break-all"
-          dangerouslySetInnerHTML={{ __html: highlightJson(formattedJson, theme) }}
+          dangerouslySetInnerHTML={{
+            __html: highlightJson(formattedJson, theme),
+          }}
         />
       </div>
     </div>

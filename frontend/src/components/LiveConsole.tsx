@@ -152,9 +152,7 @@ export default function LiveConsole() {
           <button
             onClick={() => setAutoScroll(!autoScroll)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
-              autoScroll
-                ? 'bg-primary/10 text-primary border-primary/20'
-                : TOOLBAR_INACTIVE
+              autoScroll ? 'bg-primary/10 text-primary border-primary/20' : TOOLBAR_INACTIVE
             }`}
           >
             <ArrowDown size={13} className={autoScroll ? 'animate-bounce' : ''} />
@@ -165,9 +163,7 @@ export default function LiveConsole() {
           <button
             onClick={() => setWrapLines(!wrapLines)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
-              wrapLines
-                ? 'bg-primary/10 text-primary border-primary/20'
-                : TOOLBAR_INACTIVE
+              wrapLines ? 'bg-primary/10 text-primary border-primary/20' : TOOLBAR_INACTIVE
             }`}
           >
             <AlignLeft size={13} />
@@ -224,7 +220,11 @@ export default function LiveConsole() {
           {filteredLogs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1 mt-10">
               <div className="w-1.5 h-4 bg-primary rounded animate-pulse inline-block mr-1"></div>
-              <span>{isPaused ? 'Stream is paused. Resume to view incoming logs.' : 'Listening for incoming log records...'}</span>
+              <span>
+                {isPaused
+                  ? 'Stream is paused. Resume to view incoming logs.'
+                  : 'Listening for incoming log records...'}
+              </span>
             </div>
           ) : (
             filteredLogs.map((log) => {
@@ -259,7 +259,9 @@ export default function LiveConsole() {
                   {/* Message */}
                   <span
                     className={`flex-1 text-foreground select-text ${
-                      wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap overflow-x-hidden text-ellipsis'
+                      wrapLines
+                        ? 'whitespace-pre-wrap break-all'
+                        : 'whitespace-nowrap overflow-x-hidden text-ellipsis'
                     }`}
                   >
                     {log.message}
@@ -312,7 +314,9 @@ export default function LiveConsole() {
               </div>
               <div className="flex justify-between border-b border-border/40 py-1 font-mono">
                 <span className="text-muted-foreground">Service:</span>
-                <span className="text-blue-400 font-semibold select-all">{selectedLog.service}</span>
+                <span className="text-blue-400 font-semibold select-all">
+                  {selectedLog.service}
+                </span>
               </div>
             </div>
 

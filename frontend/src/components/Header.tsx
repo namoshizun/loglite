@@ -18,7 +18,7 @@ export default function Header() {
   const { data: healthData, isError: isHealthError } = useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
-    refetchInterval: 10000,
+    refetchInterval: 5000,
     retry: true,
   });
 
@@ -31,7 +31,7 @@ export default function Header() {
   // Fetch stats for the last hour to display database summary metrics
   const now = new Date();
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  
+
   const { data: statsData } = useQuery({
     queryKey: ['headerStats'],
     queryFn: () => fetchStats(oneHourAgo.toISOString(), now.toISOString()),
@@ -39,7 +39,7 @@ export default function Header() {
   });
 
   const isHealthy = healthData?.status === 'ok' && !isHealthError;
-  
+
   // Get latest db stats row
   const dbStats = statsData?.database?.[statsData.database.length - 1];
   const rowCount = dbStats?.rows_count ?? 0;

@@ -20,32 +20,33 @@ export default function HistoricalQuery() {
   // Query States
   const [limit, setLimit] = useState(20);
   const [offset, setOffset] = useState(0);
-  
+
   // Dynamic filter state
   const [activeFilters, setActiveFilters] = useState<QueryFilter[]>([]);
-  
+
   // Pending filter inputs (for adding)
   const [newField, setNewField] = useState('level');
   const [newOp, setNewOp] = useState<'=' | '!=' | '>' | '>=' | '<' | '<=' | '~='>('=');
   const [newValue, setNewValue] = useState('');
-  
+
   // Selected fields / columns state
   const [allAvailableColumns, setAllAvailableColumns] = useState<string[]>(DEFAULT_COLUMNS);
   const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_COLUMNS);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
-  
+
   // Expanded log view
   const [selectedLog, setSelectedLog] = useState<Record<string, any> | null>(null);
 
   // TanStack Query to fetch logs
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['logs', limit, offset, activeFilters],
-    queryFn: () => fetchLogs({
-      fields: '*',
-      limit,
-      offset,
-      filters: activeFilters,
-    }),
+    queryFn: () =>
+      fetchLogs({
+        fields: '*',
+        limit,
+        offset,
+        filters: activeFilters,
+      }),
   });
 
   // Extract all available columns from retrieved log entries
@@ -91,7 +92,7 @@ export default function HistoricalQuery() {
 
   const toggleColumn = (col: string) => {
     setVisibleColumns((prev) =>
-      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
+      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col],
     );
   };
 
@@ -205,7 +206,10 @@ export default function HistoricalQuery() {
                 Select columns:
               </span>
               {allAvailableColumns.map((col) => (
-                <label key={col} className="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+                <label
+                  key={col}
+                  className="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+                >
                   <input
                     type="checkbox"
                     checked={visibleColumns.includes(col)}
@@ -223,7 +227,11 @@ export default function HistoricalQuery() {
         <div className="flex items-center gap-3 text-xs">
           {data && (
             <span className="text-muted-foreground font-mono">
-              Total match: <strong className="text-foreground font-semibold">{data.total.toLocaleString()}</strong> rows
+              Total match:{' '}
+              <strong className="text-foreground font-semibold">
+                {data.total.toLocaleString()}
+              </strong>{' '}
+              rows
             </span>
           )}
           <span className="text-muted-foreground border-l border-border pl-3">Rows:</span>
@@ -252,7 +260,10 @@ export default function HistoricalQuery() {
             <thead>
               <tr className="bg-muted border-b border-border">
                 {visibleColumns.map((col) => (
-                  <th key={col} className="py-2.5 px-4 font-mono font-bold text-muted-foreground capitalize select-none">
+                  <th
+                    key={col}
+                    className="py-2.5 px-4 font-mono font-bold text-muted-foreground capitalize select-none"
+                  >
                     {col}
                   </th>
                 ))}
@@ -262,7 +273,10 @@ export default function HistoricalQuery() {
             <tbody className="divide-y divide-border/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={visibleColumns.length + 1} className="py-20 text-center text-muted-foreground">
+                  <td
+                    colSpan={visibleColumns.length + 1}
+                    className="py-20 text-center text-muted-foreground"
+                  >
                     <div className="flex flex-col items-center gap-2">
                       <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                       <span>Querying database logs...</span>
@@ -271,14 +285,22 @@ export default function HistoricalQuery() {
                 </tr>
               ) : isError ? (
                 <tr>
-                  <td colSpan={visibleColumns.length + 1} className="py-20 text-center text-destructive">
+                  <td
+                    colSpan={visibleColumns.length + 1}
+                    className="py-20 text-center text-destructive"
+                  >
                     <p className="font-semibold">Query failed</p>
-                    <p className="text-xs text-muted-foreground mt-1">{(error as any)?.message || 'Unknown error'}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {(error as any)?.message || 'Unknown error'}
+                    </p>
                   </td>
                 </tr>
               ) : !data || data.results.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleColumns.length + 1} className="py-20 text-center text-muted-foreground italic">
+                  <td
+                    colSpan={visibleColumns.length + 1}
+                    className="py-20 text-center text-muted-foreground italic"
+                  >
                     No log records match the selected filters.
                   </td>
                 </tr>
@@ -299,16 +321,21 @@ export default function HistoricalQuery() {
                         const levelColor = levelColors[levelStr] || levelColors.DEBUG;
                         return (
                           <td key={col} className="py-2 px-4 whitespace-nowrap">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${levelColor}`}>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${levelColor}`}
+                            >
                               {levelStr}
                             </span>
                           </td>
                         );
                       }
-                      
+
                       if (col === 'timestamp') {
                         return (
-                          <td key={col} className="py-2 px-4 whitespace-nowrap text-muted-foreground font-mono">
+                          <td
+                            key={col}
+                            className="py-2 px-4 whitespace-nowrap text-muted-foreground font-mono"
+                          >
                             {new Date(val).toLocaleString()}
                           </td>
                         );
@@ -317,9 +344,7 @@ export default function HistoricalQuery() {
                       if (col === 'service') {
                         return (
                           <td key={col} className="py-2 px-4 whitespace-nowrap">
-                            {val ? (
-                              <span className={serviceTagClass}>{val}</span>
-                            ) : '-'}
+                            {val ? <span className={serviceTagClass}>{val}</span> : '-'}
                           </td>
                         );
                       }
@@ -341,7 +366,10 @@ export default function HistoricalQuery() {
                       );
                     })}
                     <td className="py-2 px-4 text-right text-muted-foreground">
-                      <Eye size={13} className="inline opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity" />
+                      <Eye
+                        size={13}
+                        className="inline opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity"
+                      />
                     </td>
                   </tr>
                 ))
@@ -374,7 +402,7 @@ export default function HistoricalQuery() {
                         {String(selectedLog[col])}
                       </span>
                     </div>
-                  )
+                  ),
               )}
             </div>
 
@@ -394,7 +422,8 @@ export default function HistoricalQuery() {
             <span className="text-foreground font-medium">
               {Math.min(offset + limit, data.total)}
             </span>{' '}
-            of <span className="text-foreground font-semibold">{data.total.toLocaleString()}</span> entries
+            of <span className="text-foreground font-semibold">{data.total.toLocaleString()}</span>{' '}
+            entries
           </div>
 
           <div className="flex items-center gap-1.5">

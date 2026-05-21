@@ -136,7 +136,10 @@ export async function fetchVersion(): Promise<VersionResponse> {
   return res.json();
 }
 
-export async function fetchStats(since: string, until: string): Promise<ReturnType<typeof transformStats>> {
+export async function fetchStats(
+  since: string,
+  until: string,
+): Promise<ReturnType<typeof transformStats>> {
   const params = new URLSearchParams({
     since,
     until,

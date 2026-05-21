@@ -41,6 +41,12 @@ jobs:
       - name: Run tests with coverage
         run: cpp/run-tests.sh --cov
 
+      - name: Install pip
+        if: matrix.arch == 'x86_64'
+        run: |
+          python3 -m ensurepip --upgrade
+          ln -s $(which pip3) /usr/local/bin/pip
+
       - name: Upload coverage to Codecov
         if: matrix.arch == 'x86_64'
         uses: codecov/codecov-action@v5

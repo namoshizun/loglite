@@ -189,3 +189,6 @@ playground/
 
 .cursor
 py/_cpp
+
+frontend/dist
+frontend/node_modules

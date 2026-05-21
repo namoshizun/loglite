@@ -44,6 +44,12 @@ jobs:
           uv sync -p python${{ matrix.python-version }} --no-dev --group test --extra zmq
           uv run -p python${{ matrix.python-version }} pytest
 
+      - name: Install pip
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          python3 -m ensurepip --upgrade
+          ln -s $(which pip3) /usr/local/bin/pip
+
       - name: Upload coverage to Codecov
         if: matrix.runner == 'ubuntu-24.04'
         uses: codecov/codecov-action@v5

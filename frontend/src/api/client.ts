@@ -158,6 +158,8 @@ export async function fetchLogs(params: QueryLogsParams): Promise<PaginatedLogs>
 }
 
 export function getSSEUrl(fields: string = '*'): string {
-  // Use relative SSE url so it goes through Vite proxy in dev, and matches origin in prod
-  return `/logs/sse?fields=${encodeURIComponent(fields)}`;
+  const isDev = import.meta.env.DEV;
+  // Bypassing Vite proxy in development mode since it might buffer/interfere with SSE chunks.
+  const baseUrl = isDev ? 'http://localhost:7788' : '';
+  return `${baseUrl}/logs/sse?fields=${encodeURIComponent(fields)}`;
 }

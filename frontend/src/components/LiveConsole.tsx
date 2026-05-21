@@ -58,7 +58,10 @@ export default function LiveConsole() {
       try {
         const incoming: LogRecord[] = JSON.parse(event.data);
         if (incoming && incoming.length > 0) {
-          logsBufferRef.current = [...logsBufferRef.current, ...incoming].slice(-maxLogs);
+          // Backend returns logs in descending order (newest first).
+          // We reverse them to ascending order so they append correctly to the end of the console.
+          const ascending = [...incoming].reverse();
+          logsBufferRef.current = [...logsBufferRef.current, ...ascending].slice(-maxLogs);
           setLogs([...logsBufferRef.current]);
         }
       } catch (err) {

@@ -7,12 +7,15 @@ on:
       - "cpp/src/**"
       - "cpp/tests/**"
       - ".github/workflows/cpp-tests.yml"
+      - "codecov.yml"
   pull_request:
     branches: [main]
     paths:
       - "cpp/src/**"
       - "cpp/tests/**"
       - ".github/workflows/cpp-tests.yml"
+      - "codecov.yml"
+  workflow_dispatch:
 
 jobs:
   test:

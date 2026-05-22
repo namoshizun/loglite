@@ -6,7 +6,7 @@
 - When asked to review the code, GO BY THE BOOK! As if you are a reviewer in bad mood.
 
 
-## Python coding guide
+## Python dev
 
 - Your implementation must be elegant, intuitive and Pythonic.
 - All method parameters **must** be typed, all variables **should** be typed wherever sensible.
@@ -14,7 +14,7 @@
 - Use loguru instead of the builtin logging module
 - Write all Python tests as `pytest` style functions, not `unittest` classes.
 
-## C++ coding style
+## C++ dev
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
 - Use C++ 20. Prefer modern features over legacy ones.
@@ -22,3 +22,12 @@
 - Use CMake and GTest
 - Use `cpp/build.sh` to build the debug / release binary.
 - Use `cpp/run-tests.sh` to execute unit tests.
+
+
+## Frontend dev
+
+- Sources: `frontend/`. Dev: `npm run dev` (backend on **7788**). Check: `npm run build`, `npm run lint`. Format: `npm run format` (Prettier; config in `frontend/.prettierrc.json`). UI copy: `src/i18n/` (`en` default, `zh`); use `useI18n().t(...)`.
+- Stack: React 19, TypeScript, Vite, Tailwind v4, TanStack Query, Chart.js (`react-chartjs-2`), lucide-react. Dashboard tabs sync via `?tab=` (`useDashboardTab`).
+- HTTP/SSE and query encoding: `src/api/client.ts` only; do not duplicate in components. Backend URL: `VITE_API_BASE_URL` in `frontend/.env` (dev, default `http://localhost:7788`) and `frontend/.env.production` (empty = same-origin). Vite dev proxy reads the same variable via `vite.config.ts`.
+- Production UI: build `dockerfiles/Dockerfile.frontend` (nginx serves `dist/`, proxies API to `BACKEND_URL`).
+- Use `frontend/analyze-bundle.sh` to analyze the bundle size.

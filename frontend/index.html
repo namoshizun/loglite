@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <script>
+      (function () {
+        var t = localStorage.getItem('loglite-theme');
+        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+        var l = localStorage.getItem('loglite-locale');
+        document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loglite Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -7,6 +7,7 @@
 #include "writer_database.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -63,6 +64,7 @@ struct ServerContext {
     LogNotifier& notifier;
 
     asio::strand<asio::thread_pool::executor_type> write_strand;
+    std::chrono::steady_clock::time_point server_started_at{std::chrono::steady_clock::now()};
 };
 
 }  // namespace loglite

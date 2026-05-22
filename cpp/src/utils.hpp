@@ -101,8 +101,11 @@ inline std::string_view strip_spaces(std::string_view s) {
 
 // ── Time utils ───────────────────────────────────────────────────────────────
 inline std::string format_utc(std::chrono::system_clock::time_point tp) {
-    auto secs = std::chrono::floor<std::chrono::seconds>(tp.time_since_epoch());
-    return date::format("%Y-%m-%dT%H:%M:%SZ", date::sys_seconds{secs});
+    using namespace std::chrono;
+    const auto ns = time_point_cast<nanoseconds>(tp).time_since_epoch();
+    const auto sec = floor<seconds>(ns);
+    const auto ms = duration_cast<milliseconds>(ns - sec);
+    return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}Z", date::sys_seconds{sec}, ms.count());
 }
 
 // RFC 3339 / ISO 8601 instant: full date-time with 'T', optional fractional seconds, and optional

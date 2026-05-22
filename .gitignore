@@ -192,3 +192,4 @@ py/_cpp
 
 frontend/dist
 frontend/node_modules
+!frontend/index.html

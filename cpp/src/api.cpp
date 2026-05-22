@@ -66,8 +66,14 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     LogNotifier notifier;
     notifier.Notify(db_write.GetMaxLogId());
     asio::thread_pool db_write_pool{1u};
-    ServerContext ctx{cfg,     db_write, db_read,
-                      backlog, notifier, asio::make_strand(db_write_pool.get_executor())};
+    const auto server_started_at = std::chrono::steady_clock::now();
+    ServerContext ctx{cfg,
+                      db_write,
+                      db_read,
+                      backlog,
+                      notifier,
+                      asio::make_strand(db_write_pool.get_executor()),
+                      server_started_at};
 
     g_backlog = &backlog;
 

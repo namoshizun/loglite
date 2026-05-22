@@ -80,13 +80,19 @@ TEST(UtilsTest, BytesToMb) {
 TEST(UtilsTest, ParseIso8601WithZRoundTripsViaFormatUtc) {
     auto tp = parse_iso8601("2024-06-15T08:30:00Z");
     ASSERT_TRUE(tp.has_value());
-    EXPECT_EQ(format_utc(*tp), "2024-06-15T08:30:00Z");
+    EXPECT_EQ(format_utc(*tp), "2024-06-15T08:30:00.000Z");
 }
 
 TEST(UtilsTest, ParseIso8601WithoutZ) {
     auto tp = parse_iso8601("2024-01-01T00:00:00");
     ASSERT_TRUE(tp.has_value());
-    EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00Z");
+    EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00.000Z");
+}
+
+TEST(UtilsTest, FormatUtcIncludesMilliseconds) {
+    auto tp = parse_iso8601("2024-01-01T12:34:56.789Z");
+    ASSERT_TRUE(tp.has_value());
+    EXPECT_EQ(format_utc(*tp), "2024-01-01T12:34:56.789Z");
 }
 
 TEST(UtilsTest, ParseIso8601FractionalPreservesSubseconds) {

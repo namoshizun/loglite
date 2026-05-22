@@ -56,10 +56,24 @@ repos:
         types_or: [python, pyi]
         pass_filenames: false
 
-      - id: type-checking
+      - id: python-type-checking
         name: Pyright type checking
         entry: uv run --directory py pyright
         args: [--level=error]
         language: system
         types_or: [python, pyi]
+        pass_filenames: false
+      
+      - id: frontend-lint
+        name: Frontend lint
+        entry: npm run lint --prefix frontend
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: frontend-format
+        name: Frontend format
+        entry: npm run format --prefix frontend
+        language: system
+        files: ^frontend/
         pass_filenames: false

@@ -1,6 +1,6 @@
 :hide-toc:
 
-.. image:: loglite.png
+.. image:: logo.svg
    :alt: LogLite logo
    :width: 270
    :align: center
@@ -192,7 +192,7 @@ background; the response returns immediately with ``{"status": "accepted"}``.
    curl -X POST http://localhost:7788/logs \
      -H "Content-Type: application/json" \
      -d '{
-       "timestamp": "2026-05-05T12:34:56Z",
+       "timestamp": "2026-05-05T12:34:56.123Z",
        "message": "User signed in",
        "level": "INFO",
        "service": "auth"
@@ -234,6 +234,20 @@ Supported operators: ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``, ``~=``
    Filters always translate to a ``WHERE`` on the SQLite table. **In production,
    only filter on indexed columns** — define indices in your migration for every
    field you intend to query frequently, otherwise expect full table scans.
+
+
+``GET /logs/sse``
+~~~~~~~~~~~~~~~~~
+
+Subscribe to new logs in real time over `Server-Sent Events
+<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_. The
+``fields`` parameter behaves the same as on ``GET /logs``. Bursts of writes are
+coalesced according to ``sse_debounce_ms``.
+
+.. code-block:: bash
+
+   curl -N --output - -H "Accept: text/event-stream" \
+     "http://localhost:7788/logs/sse?fields=message,timestamp,level"
 
 
 ``GET /stats``
@@ -286,8 +300,6 @@ connection counts.
 - ``rows_count`` — total log rows stored in the database.
 - ``db_size`` — database file size (bytes).
 
-
-
 **Example query:**
 
 .. code-block:: bash
@@ -314,22 +326,115 @@ Response:
          [2, "2026-05-01T01:00:00Z", 45230, 5242880],
          [1, "2026-05-01T00:59:00Z", 45110, 5111808]
        ]
-     }
+     },
+     "uptime": 3600
    }
 
+``uptime`` is the number of seconds since this server process started (integer).
 
-``GET /logs/sse``
+
+``GET /version``
+~~~~~~~~~~~~~~~~
+
+Returns the version string of the running LogLite instance.
+
+Response:
+
+.. code-block:: json
+
+   {"version": "1.2.0"}
+
+
+``GET /settings``
 ~~~~~~~~~~~~~~~~~
 
-Subscribe to new logs in real time over `Server-Sent Events
-<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_. The
-``fields`` parameter behaves the same as on ``GET /logs``. Bursts of writes are
-coalesced according to ``sse_debounce_ms``.
+Returns the server configuration values from the loaded config file.
 
-.. code-block:: bash
+Response:
 
-   curl -N --output - -H "Accept: text/event-stream" \
-     "http://localhost:7788/logs/sse?fields=message,timestamp,level"
+.. code-block:: json
+
+   {
+     "settings": [
+       {
+         "key": "log_table_name",
+         "value": "Log",
+         "description": "SQLite table name used to store log records."
+       },
+       {
+         "key": "sqlite_params",
+         "value": {
+           "journal_mode": "WAL",
+           "synchronous": "NORMAL"
+         },
+         "description": "SQLite PRAGMA key/value pairs applied when opening the database."
+       },
+       {
+         "key": "compression_enabled",
+         "value": false,
+         "description": "Whether dictionary compression is enabled for configured log columns."
+       },
+       {
+         "key": "harvester_types",
+         "value": ["loglite.harvesters.FileHarvester"],
+         "description": "Harvester implementation types configured for this instance."
+       }
+     ]
+   }
+
+Included settings:
+
+- ``log_table_name``, ``log_timestamp_field``
+- ``sqlite_params`` (object of PRAGMA key/value pairs)
+- ``auto_rollout``
+- ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``, ``vacuum_delete_batch_size``
+- ``task_diagnostics_interval``, ``task_backlog_flush_interval``, ``task_backlog_max_size``
+- ``task_vacuum_interval``, ``task_vacuum_max_size``, ``stats_retention_hours``
+- ``compression_enabled`` (boolean)
+- ``harvester_types`` (array of harvester ``type`` strings from the config)
+
+
+``GET /schema``
+~~~~~~~~~~~~~~~
+
+Returns the schema of the configured log table (column names and types).
+
+Response:
+
+.. code-block:: json
+
+   {
+     "table": "Log",
+     "columns": [
+       {
+         "name": "timestamp",
+         "kind": "datetime",
+         "sqlite_type": "DATETIME",
+         "compressed": false,
+         "not_null": true,
+         "primary_key": false
+       },
+       {
+         "name": "service",
+         "kind": "text",
+         "sqlite_type": "INTEGER",
+         "compressed": true,
+         "not_null": true,
+         "primary_key": false
+       }
+     ]
+   }
+
+Each column object includes:
+
+- ``name`` — column name
+- ``sqlite_type`` — declarative type from SQLite ``PRAGMA table_info``
+- ``kind`` — one of ``integer, number, text, datetime, json, blob, boolean``
+  ``text``, ``datetime``, ``json``, ``blob``, or ``boolean``
+- ``compressed`` — when ``true``, the column is stored as integers but filtered
+  using canonical string values (dictionary compression); ``kind`` is always
+  ``text`` for compressed columns
+- ``not_null``, ``primary_key`` — from the table definition
 
 
 Harvesters
@@ -445,13 +550,6 @@ LogLite has two pieces:
 If you don't need custom Python harvesters, you can also run the standalone
 C++ binary directly. The config file and database are identical in both modes;
 switching is a binary swap.
-
-
-Roadmap
--------
-
-- Built-in web UI for browsing logs and database stats
-- Time-based partitioning (one SQLite file per day or month)
 
 
 License

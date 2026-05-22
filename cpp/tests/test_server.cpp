@@ -170,6 +170,24 @@ TEST_F(ServerTest, HealthReturnsOk) {
     EXPECT_EQ(body["status"], "ok");
 }
 
+TEST_F(ServerTest, SettingsReturnsOk) {
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/settings");
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    ASSERT_TRUE(body.contains("settings"));
+    EXPECT_TRUE(body["settings"].is_array());
+    EXPECT_GE(body["settings"].size(), 10u);
+}
+
+TEST_F(ServerTest, VersionReturnsOk) {
+    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/version");
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_FALSE(body["version"].get<std::string>().empty());
+}
+
 // ── CORS preflight ──────────────────────────────────────────────────────────
 
 TEST_F(ServerTest, OptionsReturnsNoContentWithCorsHeaders) {
@@ -342,6 +360,8 @@ TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
     EXPECT_TRUE(body["activities"].contains("data"));
     EXPECT_TRUE(body["database"].contains("fields"));
     EXPECT_TRUE(body["database"].contains("data"));
+    EXPECT_TRUE(body.contains("uptime"));
+    EXPECT_GE(body["uptime"].get<int64_t>(), 0);
 }
 
 TEST_F(ServerTest, StatsWithPopulatedData) {

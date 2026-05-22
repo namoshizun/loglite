@@ -2,6 +2,10 @@
 
 #include "handlers/common.hpp"
 #include "handlers/health.hpp"
+#include "handlers/version_route.hpp"
+#include "handlers/settings.hpp"
+#include "handlers/schema.hpp"
+#include "version.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "config.hpp"
@@ -119,6 +123,88 @@ TEST_F(HandlersTest, HealthContainsCorsHeaders) {
     auto req = make_req(http::verb::get, "/health");
     auto res = handlers::HandleHealth(req, *ctx_);
     EXPECT_EQ(res[http::field::access_control_allow_origin], "*");
+}
+
+TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
+    cfg_.log_table_name = "MyLogs";
+    cfg_.compression.enabled = true;
+    cfg_.harvesters.push_back(Config::HarvesterDef{
+        .type = "loglite.harvesters.FileHarvester",
+        .name = "files",
+        .config = {},
+    });
+
+    auto req = make_req(http::verb::get, "/settings");
+    auto res = handlers::HandleSettings(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    ASSERT_TRUE(body.contains("settings"));
+    auto settings = body["settings"];
+    ASSERT_TRUE(settings.is_array());
+
+    auto find_key = [&](const char* key) -> nlohmann::json {
+        for (const auto& item : settings) {
+            if (item["key"] == key) return item;
+        }
+        return nlohmann::json();
+    };
+
+    auto table = find_key("log_table_name");
+    ASSERT_FALSE(table.is_null());
+    EXPECT_EQ(table["value"], "MyLogs");
+    EXPECT_TRUE(table["description"].is_string());
+
+    auto compression = find_key("compression_enabled");
+    ASSERT_FALSE(compression.is_null());
+    EXPECT_EQ(compression["value"], true);
+
+    auto types = find_key("harvester_types");
+    ASSERT_FALSE(types.is_null());
+    ASSERT_EQ(types["value"].size(), 1u);
+    EXPECT_EQ(types["value"][0], "loglite.harvesters.FileHarvester");
+}
+
+TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
+    auto req = make_req(http::verb::get, "/schema");
+    auto res = handlers::HandleSchema(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["table"], "TestLog");
+    ASSERT_TRUE(body["columns"].is_array());
+    ASSERT_GE(body["columns"].size(), 4u);
+
+    auto find_col = [&](const char* name) -> nlohmann::json {
+        for (const auto& col : body["columns"]) {
+            if (col["name"] == name) return col;
+        }
+        return nlohmann::json();
+    };
+
+    auto id = find_col("id");
+    ASSERT_FALSE(id.is_null());
+    EXPECT_EQ(id["kind"], "integer");
+    EXPECT_TRUE(id["primary_key"].get<bool>());
+
+    auto ts = find_col("timestamp");
+    ASSERT_FALSE(ts.is_null());
+    EXPECT_EQ(ts["kind"], "text");
+    EXPECT_EQ(ts["sqlite_type"], "TEXT");
+
+    auto level = find_col("level");
+    ASSERT_FALSE(level.is_null());
+    EXPECT_EQ(level["kind"], "text");
+    EXPECT_FALSE(level["compressed"].get<bool>());
+}
+
+TEST_F(HandlersTest, VersionReturnsProjectVersion) {
+    auto req = make_req(http::verb::get, "/version");
+    auto res = handlers::HandleVersion(req, *ctx_);
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["version"], kVersion);
 }
 
 // ── Insert handler ──────────────────────────────────────────────────────────

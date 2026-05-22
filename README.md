@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/loglite.png" alt="LogLite Logo" width="170"/>
+  <img src="docs/logo.svg" alt="LogLite Logo" width="170"/>
 
 ### A lightweight, high-performance logging service. SQLite-backed, with a REST + SSE API.
 </div>
@@ -123,7 +123,7 @@ Send a log:
 ```bash
 curl -X POST http://localhost:7788/logs \
   -H "Content-Type: application/json" \
-  -d '{"timestamp":"2026-05-05T12:00:00Z","message":"hello","level":"INFO","service":"demo"}'
+  -d '{"timestamp":"2026-05-05T12:00:00.123Z","message":"hello","level":"INFO","service":"demo"}'
 ```
 
 Tail in real time:
@@ -144,7 +144,7 @@ Full configuration reference, HTTP API, harvester plugin guide, and recipes:
 - [x] Harvester plugin system (file / socket / ZMQ / custom)
 - [x] Native C++ core
 - [x] `/stats` endpoint for DB and background-task metrics
-- [ ] Built-in web UI for browsing logs
+- [x] Built-in web UI for browsing logs
 - [ ] Time-based partitioning (one SQLite file per day or month)
 
 ## License

@@ -5,6 +5,9 @@
 #include <csignal>
 
 #include "handlers/health.hpp"
+#include "handlers/version_route.hpp"
+#include "handlers/settings.hpp"
+#include "handlers/schema.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
 #include "handlers/sse.hpp"
@@ -162,8 +165,14 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
         res = handlers::HandleQuery(req, ctx_);
     } else if (path == "/health" && method == http::verb::get) {
         res = handlers::HandleHealth(req, ctx_);
+    } else if (path == "/version" && method == http::verb::get) {
+        res = handlers::HandleVersion(req, ctx_);
     } else if (path == "/stats" && method == http::verb::get) {
         res = handlers::HandleStats(req, ctx_);
+    } else if (path == "/settings" && method == http::verb::get) {
+        res = handlers::HandleSettings(req, ctx_);
+    } else if (path == "/schema" && method == http::verb::get) {
+        res = handlers::HandleSchema(req, ctx_);
     } else {
         res = handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
     }

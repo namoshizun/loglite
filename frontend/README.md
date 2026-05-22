@@ -2,6 +2,8 @@
 
 React dashboard for LogLite: live log streaming, historical queries, stats, settings, and a test panel. It talks to the LogLite HTTP API (C++ or Python backend).
 
+![LogLite dashboard — Analytics & Stats](screenshot.jpg)
+
 ## Prerequisites
 
 - **Node.js** 22+ (matches the production Docker build)

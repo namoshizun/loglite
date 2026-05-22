@@ -76,11 +76,16 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
                                         ordering);
         });
 
+        const auto uptime_s = std::chrono::duration_cast<std::chrono::seconds>(
+                                  std::chrono::steady_clock::now() - ctx.server_started_at)
+                                  .count();
+
         nlohmann::json body{
             {"activities",
              {{"fields", std::move(activities.fields)}, {"data", std::move(activities.data)}}},
             {"database",
              {{"fields", std::move(database.fields)}, {"data", std::move(database.data)}}},
+            {"uptime", uptime_s},
         };
         return MakeOKResp(body, req, ctx.config.allow_origin);
     } catch (const std::exception& e) {

@@ -1,20 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { getSSEUrl } from '../api/client';
 import { Play, Pause, Trash2, Search, ArrowDown, AlignLeft, Eye } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 import { getLevelStyles } from '../logLevelStyles';
 import { useTheme } from '../theme';
 import { useI18n } from '../i18n/locale';
 import { formatDateTimeMs, formatTimeMs } from '../utils/formatTimestamp';
+import { useLiveLogStream, type LiveLogRecord } from '../hooks/useLiveLogStream';
 
-interface LogRecord {
-  id: number;
-  timestamp: string;
-  level: string;
-  service: string;
-  message: string;
-  [key: string]: any;
-}
+type LogRecord = LiveLogRecord;
 
 const TOOLBAR_INACTIVE =
   'bg-secondary text-muted-foreground border-border hover:bg-muted hover:text-foreground';
@@ -27,7 +20,6 @@ export default function LiveConsole() {
     theme === 'light'
       ? 'text-blue-700 font-semibold bg-blue-50 px-1 border border-blue-200 rounded'
       : 'text-blue-400/80 font-semibold bg-blue-950/20 px-1 border border-blue-900/20 rounded';
-  const [logs, setLogs] = useState<LogRecord[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<Record<string, boolean>>({
@@ -41,48 +33,9 @@ export default function LiveConsole() {
   const [wrapLines, setWrapLines] = useState(true);
   const [selectedLog, setSelectedLog] = useState<LogRecord | null>(null);
 
+  const { logs, clearLogs: clearStreamLogs } = useLiveLogStream(isPaused);
+
   const consoleEndRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const logsBufferRef = useRef<LogRecord[]>([]);
-  const maxLogs = 500; // prevent memory bloat
-
-  // Handle EventSource connection
-  useEffect(() => {
-    if (isPaused) {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      return;
-    }
-
-    const sseUrl = getSSEUrl('*');
-    const es = new EventSource(sseUrl);
-    eventSourceRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const incoming: LogRecord[] = JSON.parse(event.data);
-        if (incoming && incoming.length > 0) {
-          // Backend returns logs in descending order (newest first).
-          // We reverse them to ascending order so they append correctly to the end of the console.
-          const ascending = [...incoming].reverse();
-          logsBufferRef.current = [...logsBufferRef.current, ...ascending].slice(-maxLogs);
-          setLogs([...logsBufferRef.current]);
-        }
-      } catch (err) {
-        console.error('Failed to parse SSE payload:', err);
-      }
-    };
-
-    es.onerror = (err) => {
-      console.warn('SSE disconnected, browser will attempt reconnection:', err);
-    };
-
-    return () => {
-      es.close();
-    };
-  }, [isPaused]);
 
   // Handle autoscroll
   useEffect(() => {
@@ -92,8 +45,7 @@ export default function LiveConsole() {
   }, [logs, autoScroll]);
 
   const clearLogs = () => {
-    logsBufferRef.current = [];
-    setLogs([]);
+    clearStreamLogs();
     setSelectedLog(null);
   };
 

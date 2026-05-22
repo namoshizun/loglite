@@ -1,25 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchHealth, fetchStats, fetchVersion } from '../api/client';
+import { fetchVersion } from '../api/client';
 import { Database, Layers, Moon, Sun } from 'lucide-react';
 import { useTheme, type Theme } from '../theme';
 import { useI18n, type Locale } from '../i18n/locale';
 import { formatBytes } from '../utils/formatBytes';
+import { useHeaderStats } from '../hooks/useHeaderStats';
+import { useServerHealth } from '../hooks/useServerHealth';
+import { useServerUpSince } from '../hooks/useServerUpSince';
 import logoUrl from '../../../docs/logo.svg?url';
 
 export default function Header() {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
 
-  const {
-    data: healthData,
-    isError: isHealthError,
-    isRefetchError,
-  } = useQuery({
-    queryKey: ['health'],
-    queryFn: fetchHealth,
-    refetchInterval: 5000,
-    retry: false,
-  });
+  const { isHealthy } = useServerHealth();
 
   const { data: versionData } = useQuery({
     queryKey: ['version'],
@@ -27,16 +21,9 @@ export default function Header() {
     staleTime: Infinity,
   });
 
-  const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const { data: statsData, dataUpdatedAt } = useHeaderStats();
+  const upSinceLine = useServerUpSince(statsData?.uptime, dataUpdatedAt, t);
 
-  const { data: statsData } = useQuery({
-    queryKey: ['headerStats'],
-    queryFn: () => fetchStats(oneHourAgo.toISOString(), now.toISOString()),
-    refetchInterval: 30000,
-  });
-
-  const isHealthy = healthData?.status === 'ok' && !isHealthError && !isRefetchError;
   const dbStats = statsData?.database?.[statsData.database.length - 1];
   const rowCount = dbStats?.rows_count ?? 0;
   const dbSizeBytes = dbStats?.db_size ?? 0;
@@ -45,23 +32,32 @@ export default function Header() {
     <header className="border-b border-border bg-card px-6 py-2 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <img src={logoUrl} alt="LogLite" className="h-14 w-auto max-w-[min(100%,22rem)] sm:h-16" />
-        <div className="flex items-center gap-2.5 shrink-0">
-          <span
-            className="relative flex h-2.5 w-2.5 shrink-0"
-            title={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
-            aria-label={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
-          >
-            {isHealthy && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <div className="flex items-center gap-2.5 shrink-0">
+            {versionData?.version && (
+              <span className="text-xs text-muted-foreground font-mono">
+                v{versionData.version}
+              </span>
             )}
             <span
-              className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                isHealthy ? 'bg-green-500' : 'bg-red-500'
-              }`}
-            />
-          </span>
-          {versionData?.version && (
-            <span className="text-xs text-muted-foreground font-mono">v{versionData.version}</span>
+              className="relative flex h-2.5 w-2.5 shrink-0"
+              title={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
+              aria-label={isHealthy ? t('header.serverOnline') : t('header.serverOffline')}
+            >
+              {isHealthy && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                  isHealthy ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+            </span>
+          </div>
+          {upSinceLine && isHealthy && (
+            <span className="text-[10px] text-muted-foreground font-mono leading-tight">
+              {upSinceLine}
+            </span>
           )}
         </div>
       </div>

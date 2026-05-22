@@ -27,6 +27,7 @@ export interface StatsResponse {
     fields: string[];
     data: any[][];
   };
+  uptime: number;
 }
 
 export interface QueryFilter {
@@ -121,7 +122,7 @@ export function transformStats(response: StatsResponse) {
   activities.reverse();
   database.reverse();
 
-  return { activities, database };
+  return { activities, database, uptime: response.uptime };
 }
 
 // Helper to serialize filters into query params

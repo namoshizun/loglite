@@ -360,6 +360,8 @@ TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
     EXPECT_TRUE(body["activities"].contains("data"));
     EXPECT_TRUE(body["database"].contains("fields"));
     EXPECT_TRUE(body["database"].contains("data"));
+    EXPECT_TRUE(body.contains("uptime"));
+    EXPECT_GE(body["uptime"].get<int64_t>(), 0);
 }
 
 TEST_F(ServerTest, StatsWithPopulatedData) {

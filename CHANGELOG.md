@@ -5,10 +5,12 @@
 - feat: dashboard frontend (optional & standalone) ✨
 - feat: `GET /version` returns the core version.
 - feat: `GET /settings` returns the loglite configuration as key-value pairs.
+- feat: add `uptime` to the `GET /stats` response.
 
 ### 1.1.0
 
 - feat: add metrics tracking for backlog drops, insert batches, and SSE sessions.
+- feat: `GET /stats` returns the server stats.
 - fix: SSE handler did not actively check for connection drops.
 - fix: SSE data message should not end with null terminator.
 - refactor: `Backlog::IsFull` becomes true when the buffer is at least 95% full, rather than when it reaches the exact hard capacity.

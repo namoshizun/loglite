@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { fetchLogSchema, postLog } from '../api/client';
+import { useMutation } from '@tanstack/react-query';
+import { postLog } from '../api/client';
+import { useLogSchema } from '../hooks/useLogSchema';
 import { useI18n } from '../i18n/locale';
 import {
   buildDefaultFieldValues,
@@ -17,30 +18,23 @@ export default function TestPanel() {
   const [values, setValues] = useState<FieldValues>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const {
-    data: schema,
-    isLoading: schemaLoading,
-    isError: schemaError,
-  } = useQuery({
-    queryKey: ['logSchema'],
-    queryFn: fetchLogSchema,
-  });
+  const { schemaColumns, isLoading: schemaLoading, isError: schemaError } = useLogSchema();
 
-  const columns = useMemo(() => (schema ? editableSchemaColumns(schema.columns) : []), [schema]);
+  const columns = useMemo(() => editableSchemaColumns(schemaColumns), [schemaColumns]);
 
   useEffect(() => {
-    if (schema?.columns) {
-      setValues(buildDefaultFieldValues(schema.columns));
+    if (schemaColumns.length > 0) {
+      setValues(buildDefaultFieldValues(schemaColumns));
       setSubmitError(null);
     }
-  }, [schema]);
+  }, [schemaColumns]);
 
   const mutation = useMutation({
     mutationFn: postLog,
     onSuccess: () => {
       setSubmitError(null);
-      if (schema?.columns) {
-        setValues(buildDefaultFieldValues(schema.columns));
+      if (schemaColumns.length > 0) {
+        setValues(buildDefaultFieldValues(schemaColumns));
       }
     },
     onError: (err: Error) => {
@@ -48,11 +42,11 @@ export default function TestPanel() {
     },
   });
 
-  const canSubmit = schema ? canSubmitLog(schema.columns, values) : false;
+  const canSubmit = schemaColumns.length > 0 ? canSubmitLog(schemaColumns, values) : false;
 
   const handleSubmit = () => {
-    if (!schema) return;
-    const { payload, errorField } = buildLogPayload(schema.columns, values);
+    if (!schemaColumns.length) return;
+    const { payload, errorField } = buildLogPayload(schemaColumns, values);
     if (!payload) {
       setSubmitError(
         errorField ? t('test.invalidField', { field: errorField }) : t('test.invalidPayload'),
@@ -75,7 +69,7 @@ export default function TestPanel() {
     );
   }
 
-  if (schemaError || !schema) {
+  if (schemaError) {
     return (
       <div className="bg-card border border-border rounded-xl p-8 text-center text-destructive text-sm">
         {t('test.schemaLoadFailed')}

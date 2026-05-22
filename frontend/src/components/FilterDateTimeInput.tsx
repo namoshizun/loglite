@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { DayPicker } from 'react-day-picker';
 import { Calendar, Clock } from 'lucide-react';
 import { useI18n } from '../i18n/locale';
+import { useClickOutside } from '../hooks/useClickOutside';
 import { formatDateTimeMs } from '../utils/formatTimestamp';
 import { formatLocalDatetimeInput, parseLocalDatetimeInput } from '../utils/logSchemaFilters';
 
@@ -53,16 +54,8 @@ export default function FilterDateTimeInput({
   const selected = parseLocalDatetimeInput(value) ?? new Date();
   const displayLabel = value.trim() ? formatDateTimeMs(selected) : t('query.datetimePick');
 
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(rootRef, open, close);
 
   const commit = (d: Date) => {
     onChange(formatLocalDatetimeInput(d));

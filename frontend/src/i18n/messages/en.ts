@@ -8,6 +8,7 @@ export const en = {
   'header.dbSize': 'DB Size',
   'header.logCountLabel': 'Log Count',
   'header.logCountValue': '{{n}} rows',
+  'header.upSince': 'Up since {{start}} ({{hrs}} hrs {{mins}} mins)',
   'bytes.0': 'Bytes',
   'bytes.kb': 'KB',
   'bytes.mb': 'MB',

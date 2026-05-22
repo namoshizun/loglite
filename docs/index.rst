@@ -326,8 +326,11 @@ Response:
          [2, "2026-05-01T01:00:00Z", 45230, 5242880],
          [1, "2026-05-01T00:59:00Z", 45110, 5111808]
        ]
-     }
+     },
+     "uptime": 3600
    }
+
+``uptime`` is the number of seconds since this server process started (integer).
 
 
 ``GET /version``

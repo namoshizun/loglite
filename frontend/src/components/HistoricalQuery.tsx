@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchLogs, fetchLogSchema } from '../api/client';
-import type { LogSchemaColumn, QueryFilter } from '../api/client';
+import { fetchLogs } from '../api/client';
+import type { QueryFilter } from '../api/client';
+import { useLogSchema } from '../hooks/useLogSchema';
 import { getLevelTableClasses } from '../logLevelStyles';
 import { useTheme } from '../theme';
 import {
@@ -43,20 +44,11 @@ export default function HistoricalQuery() {
   const [selectedLog, setSelectedLog] = useState<Record<string, unknown> | null>(null);
 
   const {
-    data: schema,
+    schemaColumns,
+    columnByName,
     isLoading: schemaLoading,
     isError: schemaError,
-  } = useQuery({
-    queryKey: ['logSchema'],
-    queryFn: fetchLogSchema,
-  });
-
-  const schemaColumns = useMemo(() => schema?.columns ?? [], [schema?.columns]);
-  const columnByName = useMemo(() => {
-    const map = new Map<string, LogSchemaColumn>();
-    for (const col of schemaColumns) map.set(col.name, col);
-    return map;
-  }, [schemaColumns]);
+  } = useLogSchema();
 
   const selectedKind = columnByName.get(newField)?.kind ?? 'text';
   const allowedOps = operatorsForKind(selectedKind);

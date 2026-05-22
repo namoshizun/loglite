@@ -223,6 +223,19 @@ export async function fetchLogs(params: QueryLogsParams): Promise<PaginatedLogs>
   return res.json();
 }
 
+export async function postLog(body: Record<string, unknown>): Promise<{ status: string }> {
+  const res = await fetch('/logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.error || 'Failed to post log');
+  }
+  return res.json();
+}
+
 export function getSSEUrl(fields: string = '*'): string {
   const isDev = import.meta.env.DEV;
   // Bypassing Vite proxy in development mode since it might buffer/interfere with SSE chunks.

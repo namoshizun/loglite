@@ -394,8 +394,7 @@ Included settings:
 ``GET /schema``
 ~~~~~~~~~~~~~~~
 
-Returns the schema of the configured log table (column names and types). Clients
-use this to build type-aware query filters for ``GET /logs``.
+Returns the schema of the configured log table (column names and types).
 
 Response:
 
@@ -427,7 +426,7 @@ Each column object includes:
 
 - ``name`` — column name
 - ``sqlite_type`` — declarative type from SQLite ``PRAGMA table_info``
-- ``kind`` — normalized type for UI and validation: ``integer``, ``number``,
+- ``kind`` — one of ``integer, number, text, datetime, json, blob, boolean``
   ``text``, ``datetime``, ``json``, ``blob``, or ``boolean``
 - ``compressed`` — when ``true``, the column is stored as integers but filtered
   using canonical string values (dictionary compression); ``kind`` is always

@@ -14,7 +14,8 @@ import StatsDashboard from './components/StatsDashboard';
 import LiveConsole from './components/LiveConsole';
 import HistoricalQuery from './components/HistoricalQuery';
 import SettingsPanel from './components/SettingsPanel';
-import { Activity, Radio, Search, Settings } from 'lucide-react';
+import TestPanel from './components/TestPanel';
+import { Activity, Radio, Search, Settings, FlaskConical } from 'lucide-react';
 import { useI18n } from './i18n/locale';
 
 // Setup TanStack Query client
@@ -29,7 +30,7 @@ const queryClient = new QueryClient({
 
 // Setup TanStack Router route schema
 interface DashboardSearch {
-  tab?: 'analytics' | 'live' | 'search' | 'settings';
+  tab?: 'analytics' | 'live' | 'search' | 'test' | 'settings';
 }
 
 const rootRoute = createRootRoute({
@@ -50,7 +51,11 @@ const dashboardRoute = createRoute({
     const tab = search.tab as string | undefined;
     return {
       tab:
-        tab === 'analytics' || tab === 'live' || tab === 'search' || tab === 'settings'
+        tab === 'analytics' ||
+        tab === 'live' ||
+        tab === 'search' ||
+        tab === 'test' ||
+        tab === 'settings'
           ? tab
           : 'analytics',
     };
@@ -77,7 +82,7 @@ function DashboardContent() {
   const navigate = useNavigate({ from: '/' });
   const activeTab = search.tab || 'analytics';
 
-  const handleTabChange = (tab: 'analytics' | 'live' | 'search' | 'settings') => {
+  const handleTabChange = (tab: 'analytics' | 'live' | 'search' | 'test' | 'settings') => {
     navigate({
       search: (prev) => ({ ...prev, tab }),
     });
@@ -121,6 +126,17 @@ function DashboardContent() {
           <span>{t('tabs.search')}</span>
         </button>
         <button
+          onClick={() => handleTabChange('test')}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all duration-150 cursor-pointer ${
+            activeTab === 'test'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <FlaskConical size={16} />
+          <span>{t('tabs.test')}</span>
+        </button>
+        <button
           onClick={() => handleTabChange('settings')}
           className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all duration-150 cursor-pointer ${
             activeTab === 'settings'
@@ -138,6 +154,7 @@ function DashboardContent() {
         {activeTab === 'analytics' && <StatsDashboard />}
         {activeTab === 'live' && <LiveConsole />}
         {activeTab === 'search' && <HistoricalQuery />}
+        {activeTab === 'test' && <TestPanel />}
         {activeTab === 'settings' && <SettingsPanel />}
       </div>
     </div>

@@ -16,6 +16,7 @@ export const en = {
   'tabs.analytics': 'Analytics & Stats',
   'tabs.live': 'Live Stream',
   'tabs.search': 'Log Browser',
+  'tabs.test': 'Test Send',
   'tabs.settings': 'Settings',
   'stats.systemActivity': 'System Activity',
   'stats.databaseGrowth': 'Database Growth',
@@ -133,6 +134,21 @@ export const en = {
   'settingsDesc.compression_enabled':
     'Whether dictionary compression is enabled for configured log columns.',
   'settingsDesc.harvester_types': 'Harvester implementation types configured for this instance.',
+  'test.colField': 'Field',
+  'test.colType': 'Type',
+  'test.colRequired': 'Required',
+  'test.colValue': 'Value',
+  'test.required': 'Required',
+  'test.optional': 'Optional',
+  'test.optionalEmpty': '(empty)',
+  'test.jsonPlaceholder': '{"key": "value"}',
+  'test.send': 'Send log',
+  'test.sending': 'Sending…',
+  'test.success': 'Log accepted by the server.',
+  'test.schemaLoadFailed': 'Could not load log table schema.',
+  'test.loadingSchema': 'Loading schema…',
+  'test.invalidField': 'Invalid value for field «{{field}}».',
+  'test.invalidPayload': 'Could not build a valid log payload.',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -10,7 +10,11 @@ export default function Header() {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
 
-  const { data: healthData, isError: isHealthError, isRefetchError } = useQuery({
+  const {
+    data: healthData,
+    isError: isHealthError,
+    isRefetchError,
+  } = useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
     refetchInterval: 5000,
@@ -32,8 +36,7 @@ export default function Header() {
     refetchInterval: 30000,
   });
 
-  const isHealthy =
-    healthData?.status === 'ok' && !isHealthError && !isRefetchError;
+  const isHealthy = healthData?.status === 'ok' && !isHealthError && !isRefetchError;
   const dbStats = statsData?.database?.[statsData.database.length - 1];
   const rowCount = dbStats?.rows_count ?? 0;
   const dbSizeBytes = dbStats?.db_size ?? 0;

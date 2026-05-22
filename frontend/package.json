@@ -9,19 +9,17 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "analyze-bundle": "./analyze-bundle.sh"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.11",
-    "@tanstack/react-router": "^1.170.5",
-    "clsx": "^2.1.1",
     "date-fns": "^4.2.1",
     "lucide-react": "^1.16.0",
     "react": "^19.2.6",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.6",
-    "recharts": "^3.8.1",
-    "tailwind-merge": "^3.6.0"
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -36,6 +34,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "prettier": "^3.5.3",
+    "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",

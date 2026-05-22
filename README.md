@@ -132,6 +132,10 @@ Tail in real time:
 curl -N --output - -H "Accept: text/event-stream" "http://localhost:7788/logs/sse?fields=message,timestamp,level"
 ```
 
+## Web Dashboard
+
+Since **v1.2.0**, LogLite includes an optional **web dashboard** (see [`frontend/README.md`](frontend/README.md)): live tail, log search, stats, and settings. Use it for **observability and debugging** —— insights into service performance, availability, and storage. The docker image is published per release.
+
 ## Documentation
 
 Full configuration reference, HTTP API, harvester plugin guide, and recipes:

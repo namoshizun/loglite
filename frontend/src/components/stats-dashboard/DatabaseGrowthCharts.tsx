@@ -1,22 +1,11 @@
 import { BarChart3, LineChart as ChartIcon } from 'lucide-react';
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { Chart } from 'react-chartjs-2';
+import type { ChartData, ChartOptions } from 'chart.js';
+import { useMemo, type ReactNode } from 'react';
 import type { DatabaseStatRecord } from '../../api/client';
 import { useI18n } from '../../i18n/locale';
-import {
-  CHART_AXIS,
-  CHART_GRID,
-  chartTooltipStyle,
-  formatChartTime,
-  formatChartTooltipLabel,
-} from './constants';
+import { useTheme } from '../../theme';
+import { baseChartPlugins, chartLayout, databaseScaleOptions, readChartColors } from './chartTheme';
 
 type DatabaseGrowthChartsProps = {
   rows: DatabaseStatRecord[];
@@ -29,73 +18,106 @@ function formatDbRows(rows: DatabaseStatRecord[]) {
   }));
 }
 
+function DbAreaChart({
+  title,
+  titleIcon,
+  labels,
+  datasetLabel,
+  values,
+  strokeColor,
+  formatTooltipValue,
+}: {
+  title: string;
+  titleIcon: ReactNode;
+  labels: string[];
+  datasetLabel: string;
+  values: number[];
+  strokeColor: string;
+  formatTooltipValue: (value: number) => [string, string];
+}) {
+  const { theme } = useTheme();
+
+  const { data, options } = useMemo(() => {
+    const colors = readChartColors(theme);
+    const fill = strokeColor.startsWith('#') ? `${strokeColor}1a` : 'rgba(59, 130, 246, 0.1)';
+
+    const data: ChartData<'line'> = {
+      labels,
+      datasets: [
+        {
+          label: datasetLabel,
+          data: values,
+          borderColor: strokeColor,
+          backgroundColor: fill,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          borderWidth: 2,
+        },
+      ],
+    };
+
+    const options: ChartOptions<'line'> = {
+      ...chartLayout,
+      plugins: {
+        ...baseChartPlugins(colors),
+        legend: { display: false },
+        tooltip: {
+          ...baseChartPlugins(colors)?.tooltip,
+          callbacks: {
+            ...baseChartPlugins(colors)?.tooltip?.callbacks,
+            label: (ctx) => {
+              const v = Number(ctx.parsed.y);
+              const [formatted, name] = formatTooltipValue(v);
+              return `${name}: ${formatted}`;
+            },
+          },
+        },
+      },
+      scales: databaseScaleOptions(colors, labels),
+    };
+
+    return { data, options };
+  }, [labels, values, datasetLabel, strokeColor, theme, formatTooltipValue]);
+
+  return (
+    <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border flex flex-col">
+      <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5 shrink-0">
+        {titleIcon} {title}
+      </h4>
+      <div className="flex-1 min-h-0">
+        <Chart type="line" data={data} options={options} />
+      </div>
+    </div>
+  );
+}
+
 export default function DatabaseGrowthCharts({ rows }: DatabaseGrowthChartsProps) {
   const { t } = useI18n();
   const chartData = formatDbRows(rows);
+  const labels = chartData.map((d) => d.timestamp);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
-        <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
-          <ChartIcon size={12} className="text-blue-400" /> {t('stats.dbSizeChart')}
-        </h4>
-        <ResponsiveContainer width="100%" height="90%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-            <XAxis
-              dataKey="timestamp"
-              tickFormatter={formatChartTime}
-              stroke={CHART_AXIS}
-              fontSize={10}
-            />
-            <YAxis stroke={CHART_AXIS} fontSize={10} />
-            <Tooltip
-              contentStyle={chartTooltipStyle}
-              labelFormatter={formatChartTooltipLabel}
-              formatter={(value) => [`${value} MB`, 'Database Size']}
-            />
-            <Area
-              type="monotone"
-              dataKey="db_size_mb"
-              stroke="#3b82f6"
-              fill="#3b82f6"
-              fillOpacity={0.1}
-              strokeWidth={2}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border">
-        <h4 className="text-xs text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
-          <BarChart3 size={12} className="text-purple-400" /> {t('stats.rowsChart')}
-        </h4>
-        <ResponsiveContainer width="100%" height="90%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-            <XAxis
-              dataKey="timestamp"
-              tickFormatter={formatChartTime}
-              stroke={CHART_AXIS}
-              fontSize={10}
-            />
-            <YAxis stroke={CHART_AXIS} fontSize={10} />
-            <Tooltip
-              contentStyle={chartTooltipStyle}
-              labelFormatter={formatChartTooltipLabel}
-              formatter={(value) => [Number(value).toLocaleString(), 'Row Count']}
-            />
-            <Area
-              type="monotone"
-              dataKey="rows_count"
-              stroke="#8b5cf6"
-              fill="#8b5cf6"
-              fillOpacity={0.1}
-              strokeWidth={2}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+      <DbAreaChart
+        title={t('stats.dbSizeChart')}
+        titleIcon={<ChartIcon size={12} className="text-blue-400" />}
+        labels={labels}
+        datasetLabel="Database Size"
+        values={chartData.map((d) => d.db_size_mb)}
+        strokeColor="#3b82f6"
+        formatTooltipValue={(value) => [`${value} MB`, 'Database Size']}
+      />
+      <DbAreaChart
+        title={t('stats.rowsChart')}
+        titleIcon={<BarChart3 size={12} className="text-purple-400" />}
+        labels={labels}
+        datasetLabel="Row Count"
+        values={chartData.map((d) => d.rows_count)}
+        strokeColor="#8b5cf6"
+        formatTooltipValue={(value) => [value.toLocaleString(), 'Row Count']}
+      />
     </div>
   );
 }

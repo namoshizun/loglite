@@ -19,6 +19,7 @@ export const en = {
   'tabs.search': 'Log Browser',
   'tabs.test': 'Test Send',
   'tabs.settings': 'Settings',
+  'tabs.loading': 'Loading…',
   'stats.systemActivity': 'System Activity',
   'stats.databaseGrowth': 'Database Growth',
   'stats.timeRange': 'Time Range:',

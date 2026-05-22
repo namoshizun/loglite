@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react';
-import { ResponsiveContainer } from 'recharts';
 import type { ActivityStatRecord, DatabaseStatRecord } from '../../api/client';
 import { useI18n } from '../../i18n/locale';
 import ActivityCategoryChart from './ActivityCategoryChart';
-import { enrichActivityRows } from './constants';
 import DatabaseGrowthCharts from './DatabaseGrowthCharts';
+import './chartSetup';
 import type { ActivityCategory, SubMetricsState, ViewMode } from './types';
 
 type StatsChartPanelProps = {
@@ -65,7 +64,7 @@ export default function StatsChartPanel({
       return <ChartPlaceholder>{t('stats.noActivity')}</ChartPlaceholder>;
     }
 
-    const chartData = enrichActivityRows(activities);
+    const chartData = activities;
     const enabledSubs = subMetrics[activityCategory];
     const hasEnabledSub = Object.values(enabledSubs).some(Boolean);
 
@@ -75,13 +74,11 @@ export default function StatsChartPanel({
 
     return (
       <div className="h-[300px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <ActivityCategoryChart
-            category={activityCategory}
-            subMetrics={subMetrics}
-            data={chartData}
-          />
-        </ResponsiveContainer>
+        <ActivityCategoryChart
+          category={activityCategory}
+          subMetrics={subMetrics}
+          data={chartData}
+        />
       </div>
     );
   }

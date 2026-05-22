@@ -1,15 +1,6 @@
 import type { ActivityStatRecord } from '../../api/client';
 import type { SubMetricsState, TimeRange } from './types';
 
-export const CHART_GRID = 'var(--chart-grid)';
-export const CHART_AXIS = 'var(--chart-axis)';
-
-export const chartTooltipStyle = {
-  backgroundColor: 'var(--chart-tooltip-bg)',
-  borderColor: 'var(--chart-tooltip-border)',
-  color: 'var(--chart-tooltip-fg)',
-};
-
 export const DEFAULT_SUB_METRICS: SubMetricsState = {
   query: { count: true, latency: false },
   ingestion: { count: true, size: false },
@@ -30,14 +21,7 @@ export function getStatsTimeWindow(range: TimeRange, now = new Date()) {
   return { since: since.toISOString(), until: now.toISOString() };
 }
 
-export function enrichActivityRows(rows: ActivityStatRecord[]) {
-  return rows.map((row) => ({
-    ...row,
-    query_latency_range: [row.query_min, row.query_max] as [number, number],
-  }));
-}
-
-export type EnrichedActivityRow = ReturnType<typeof enrichActivityRows>[number];
+export type EnrichedActivityRow = ActivityStatRecord;
 
 export function formatChartTime(isoString: string): string {
   try {

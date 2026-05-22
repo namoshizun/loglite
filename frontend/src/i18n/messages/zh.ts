@@ -21,6 +21,7 @@ export const zh: Record<MessageKey, string> = {
   'tabs.search': '日志检索',
   'tabs.test': '调试',
   'tabs.settings': '设置',
+  'tabs.loading': '加载中…',
   'stats.systemActivity': '系统活动',
   'stats.databaseGrowth': '数据库',
   'stats.timeRange': '时间范围：',

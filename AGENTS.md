@@ -27,7 +27,7 @@
 ## Frontend dev
 
 - Sources: `frontend/`. Dev: `npm run dev` (backend on **7788**). Check: `npm run build`, `npm run lint`. Format: `npm run format` (Prettier; config in `frontend/.prettierrc.json`). UI copy: `src/i18n/` (`en` default, `zh`); use `useI18n().t(...)`.
-- Stack: React 19, TypeScript, Vite, Tailwind v4, TanStack Query, Recharts, lucide-react. Dashboard tabs sync via `?tab=` (`useDashboardTab`).
+- Stack: React 19, TypeScript, Vite, Tailwind v4, TanStack Query, Chart.js (`react-chartjs-2`), lucide-react. Dashboard tabs sync via `?tab=` (`useDashboardTab`).
 - HTTP/SSE and query encoding: `src/api/client.ts` only; do not duplicate in components.
 - Live SSE in dev uses direct `localhost:7788` (`getSSEUrl`) — do not route SSE through the Vite proxy.
 - Use `frontend/analyze-bundle.sh` to analyze the bundle size.

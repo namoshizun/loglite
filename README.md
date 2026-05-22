@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/logo.svg" alt="LogLite Logo" width="170"/>
 
-### A lightweight, high-performance logging service. SQLite-backed, with a REST + SSE API.
+### One box. One process. Structured logs in SQLite — query over HTTP, tail over SSE.
 </div>
 
 <p float="left">
@@ -13,71 +13,40 @@
   <img src="https://img.shields.io/pypi/v/loglite" alt="python version" />
 </p>
 
-LogLite is **one process on one host** that ingests logs two ways:
+**LogLite** is a small logging *service* for a **single machine**: ingest with `POST /logs` or built-in harvesters (files, sockets, ZeroMQ), store in **your SQLite schema**, search and tail without standing up Elasticsearch or a DB server. Ships as `pip install loglite` (C++ core inside the wheel) or a standalone binary (~5 MB musl build).
 
-- **Push** — clients `POST /logs` over the network.
-- **Pull** — built-in harvesters actively pull from external sources (file, socket, ZeroMQ).
+## Built for
 
-It speaks plain HTTP, stores logs in SQLite, and ships as a single C++ binary (or `pip install` away).
+- **Edge & appliances** — gateway, robot, or box that collects logs from nearby services or devices over HTTP.
+- **One device, many writers** — replace a pile of log files with one indexed store, live tail, and optional web UI.
+- **Low ops, low RAM** — no JVM, no log cluster; backup is copying a `.sqlite` file.
 
-## When to use LogLite
+## Not built for
 
-LogLite is a good fit when:
+**Multi-node aggregation, sharding, or enterprise SIEM.** If you need Loki, Elastic, Splunk, or ClickHouse-scale search across a fleet, use those tools. LogLite does not federate peers or isolate tenants.
 
-- **You want a small, central log endpoint** for a fleet of edge devices, microservices, or jobs to `POST` to. Ideal for IoT gateways, on-prem appliances, robots, home-lab boxes, dev/CI environments.
-- **You're consolidating co-located services on one box.** Instead of every program writing its own file — awkward to filter, storage-heavy for structured records, no live view — pipe them all into LogLite and let SQLite indexes plus optional column compression do the work.
-- **You like SQLite's "the database is a file" model**: trivial to back up, copy, and inspect with any sqlite client.
-- **You want a small runtime footprint** — low RAM, no JVM, no extra services to babysit.
+## What you get
 
-LogLite is **not** a replacement for Elastic Stack, Loki, Splunk, or ClickHouse. A single instance does not scale horizontally or federate with peers. If you need multi-node aggregation, sharding, or tenant isolation, reach for one of those instead.
+|            |                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| **Ingest** | REST bulk backlog · file/socket/ZMQ harvesters · Python `Harvester` plugins                         |
+| **Store**  | SQLite + WAL · migrations you write · retention vacuum · optional enum column compression           |
+| **Use**    | Filtered `GET /logs` · `GET /logs/sse` live tail · optional [dashboard](frontend/README.md) (v1.2+) |
 
-## Highlights
+Core is **C++20** (Asio/Beast); Python is a thin CLI and harvester layer. Same `config.yaml` for the wheel or the [standalone binary](cpp/README.md).
 
-- **Single binary core.** The server is implemented in modern C++20 with Boost.Asio + Beast. No interpreter, no JVM, no daemon zoo.
-- **SQLite storage with full schema control.** You write the migrations; LogLite makes no assumptions about your log table structure.
-- **REST + Server-Sent Events.** `POST /logs` to ingest, `GET /logs` to query with rich filter operators, `GET /logs/sse` to tail in real time.
-- **Built-in retention.** Time- and size-based vacuuming with incremental SQLite vacuum to keep IO predictable.
-- **Bulk ingest.** Entries are buffered in a backlog and bulk-inserted on a timer, so a single `POST` does not equal a single `INSERT`.
-- **Optional column compression.** Dictionary-encode high-cardinality enum columns (`service`, `path`, ...) into integer ids to shrink storage and speed up filters.
-- **Plugin-friendly Python layer.** `pip install loglite` gives you the CLI, the C++ server, and a simple `Harvester` base class for writing custom log ingestors in Python.
-
-## Architecture
-
-```
-┌────────────────────────────────────────────────────────────┐
-│  pip install loglite                                       │
-│                                                            │
-│   ┌───────────────────────┐    ┌─────────────────────┐     │
-│   │ Python plugin layer   │    │ Built-in harvesters │     │
-│   │  - CLI (typer)        │───▶│  Socket, ZMQ, ...   │     │
-│   │  - Harvester[T] API   │    │  + your own         │     │
-│   └──────────┬────────────┘    └──────────┬──────────┘     │
-│              │ pybind11 (_core)           │ ingest()       │
-│              ▼                            ▼                │
-│   ┌────────────────────────────────────────────────────┐   │
-│   │              LogLite C++ core                      │   │
-│   │  HTTP + SSE  ·  SQLite  ·  migrations  ·  vacuum   │   │
-│   │  backlog · file harvester · column compression     │   │
-│   └────────────────────────────────────────────────────┘   │
-└────────────────────────────────────────────────────────────┘
-```
-
-The Python package is a **thin convenience layer**. The HTTP server, SQLite I/O, migrations, SSE, and vacuuming all live in the C++ core. Custom Python harvesters push entries directly into the C++ backlog inside the same process — no socket round-trip, no extra network hop.
-
-If you do not need custom Python harvesters, you can also use the **C++ binary directly** (see [`cpp/`](cpp/README.md)). The same config file and database work unchanged in both modes.
-
-## Installation
+## Install
 
 ```bash
-pip install loglite          # Python 3.10+; pre-built wheels on PyPI
-pip install "loglite[zmq]"   # also enable the ZeroMQ harvester
+pip install loglite          # Python 3.10+
+pip install "loglite[zmq]"   # To enable the ZeroMQ harvester
 ```
 
-Or grab the standalone C++ binary — see [`cpp/README.md`](cpp/README.md) for build and Docker instructions.
+Or grab the standalone C++ binary — see [`cpp/README.md`](cpp/README.md)
 
 ## Quick start
 
-Create `config.yaml`:
+`config.yaml` (minimal):
 
 ```yaml
 host: 0.0.0.0

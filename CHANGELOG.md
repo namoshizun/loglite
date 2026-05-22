@@ -5,6 +5,7 @@
 - feat: dashboard frontend (optional & standalone) ✨
 - feat: `GET /version` returns the core version.
 - feat: `GET /settings` returns the loglite configuration as key-value pairs.
+- feat: `GET /schema` returns the configured log table schema description.
 - feat: add `uptime` to the `GET /stats` response.
 - ci: build and push the `ghcr.io/namoshizun/loglite-ui` image
 

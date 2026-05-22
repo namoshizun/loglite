@@ -1,5 +1,13 @@
 // LogLite API Client
 
+/** Set via VITE_API_BASE_URL (.env / .env.production). Empty = same-origin (Nginx in prod). */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
+function apiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE ? `${API_BASE}${p}` : p;
+}
+
 export interface HealthResponse {
   status: 'ok' | 'error';
 }
@@ -155,7 +163,7 @@ export function serializeQueryParams(params: QueryLogsParams): Record<string, st
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch('/health');
+  const res = await fetch(apiUrl('/health'));
   if (!res.ok) {
     throw new Error('Health check failed');
   }
@@ -163,7 +171,7 @@ export async function fetchHealth(): Promise<HealthResponse> {
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
-  const res = await fetch('/settings');
+  const res = await fetch(apiUrl('/settings'));
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     throw new Error(errorBody.error || 'Failed to fetch settings');
@@ -172,7 +180,7 @@ export async function fetchSettings(): Promise<SettingsResponse> {
 }
 
 export async function fetchVersion(): Promise<VersionResponse> {
-  const res = await fetch('/version');
+  const res = await fetch(apiUrl('/version'));
   if (!res.ok) {
     throw new Error('Failed to fetch version');
   }
@@ -191,7 +199,7 @@ export async function fetchStats(
     ordering: 'desc', // Server limits 1 day, query descending, we will reverse it for chart
   });
 
-  const res = await fetch(`/stats?${params.toString()}`);
+  const res = await fetch(apiUrl(`/stats?${params.toString()}`));
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     throw new Error(errorBody.error || 'Failed to fetch stats');
@@ -201,7 +209,7 @@ export async function fetchStats(
 }
 
 export async function fetchLogSchema(): Promise<LogSchemaResponse> {
-  const res = await fetch('/schema');
+  const res = await fetch(apiUrl('/schema'));
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     throw new Error(errorBody.error || 'Failed to fetch log schema');
@@ -216,7 +224,7 @@ export async function fetchLogs(params: QueryLogsParams): Promise<PaginatedLogs>
     searchParams.append(key, val);
   });
 
-  const res = await fetch(`/logs?${searchParams.toString()}`);
+  const res = await fetch(apiUrl(`/logs?${searchParams.toString()}`));
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     throw new Error(errorBody.error || 'Failed to fetch logs');
@@ -225,7 +233,7 @@ export async function fetchLogs(params: QueryLogsParams): Promise<PaginatedLogs>
 }
 
 export async function postLog(body: Record<string, unknown>): Promise<{ status: string }> {
-  const res = await fetch('/logs', {
+  const res = await fetch(apiUrl('/logs'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -238,8 +246,5 @@ export async function postLog(body: Record<string, unknown>): Promise<{ status: 
 }
 
 export function getSSEUrl(fields: string = '*'): string {
-  const isDev = import.meta.env.DEV;
-  // Bypassing Vite proxy in development mode since it might buffer/interfere with SSE chunks.
-  const baseUrl = isDev ? 'http://localhost:7788' : '';
-  return `${baseUrl}/logs/sse?fields=${encodeURIComponent(fields)}`;
+  return apiUrl(`/logs/sse?fields=${encodeURIComponent(fields)}`);
 }

@@ -12,6 +12,7 @@ dist
 dist-analyze
 dist-ssr
 bundle-stats.html
+.env*.local
 *.local
 
 # Editor directories and files

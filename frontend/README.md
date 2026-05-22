@@ -1,73 +1,49 @@
-# React + TypeScript + Vite
+# LogLite UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React dashboard for LogLite: live log streaming, historical queries, stats, settings, and a test panel. It talks to the LogLite HTTP API (C++ or Python backend).
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Node.js** 22+ (matches the production Docker build)
+- A running LogLite backend on port **7788** (default)
 
-## React Compiler
+## Getting started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+cd frontend
+npm ci
+npm run dev  # open `http://localhost:5173` in browser
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Optional local overrides: create `frontend/.env`:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x';
-import reactDom from 'eslint-plugin-react-dom';
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```env
+VITE_API_BASE_URL=http://localhost:7788
 ```
+
+If unset, dev falls back to `http://localhost:7788` via `vite.config.ts`.
+
+## Scripts
+
+| Command                  | Purpose                                               |
+| ------------------------ | ----------------------------------------------------- |
+| `npm run dev`            | Vite dev server with API proxy                        |
+| `npm run build`          | Typecheck (`tsc -b`) and production bundle to `dist/` |
+| `npm run preview`        | Serve the production build locally                    |
+| `npm run lint`           | ESLint + Prettier check                               |
+| `npm run format`         | Prettier write (config: `.prettierrc.json`)           |
+| `npm run analyze-bundle` | Build with bundle visualizer (`dist-analyze/`)        |
+
+## Stack
+
+React 19, TypeScript, Vite 8, Tailwind CSS v4, TanStack Query, Chart.js (`react-chartjs-2`), lucide-react.
+
+## Production image
+
+Built from the repo root:
+
+```bash
+docker build -f dockerfiles/Dockerfile.frontend -t loglite-ui frontend
+```
+
+The image serves `dist/` with nginx and proxies API traffic to `BACKEND_URL` (default `http://backend:7788`). CI publishes multi-arch images as `ghcr.io/<owner>/loglite-ui:<tag>` on version tags.

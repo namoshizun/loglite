@@ -6,6 +6,7 @@
 - feat: `GET /version` returns the core version.
 - feat: `GET /settings` returns the loglite configuration as key-value pairs.
 - feat: add `uptime` to the `GET /stats` response.
+- ci: build and push the `ghcr.io/namoshizun/loglite-ui` image
 
 ### 1.1.0
 

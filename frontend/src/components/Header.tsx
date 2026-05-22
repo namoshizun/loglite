@@ -7,7 +7,6 @@ import { formatBytes } from '../utils/formatBytes';
 import { useHeaderStats } from '../hooks/useHeaderStats';
 import { useServerHealth } from '../hooks/useServerHealth';
 import { useServerUpSince } from '../hooks/useServerUpSince';
-import logoUrl from '../../../docs/logo.svg?url';
 
 export default function Header() {
   const { theme, setTheme } = useTheme();
@@ -31,7 +30,11 @@ export default function Header() {
   return (
     <header className="border-b border-border bg-card px-6 py-2 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-3">
-        <img src={logoUrl} alt="LogLite" className="h-14 w-auto max-w-[min(100%,22rem)] sm:h-16" />
+        <img
+          src="/logo.svg"
+          alt="LogLite"
+          className="h-14 w-auto max-w-[min(100%,22rem)] sm:h-16"
+        />
         <div className="flex flex-col gap-0.5 min-w-0">
           <div className="flex items-center gap-2.5 shrink-0">
             {versionData?.version && (

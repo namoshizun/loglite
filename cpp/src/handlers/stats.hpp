@@ -6,7 +6,7 @@
 #include "../log.hpp"
 
 #include <chrono>
-#include <format>
+#include <fmt/format.h>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -23,7 +23,7 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"since", "until", "activity_stats_fields", "database_stats_fields"}) {
         if (!params.contains(p))
-            return MakeFailResp(400, std::format("Required parameter '{}' is missing", p), req,
+            return MakeFailResp(400, fmt::format("Required parameter '{}' is missing", p), req,
                                 ctx.config.allow_origin);
     }
 
@@ -89,7 +89,7 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
         };
         return MakeOKResp(body, req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
-        log::error(std::format("Stats query error: {}", e.what()));
+        log::error(fmt::format("Stats query error: {}", e.what()));
         return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }

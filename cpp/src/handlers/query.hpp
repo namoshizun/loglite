@@ -22,7 +22,7 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"fields", "limit", "offset"}) {
         if (!params.contains(p))
-            return MakeFailResp(400, std::format("Required parameter '{}' is missing", p), req,
+            return MakeFailResp(400, fmt::format("Required parameter '{}' is missing", p), req,
                                 ctx.config.allow_origin);
     }
 
@@ -53,13 +53,13 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
         if (reserved.contains(key)) continue;
         auto key_filters = ParseQueryFilters(key, value);
         if (key_filters.empty())
-            return MakeFailResp(400, std::format("Invalid filter expression for field '{}'", key),
+            return MakeFailResp(400, fmt::format("Invalid filter expression for field '{}'", key),
                                 req, ctx.config.allow_origin);
         for (auto& f : key_filters) filters.push_back(std::move(f));
     }
 
     if (ctx.config.debug)
-        log::debug(std::format("Query fields={} limit={} offset={} filters={}", fields_str, limit,
+        log::debug(fmt::format("Query fields={} limit={} offset={} filters={}", fields_str, limit,
                                offset, filters.size()));
 
     // ── Execute ───────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
             [&](ReaderDatabase& r) { return r.Query(fields, filters, limit, offset); });
         return MakeOKResp(result.to_json(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
-        log::error(std::format("Query error: {}", e.what()));
+        log::error(fmt::format("Query error: {}", e.what()));
         return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }

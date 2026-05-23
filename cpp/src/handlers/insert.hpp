@@ -27,7 +27,7 @@ http::response<http::string_body> HandleInsert(const http::request<Body>& req, S
 
         return MakeOKResp({{"status", "accepted"}}, req, ctx.config.allow_origin);
     } catch (const nlohmann::json::parse_error& e) {
-        return MakeFailResp(400, std::format("Invalid JSON: {}", e.what()), req,
+        return MakeFailResp(400, fmt::format("Invalid JSON: {}", e.what()), req,
                             ctx.config.allow_origin);
     }
 }

@@ -11,7 +11,7 @@
 #include <boost/beast.hpp>
 
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <fstream>
 #include <thread>
 
@@ -332,8 +332,8 @@ TEST_F(ServerTest, QueryPagination) {
     std::vector<nlohmann::json> logs;
     for (int i = 0; i < 5; ++i) {
         logs.push_back({
-            {"timestamp", std::format("2024-01-01T00:00:{:02d}Z", i)},
-            {"message", std::format("msg{}", i)},
+            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}Z", i)},
+            {"message", fmt::format("msg{}", i)},
             {"level", "INFO"},
         });
     }
@@ -395,7 +395,7 @@ TEST_F(ServerTest, StatsRequiresAllParams) {
 }
 
 TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*&ordering=desc");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -422,7 +422,7 @@ TEST_F(ServerTest, StatsWithPopulatedData) {
     db_->InsertActivityStats(activity);
     db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
 
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=query_count,query_avg&database_stats_fields=rows_count,db_size"
         "&ordering=asc");
@@ -441,7 +441,7 @@ TEST_F(ServerTest, StatsWithPopulatedData) {
 }
 
 TEST_F(ServerTest, StatsWindowExceedsOneDay) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-03T00:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -449,7 +449,7 @@ TEST_F(ServerTest, StatsWindowExceedsOneDay) {
 }
 
 TEST_F(ServerTest, StatsUntilBeforeSince) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-02T00:00:00Z&until=2024-01-01T00:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -457,7 +457,7 @@ TEST_F(ServerTest, StatsUntilBeforeSince) {
 }
 
 TEST_F(ServerTest, StatsInvalidOrdering) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*&ordering=sideways");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -465,7 +465,7 @@ TEST_F(ServerTest, StatsInvalidOrdering) {
 }
 
 TEST_F(ServerTest, StatsInvalidTimestamp) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=notatime&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);

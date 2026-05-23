@@ -12,7 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <concepts>
-#include <format>
+#include <fmt/format.h>
 #include <limits>
 #include <string>
 #include <vector>
@@ -116,7 +116,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     auto window_since = std::chrono::system_clock::now();
 
     log::info(
-        std::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
+        fmt::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
 
     while (true) {
         timer.expires_after(cfg.task_diagnostics_interval * 1s);
@@ -141,7 +141,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
-        log::info(std::format(
+        log::info(fmt::format(
             "[query]: count={} avg={}ms max={}ms | "
             "[ingest]: count={} avg_size={}B drops={} | "
             "[insert]: batches={} rows={} total={}ms | "

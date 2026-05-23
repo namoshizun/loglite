@@ -20,6 +20,7 @@ class LogliteConan(ConanFile):
         self.requires("sqlite3/3.53.0")
         self.requires("yaml-cpp/0.9.0")
         self.requires("date/3.0.4")
+        self.requires("fmt/12.1.0")
 
         if self.options.with_tests:
             self.requires("gtest/1.17.0")

@@ -7,7 +7,7 @@
 
 #include <chrono>
 #include <csignal>
-#include <format>
+#include <fmt/format.h>
 #include <iostream>
 #include <memory>
 #include <ranges>
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     try {
         cfg.endpoint = burn::ParseEndpoint(endpoint_url);
     } catch (const std::exception& e) {
-        std::cerr << std::format("error: {}\n", e.what());
+        std::cerr << fmt::format("error: {}\n", e.what());
         return 1;
     }
 
@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
     try {
         plan = burn::FetchSchemaPlan(cfg.endpoint);
     } catch (const std::exception& e) {
-        std::cerr << std::format("error: schema fetch failed: {}\n", e.what());
+        std::cerr << fmt::format("error: schema fetch failed: {}\n", e.what());
         return 1;
     }
 
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
             try {
                 std::rethrow_exception(eptr);
             } catch (const std::exception& e) {
-                std::cerr << std::format("sender error: {}\n", e.what());
+                std::cerr << fmt::format("sender error: {}\n", e.what());
             }
         });
     }
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
     const uint64_t fail = ctrl->stats->fail.load(std::memory_order_relaxed);
     const double effective_qps = elapsed > 0.0 ? static_cast<double>(ok) / elapsed : 0.0;
 
-    std::cerr << std::format("burn finished: {:.1f}s  ok={}  fail={}  effective_qps={:.1f}\n",
+    std::cerr << fmt::format("burn finished: {:.1f}s  ok={}  fail={}  effective_qps={:.1f}\n",
                              elapsed, ok, fail, effective_qps);
 
     return fail > 0 ? 1 : 0;

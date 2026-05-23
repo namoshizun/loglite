@@ -5,7 +5,7 @@
 #include <boost/mp11.hpp>
 
 #include <cstdlib>
-#include <format>
+#include <fmt/format.h>
 #include <map>
 #include <stdexcept>
 #include <string_view>
@@ -182,7 +182,7 @@ void load_root_config(Config& cfg, const StringMap& env, const YAML::Node& yaml)
 
 Config Config::from_file(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path))
-        throw std::runtime_error(std::format("Config file not found: {}", path.string()));
+        throw std::runtime_error(fmt::format("Config file not found: {}", path.string()));
 
     // Load config
     YAML::Node yaml = YAML::LoadFile(path.string());
@@ -220,7 +220,7 @@ Config Config::from_file(const std::filesystem::path& path) {
     std::filesystem::create_directories(cfg.sqlite_dir);
     cfg.db_path = cfg.sqlite_dir / "logs.db";
 
-    log::info(std::format("Config loaded from {}", path.string()));
+    log::info(fmt::format("Config loaded from {}", path.string()));
     return cfg;
 }
 

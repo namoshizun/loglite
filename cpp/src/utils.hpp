@@ -7,7 +7,8 @@
 #include <chrono>
 #include <cctype>
 #include <cstdint>
-#include <format>
+#include <fmt/chrono.h>
+#include <fmt/format.h>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -43,7 +44,7 @@ inline int64_t parse_size_to_bytes(std::string_view s) {
             return n * mults[i];
         }
     }
-    throw std::invalid_argument(std::format("Invalid size string: '{}'", s));
+    throw std::invalid_argument(fmt::format("Invalid size string: '{}'", s));
 }
 
 inline double bytes_to_mb(int64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); }
@@ -105,7 +106,7 @@ inline std::string format_utc(std::chrono::system_clock::time_point tp) {
     const auto ns = time_point_cast<nanoseconds>(tp).time_since_epoch();
     const auto sec = floor<seconds>(ns);
     const auto ms = duration_cast<milliseconds>(ns - sec);
-    return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}Z", date::sys_seconds{sec}, ms.count());
+    return fmt::format("{:%Y-%m-%dT%H:%M:%S}.{:03}Z", date::sys_seconds{sec}, ms.count());
 }
 
 // RFC 3339 / ISO 8601 instant: full date-time with 'T', optional fractional seconds, and optional

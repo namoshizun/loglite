@@ -1,7 +1,7 @@
 #include "column_dict.hpp"
 
 #include <algorithm>
-#include <format>
+#include <fmt/format.h>
 #include <mutex>
 #include <ranges>
 #include <shared_mutex>
@@ -30,7 +30,7 @@ ValueId ColumnDictionary::GetOrCreate(const std::string& col, const std::string&
     if (persist_) {
         if (!persist_(col, value, new_id)) {
             throw std::runtime_error(
-                std::format("Failed to update the compression table for column '{}' and value '{}'",
+                fmt::format("Failed to update the compression table for column '{}' and value '{}'",
                             col, value));
         }
     }
@@ -44,12 +44,12 @@ std::string ColumnDictionary::GetValue(const std::string& col, ValueId id) const
 
     auto col_it = lookup_.find(col);
     if (col_it == lookup_.end())
-        throw std::runtime_error(std::format("Unknown compressed column: '{}'", col));
+        throw std::runtime_error(fmt::format("Unknown compressed column: '{}'", col));
 
     for (const auto& [v, vid] : col_it->second) {
         if (vid == id) return v;
     }
-    throw std::runtime_error(std::format("No value for id={} in column '{}'", id, col));
+    throw std::runtime_error(fmt::format("No value for id={} in column '{}'", id, col));
 }
 
 std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter) const {

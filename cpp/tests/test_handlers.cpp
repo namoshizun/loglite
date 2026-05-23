@@ -384,8 +384,8 @@ TEST_F(HandlersTest, QueryPagination) {
     std::vector<nlohmann::json> logs;
     for (int i = 0; i < 5; ++i) {
         logs.push_back({
-            {"timestamp", std::format("2024-01-01T00:00:{:02d}Z", i)},
-            {"message", std::format("msg{}", i)},
+            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}Z", i)},
+            {"message", fmt::format("msg{}", i)},
             {"level", "INFO"},
         });
     }

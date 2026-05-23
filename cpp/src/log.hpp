@@ -3,7 +3,8 @@
 
 #include <chrono>
 #include <cstdio>
-#include <format>
+#include <fmt/chrono.h>
+#include <fmt/format.h>
 #include <string>
 #include <string_view>
 
@@ -13,11 +14,11 @@ inline std::string timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto s = std::chrono::floor<std::chrono::seconds>(now);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - s);
-    return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}", s, ms.count());
+    return fmt::format("{:%Y-%m-%dT%H:%M:%S}.{:03}", s, ms.count());
 }
 
 inline void write(FILE* stream, std::string_view level, std::string_view msg) {
-    auto line = std::format("[{}] [{}] {}\n", timestamp(), level, msg);
+    auto line = fmt::format("[{}] [{}] {}\n", timestamp(), level, msg);
     std::fwrite(line.data(), 1, line.size(), stream);
 }
 

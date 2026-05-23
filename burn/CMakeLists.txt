@@ -12,11 +12,12 @@ list(PREPEND CMAKE_MODULE_PATH "${CMAKE_BINARY_DIR}")
 find_package(Boost REQUIRED CONFIG)
 find_package(CLI11 REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED CONFIG)
+find_package(fmt REQUIRED CONFIG)
 
 add_executable(burn src/main.cpp)
 
 target_include_directories(burn PRIVATE src)
-target_link_libraries(burn PRIVATE boost::boost CLI11::CLI11 nlohmann_json::nlohmann_json)
+target_link_libraries(burn PRIVATE boost::boost CLI11::CLI11 nlohmann_json::nlohmann_json fmt::fmt)
 
 target_compile_definitions(burn PRIVATE
     BOOST_ASIO_HAS_CO_AWAIT

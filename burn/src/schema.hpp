@@ -7,7 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <format>
+#include <fmt/format.h>
 #include <optional>
 #include <random>
 #include <ranges>
@@ -60,7 +60,7 @@ inline void RequireColumns(const nlohmann::json& columns,
                            std::initializer_list<std::string_view> names) {
     for (const auto name : names) {
         if (!HasColumn(columns, name)) {
-            throw std::runtime_error(std::format("schema missing required column '{}'", name));
+            throw std::runtime_error(fmt::format("schema missing required column '{}'", name));
         }
     }
 }
@@ -94,7 +94,7 @@ inline void RequireColumns(const nlohmann::json& columns,
     const auto res = HttpGetSync(ep, "/schema");
     if (res.result() != http::status::ok) {
         throw std::runtime_error(
-            std::format("GET /schema failed: HTTP {}", static_cast<unsigned>(res.result())));
+            fmt::format("GET /schema failed: HTTP {}", static_cast<unsigned>(res.result())));
     }
 
     const auto body = nlohmann::json::parse(res.body());
@@ -115,7 +115,7 @@ inline void RequireColumns(const nlohmann::json& columns,
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
     gmtime_r(&t, &tm);
-    return std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z", tm.tm_year + 1900,
+    return fmt::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}Z", tm.tm_year + 1900,
                        tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 

@@ -6,6 +6,7 @@
 #include "tasks/vacuum.hpp"
 
 #include <filesystem>
+#include <fmt/format.h>
 
 namespace fs = std::filesystem;
 using namespace loglite;
@@ -55,8 +56,8 @@ class VacuumTest : public ::testing::Test {
         std::vector<nlohmann::json> logs;
         for (int i = 0; i < count; ++i) {
             logs.push_back({
-                {"timestamp", std::format("2024-01-01T00:{:02d}:{:02d}Z", i / 60, i % 60)},
-                {"message", std::format("log entry {}", i)},
+                {"timestamp", fmt::format("2024-01-01T00:{:02d}:{:02d}Z", i / 60, i % 60)},
+                {"message", fmt::format("log entry {}", i)},
                 {"level", "INFO"},
             });
         }

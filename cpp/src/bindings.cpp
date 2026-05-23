@@ -3,7 +3,7 @@
 
 #include <Python.h>
 
-#include <format>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -88,7 +88,7 @@ const DateTimeTypes& DatetimeTypes() {
 
     const py::object typ =
         py::reinterpret_borrow<py::object>(obj).attr("__class__").attr("__name__");
-    throw std::runtime_error(std::format(
+    throw std::runtime_error(fmt::format(
         "loglite._core: unsupported type '{}' in log payload (expected None, bool, int, float, "
         "str, dict, list, tuple, or datetime types)",
         typ.cast<std::string>()));

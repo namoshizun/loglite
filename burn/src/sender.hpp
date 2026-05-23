@@ -23,20 +23,24 @@ namespace burn {
 struct Stats {
     std::atomic<uint64_t> ok{0};
     std::atomic<uint64_t> fail{0};
+
+    void Record(bool success) noexcept {
+        (success ? ok : fail).fetch_add(1, std::memory_order_relaxed);
+    }
 };
 
 struct RunControl {
     std::atomic<bool> stop{false};
     std::atomic<unsigned> senders_left{0};
-    asio::io_context* ioc{nullptr};
+    asio::io_context& ioc;
     std::shared_ptr<Stats> stats;
 
     explicit RunControl(asio::io_context& ioc_ref)
-        : ioc(&ioc_ref), stats(std::make_shared<Stats>()) {}
+        : ioc(ioc_ref), stats(std::make_shared<Stats>()) {}
 
     void SenderFinished() {
         if (senders_left.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            ioc->stop();
+            ioc.stop();
         }
     }
 };
@@ -48,35 +52,64 @@ inline asio::awaitable<void> ConnectStream(beast::tcp_stream& stream, const Endp
     co_await asio::async_connect(stream.socket(), results, asio::use_awaitable);
 }
 
-inline asio::awaitable<bool> PostLog(beast::tcp_stream& stream, beast::flat_buffer& buf,
-                                     const Endpoint& ep, std::string_view body, bool keep_alive) {
+[[nodiscard]] inline asio::awaitable<bool> PostLog(beast::tcp_stream& stream,
+                                                   beast::flat_buffer& buf, const Endpoint& ep,
+                                                   std::string_view body) {
     http::request<http::string_body> req{http::verb::post, "/logs", 11};
     req.set(http::field::host, ep.host);
     req.set(http::field::user_agent, "loglite-burn");
     req.set(http::field::content_type, "application/json");
-    req.keep_alive(keep_alive);
-    req.body() = std::string(body);
+    req.keep_alive(true);
+    req.body() = std::string{body};
     req.prepare_payload();
 
+    if (auto [wec, _] =
+            co_await http::async_write(stream, req, asio::as_tuple(asio::use_awaitable));
+        wec) {
+        co_return false;
+    }
+
+    http::response<http::string_body> res;
+    if (auto [rec, __] =
+            co_await http::async_read(stream, buf, res, asio::as_tuple(asio::use_awaitable));
+        rec) {
+        co_return false;
+    }
+
+    if (res.result() != http::status::ok) {
+        co_return false;
+    }
+
     try {
-        co_await http::async_write(stream, req, asio::use_awaitable);
-
-        http::response<http::string_body> res;
-        co_await http::async_read(stream, buf, res, asio::use_awaitable);
-
-        if (res.result() != http::status::ok) {
-            co_return false;
-        }
-        auto parsed = nlohmann::json::parse(res.body());
+        const auto parsed = nlohmann::json::parse(res.body());
         co_return parsed.value("status", std::string{}) == "accepted";
     } catch (...) {
         co_return false;
     }
 }
 
+[[nodiscard]] inline asio::awaitable<bool> PostLogWithReconnect(beast::tcp_stream& stream,
+                                                                beast::flat_buffer& buf,
+                                                                const Endpoint& ep,
+                                                                std::string_view body) {
+    if (co_await PostLog(stream, buf, ep, body)) {
+        co_return true;
+    }
+
+    beast::error_code close_ec;
+    stream.socket().close(close_ec);
+    buf.consume(buf.size());
+
+    try {
+        co_await ConnectStream(stream, ep);
+    } catch (...) {
+        co_return false;
+    }
+    co_return co_await PostLog(stream, buf, ep, body);
+}
+
 inline asio::awaitable<void> SenderLoop(unsigned sender_id, const Config& cfg,
-                                        std::shared_ptr<const SchemaPlan> plan,
-                                        std::shared_ptr<RunControl> ctrl) {
+                                        const SchemaPlan plan, std::shared_ptr<RunControl> ctrl) {
     struct DoneGuard {
         std::shared_ptr<RunControl> ctrl;
         ~DoneGuard() { ctrl->SenderFinished(); }
@@ -92,43 +125,21 @@ inline asio::awaitable<void> SenderLoop(unsigned sender_id, const Config& cfg,
 
     co_await ConnectStream(stream, cfg.endpoint);
 
-    const auto interval = cfg.per_sender_qps > 0.0
-                              ? std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                    std::chrono::duration<double>(1.0 / cfg.per_sender_qps))
-                              : std::chrono::nanoseconds::max();
-
+    const auto interval = SenderPaceInterval(cfg.per_sender_qps);
     asio::steady_timer pace{ex};
 
     while (!ctrl->stop.load(std::memory_order_acquire)) {
         pace.expires_after(interval);
-        boost::system::error_code ec;
-        co_await pace.async_wait(asio::redirect_error(asio::use_awaitable, ec));
-        if (ec == asio::error::operation_aborted) {
+        if (auto [ec] = co_await pace.async_wait(asio::as_tuple(asio::use_awaitable)); ec) {
             break;
         }
         if (ctrl->stop.load(std::memory_order_acquire)) {
             break;
         }
 
-        const std::string payload = BuildLogRecord(*plan, cfg, rng).dump();
-        bool ok = co_await PostLog(stream, buf, cfg.endpoint, payload, true);
-        if (!ok) {
-            beast::error_code close_ec;
-            stream.socket().close(close_ec);
-            buf.consume(buf.size());
-            try {
-                co_await ConnectStream(stream, cfg.endpoint);
-                ok = co_await PostLog(stream, buf, cfg.endpoint, payload, true);
-            } catch (...) {
-                ok = false;
-            }
-        }
-
-        if (ok) {
-            ctrl->stats->ok.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            ctrl->stats->fail.fetch_add(1, std::memory_order_relaxed);
-        }
+        const std::string payload = BuildLogRecord(plan, cfg, rng).dump();
+        const bool ok = co_await PostLogWithReconnect(stream, buf, cfg.endpoint, payload);
+        ctrl->stats->Record(ok);
     }
 
     beast::error_code ec;

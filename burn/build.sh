@@ -58,17 +58,7 @@ case "$HOST_ARCH" in
         ;;
 esac
 
-if [[ $RELEASE -eq 1 && "$TARGET_OS" == "linux" ]]; then
-    LDD_VERSION="$(ldd --version 2>&1 || true)"
-    if [[ "$LDD_VERSION" != *musl* ]]; then
-        echo "error: Linux release builds must run in a musl environment" >&2
-        echo "hint: use cpp/Dockerfile.linux.release or an Alpine/musl toolchain" >&2
-        exit 1
-    fi
-    TARGET="$TARGET_OS-musl-$TARGET_ARCH"
-else
-    TARGET="$TARGET_OS-$TARGET_ARCH"
-fi
+TARGET="$TARGET_OS-$TARGET_ARCH"
 
 TARGET_TOOLCHAIN="$CPP_DIR/cmake/toolchains/$TARGET.cmake"
 if [[ ! -f "$TARGET_TOOLCHAIN" ]]; then

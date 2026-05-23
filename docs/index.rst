@@ -14,29 +14,24 @@ LogLite is **one process on one host** that ingests logs two ways:
 - **Push** — clients ``POST /logs`` over the network.
 - **Pull** — built-in harvesters actively pull from external sources (file, socket, ZeroMQ).
 
-You get **structured, indexable, live-tailable** logs without standing up a database server
-or an observability cluster.
+You get **structured, indexable, live-tailable** logs and an **web dashboard** (optional & standalone) 
+without standing up a database server or an observability cluster.
 
 
 When to use
 -----------
 
-LogLite is a good fit when:
+**LogLite is built for**
 
-- **You want a small, central log endpoint** for a fleet of edge devices, microservices,
-  or jobs to ``POST`` to. Great for IoT gateways, on-prem appliances, robots, home-lab
-  boxes, dev/CI environments.
-- **You're consolidating co-located services on one device.** Instead of every program
-  writing its own file — awkward to filter, storage-heavy for structured records, no
-  live view — pipe them all into LogLite and let SQLite indexes plus optional column
-  compression do the work.
-- **You like SQLite's "the database is a file" model**: trivial to back up, copy, and
-  inspect with any sqlite client.
-- **You want a low runtime cost** — low RAM, no JVM, no extra services to babysit.
+- One device, many services - replace a pile of log files with one indexed & queryable store.
+- Edge & appliances — gateway, robot, or box that collects logs from nearby services or devices over HTTP.
+- Low ops, low RAM — no JVM, single process, low memory footprint; backup is copying a `.sqlite` file.
 
-LogLite is **not** a replacement for Elastic Stack, Loki, Splunk, or ClickHouse. A single
-instance does not scale horizontally or federate with peers. If you need multi-node
-aggregation, sharding, or tenant isolation, reach for one of those instead.
+**LogLite is NOT built for**
+
+Multi-node aggregation, sharding, or enterprise SIEM. If you need Loki, Elastic, Splunk, or ClickHouse-scale search
+across a fleet, use those tools. LogLite does not federate peers or isolate tenants.
+
 
 Installation
 ------------

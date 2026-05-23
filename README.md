@@ -17,9 +17,9 @@
 
 ## Built for
 
+- **One device, many services** — replace a pile of log files with one indexed & queryable store.
 - **Edge & appliances** — gateway, robot, or box that collects logs from nearby services or devices over HTTP.
-- **One device, many writers** — replace a pile of log files with one indexed store, live tail, and optional web UI.
-- **Low ops, low RAM** — no JVM, no log cluster; backup is copying a `.sqlite` file.
+- **Low ops, low RAM** — no JVM, single process, low memory footprint; backup is copying a `.sqlite` file.
 
 ## Not built for
 
@@ -27,11 +27,12 @@
 
 ## What you get
 
-|            |                                                                                                     |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| **Ingest** | REST bulk backlog · file/socket/ZMQ harvesters · Python `Harvester` plugins                         |
-| **Store**  | SQLite + WAL · migrations you write · retention vacuum · optional enum column compression           |
-| **Use**    | Filtered `GET /logs` · `GET /logs/sse` live tail · optional [dashboard](frontend/README.md) (v1.2+) |
+|                   |                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| **Ingest**        | REST bulk backlog · file/socket/ZMQ harvesters · Python `Harvester` plugins               |
+| **Store**         | SQLite + WAL · migrations you write · retention vacuum · optional enum column compression |
+| **Use**           | Filtered `GET /logs` · `GET /logs/sse` live tail                                          |
+| **Observability** | Web Dashboard to gain insights into loglite performance and usage (optional)              |
 
 Core is **C++20** (Asio/Beast); Python is a thin CLI and harvester layer. Same `config.yaml` for the wheel or the [standalone binary](cpp/README.md).
 

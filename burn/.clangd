@@ -1,0 +1,11 @@
+CompileFlags:
+  # clangd searches for compile_commands.json by walking up from the source
+  # file's directory. build/apple-arm64/debug is the default local build.
+  CompilationDatabase: build/apple-arm64/debug
+
+  # Suppress noise from third-party headers (mirrors the -isystem behaviour
+  # that cmake uses at compile time).
+  Add: [-Wno-unknown-warning-option]
+
+Diagnostics:
+  UnusedIncludes: None

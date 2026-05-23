@@ -53,6 +53,41 @@ static http::response<http::string_body> http_req(const std::string& host, uint1
     return res;
 }
 
+static std::vector<http::response<http::string_body>> http_req_keep_alive(
+    const std::string& host, uint16_t port, http::verb method, std::string_view target,
+    std::string_view body, std::string_view content_type, unsigned int repeat) {
+    asio::io_context ioc;
+    tcp::socket socket{ioc};
+    tcp::resolver resolver{ioc};
+    auto endpoints = resolver.resolve(host, std::to_string(port));
+    asio::connect(socket, endpoints);
+
+    beast::tcp_stream stream{std::move(socket)};
+    beast::flat_buffer buf;
+    std::vector<http::response<http::string_body>> responses;
+    responses.reserve(repeat);
+
+    for (unsigned i = 0; i < repeat; ++i) {
+        http::request<http::string_body> req{method, std::string(target), 11};
+        req.set(http::field::host, host);
+        req.set(http::field::user_agent, "loglite-test");
+        req.keep_alive(i + 1 < repeat);
+        req.body() = std::string(body);
+        req.set(http::field::content_type, content_type);
+        req.prepare_payload();
+
+        http::write(stream, req);
+
+        http::response<http::string_body> res;
+        http::read(stream, buf, res);
+        responses.push_back(std::move(res));
+    }
+
+    beast::error_code ec;
+    stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+    return responses;
+}
+
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
 class ServerTest : public ::testing::Test {
@@ -207,6 +242,19 @@ TEST_F(ServerTest, InsertSingleLog) {
 
     auto body = nlohmann::json::parse(res.body());
     EXPECT_EQ(body["status"], "accepted");
+}
+
+TEST_F(ServerTest, InsertTwoLogsOnKeepAliveConnection) {
+    const std::string payload =
+        R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
+    auto responses = http_req_keep_alive("127.0.0.1", 17788, http::verb::post, "/logs", payload,
+                                         "application/json", 2);
+    ASSERT_EQ(responses.size(), 2u);
+    for (const auto& res : responses) {
+        EXPECT_EQ(res.result(), http::status::ok);
+        auto body = nlohmann::json::parse(res.body());
+        EXPECT_EQ(body["status"], "accepted");
+    }
 }
 
 TEST_F(ServerTest, InsertArrayOfLogs) {

@@ -12,6 +12,17 @@
         "BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT",
         "YAML_CPP_STATIC_DEFINE"
       ]
+    },
+    {
+      "name": "burn (C++20 / macOS)",
+      "compilerPath": "/opt/homebrew/opt/llvm/bin/clang++",
+      "cppStandard": "c++20",
+      "intelliSenseMode": "macos-clang-arm64",
+      "compileCommands": "${workspaceFolder}/burn/build/apple-arm64/debug/compile_commands.json",
+      "defines": [
+        "BOOST_ASIO_HAS_CO_AWAIT",
+        "BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT"
+      ]
     }
   ]
 }

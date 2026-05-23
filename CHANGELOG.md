@@ -1,5 +1,10 @@
 ## Changelog
 
+### 1.3.0
+
+- feat: `POST /logs` ingestion supports long-lived connection.
+- feat: implement a standalone stress test tool `burn`.
+
 ### 1.2.0
 
 - feat: dashboard frontend (optional & standalone) ✨

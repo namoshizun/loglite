@@ -5,6 +5,7 @@
 - feat: `POST /logs` ingestion supports long-lived connection.
 - feat: implement a standalone stress test tool `burn`.
 - deps: add `fmd/12.1.0` because GCC-12 does not support std::format 😳.
+- docs: mention the expected runtime memory (RSS) usage pattern.
 
 ### 1.2.0
 

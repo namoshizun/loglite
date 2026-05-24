@@ -7,6 +7,7 @@
 
 #include <barrier>
 #include <filesystem>
+#include <fmt/format.h>
 #include <thread>
 #include <vector>
 
@@ -73,7 +74,7 @@ TEST(ReadDatabasePoolTest, ConcurrentReadsAndWriterInserts) {
     start.arrive_and_wait();
     for (int i = 0; i < 50; ++i) {
         writer.Insert({{{"timestamp", "2026-01-01T00:00:00Z"},
-                        {"message", std::format("m{}", i)},
+                        {"message", fmt::format("m{}", i)},
                         {"level", "INFO"}}});
     }
 

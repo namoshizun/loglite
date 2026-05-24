@@ -12,7 +12,7 @@
 #include <boost/beast/http/chunk_encode.hpp>
 
 #include <chrono>
-#include <format>
+#include <fmt/format.h>
 #include <sstream>
 
 namespace asio = boost::asio;
@@ -101,7 +101,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     auto last_write_tp = std::chrono::steady_clock::now();
 
     auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
-    log::info(std::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
+    log::info(fmt::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
                           ctx.notifier.SubscriberCount()));
 
     // ── Event loop ────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
             result = ctx.db_read.UseConnection(
                 [&](ReaderDatabase& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
         } catch (const std::exception& e) {
-            log::error(std::format("SSE query error: {}", e.what()));
+            log::error(fmt::format("SSE query error: {}", e.what()));
             continue;
         }
 
@@ -180,7 +180,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
 
         if (cfg.debug)
             log::debug(
-                std::format("SSE {} pushed {} log(s)", subscriber_id, result.results.size()));
+                fmt::format("SSE {} pushed {} log(s)", subscriber_id, result.results.size()));
     }
 
     // Send chunked terminator (best-effort; client may already be gone).
@@ -189,7 +189,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     } catch (...) {
     }
 
-    log::info(std::format("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
+    log::info(fmt::format("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
                           ctx.notifier.SubscriberCount()));
 }
 

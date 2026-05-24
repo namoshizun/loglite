@@ -4,7 +4,7 @@
 #include "utils.hpp"
 
 #include <algorithm>
-#include <format>
+#include <fmt/format.h>
 #include <iostream>
 #include <ranges>
 #include <stdexcept>
@@ -34,10 +34,10 @@ bool MigrationManager::RollbackMigration(int version, bool force) {
     auto it = std::ranges::find_if(migrations_,
                                    [version](const Migration& m) { return m.version == version; });
     if (it == migrations_.end())
-        throw std::runtime_error(std::format("Migration v{} not found in config", version));
+        throw std::runtime_error(fmt::format("Migration v{} not found in config", version));
 
     if (!force) {
-        std::cout << std::format("Roll back migration v{}? [y/N] ", version);
+        std::cout << fmt::format("Roll back migration v{}? [y/N] ", version);
         std::string ans;
         std::getline(std::cin, ans);
         if (ans != "y" && ans != "Y") {

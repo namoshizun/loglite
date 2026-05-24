@@ -7,16 +7,17 @@ log_timestamp_field: timestamp
 sse_limit: 1000
 sse_debounce_ms: 500
 vacuum_max_days: 7
-vacuum_max_size: 500MB
-vacuum_target_size: 400MB
+vacuum_max_size: 100MB
+vacuum_target_size: 80MB
 sqlite_dir: ./db
 sqlite_params:
   auto_vacuum: INCREMENTAL
   journal_mode: WAL
   synchronous: NORMAL
   temp_store: MEMORY
-  cache_size: -32000  # 32MB
-  mmap_size: 52428800  # 50MB
+  cache_size: -50000  # 50MB
+  mmap_size: 12582912  # 12MB
+  busy_timeout: 5000
 
 allow_origin: "*"
 migrations:

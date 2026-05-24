@@ -546,6 +546,38 @@ If you don't need custom Python harvesters, you can also run the standalone
 C++ binary directly. The config file and database are identical in both modes;
 switching is a binary swap.
 
+.. _runtime-memory-rss:
+
+Runtime memory (RSS)
+--------------------
+
+LogLite is a single process with **bounded** in-memory structures (ingest
+backlog, metrics sampling window, query/SSE result batches). RSS can still
+**rise over minutes or hours** under load without indicating a memory leak.
+
+**Why RSS increases**
+
+- **SQLite page cache** — ``cache_size`` (for example ``-32000`` → 32 MiB) applies
+  **per database connection**. The server opens one **writer** plus one **reader
+  per hardware thread** (same count as the HTTP thread pool). Caches grow lazily
+  toward those caps as the database is used.
+- **Memory-mapped I/O** — ``mmap_size`` caps how much of the DB file each
+  connection may map; mapping ramps up as the file grows (vacuum limits on-disk
+  size separately).
+- **Warm-up** — After startup or a traffic spike, RSS often climbs until caches
+  and the on-disk database reach a steady size under your vacuum settings.
+
+**When to investigate**
+
+- Sustained growth **after** ``logs.db`` size has stabilized.
+- Rising ``ingest_drop_count`` in activity stats (backlog cannot keep up).
+- RSS far above what your ``sqlite_params`` and core count imply, with no
+  heavy query/SSE load.
+
+Tune ``cache_size`` and ``mmap_size`` downward on memory-constrained hosts; use
+``task_backlog_max_size`` and ingest rate to keep the backlog small.
+
+
 
 License
 -------

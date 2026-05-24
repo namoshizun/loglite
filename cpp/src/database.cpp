@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <array>
-#include <format>
+#include <fmt/format.h>
 #include <ranges>
 #include <stdexcept>
 
@@ -12,7 +12,7 @@ namespace loglite {
 Statement::Statement(sqlite3* db, std::string_view sql) {
     if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw, nullptr) !=
         SQLITE_OK)
-        throw std::runtime_error(std::format("sqlite3_prepare_v2: {}", sqlite3_errmsg(db)));
+        throw std::runtime_error(fmt::format("sqlite3_prepare_v2: {}", sqlite3_errmsg(db)));
 }
 
 Database::Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
@@ -29,7 +29,7 @@ void Database::Close() {
 
 void Database::ensure_ok(int rc, std::string_view ctx) const {
     if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW)
-        throw std::runtime_error(std::format("{}: {}", ctx, sqlite3_errmsg(db_)));
+        throw std::runtime_error(fmt::format("{}: {}", ctx, sqlite3_errmsg(db_)));
 }
 
 void Database::exec_sql(std::string_view sql) const {
@@ -38,12 +38,12 @@ void Database::exec_sql(std::string_view sql) const {
     if (rc != SQLITE_OK) {
         std::string msg = errmsg ? errmsg : "unknown error";
         sqlite3_free(errmsg);
-        throw std::runtime_error(std::format("sqlite3_exec: {}", msg));
+        throw std::runtime_error(fmt::format("sqlite3_exec: {}", msg));
     }
 }
 
 std::string Database::get_pragma(std::string_view name) const {
-    auto sql = std::format("PRAGMA {}", name);
+    auto sql = fmt::format("PRAGMA {}", name);
     Statement stmt{db_, sql};
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
@@ -53,7 +53,7 @@ std::string Database::get_pragma(std::string_view name) const {
 }
 
 void Database::set_pragma(std::string_view name, std::string_view value) {
-    exec_sql(std::format("PRAGMA {}={}", name, value));
+    exec_sql(fmt::format("PRAGMA {}={}", name, value));
 }
 
 void Database::apply_params(AccessMode mode) {
@@ -126,7 +126,7 @@ std::vector<std::string> Database::pluck_column_names(const std::vector<ColumnIn
 
 std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name) const {
     std::vector<ColumnInfo> out;
-    auto sql = std::format("PRAGMA table_info({})", table_name);
+    auto sql = fmt::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         ColumnInfo ci;
@@ -141,7 +141,7 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
 
 int64_t Database::EstimateLogRowCount() const {
     auto sql =
-        std::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
+        fmt::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
     if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
     return 0;
@@ -150,7 +150,7 @@ int64_t Database::EstimateLogRowCount() const {
 void Database::validate_field(std::string_view name) const {
     if (!std::ranges::any_of(catalog_->log_column_info,
                              [name](const ColumnInfo& ci) { return ci.name == name; }))
-        throw std::runtime_error(std::format("Unknown field name: '{}'", name));
+        throw std::runtime_error(fmt::format("Unknown field name: '{}'", name));
 }
 
 static constexpr std::string_view kAllowedOps[] = {"=", "!=", ">", ">=", "<", "<=", "~="};
@@ -162,7 +162,7 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
     for (const auto& ft : filters) {
         validate_field(ft.field);
         if (!range_contains(kAllowedOps, ft.op))
-            throw std::runtime_error(std::format("Unknown query operator: '{}'", ft.op));
+            throw std::runtime_error(fmt::format("Unknown query operator: '{}'", ft.op));
 
         if (!sql_parts.empty()) sql_parts += " AND ";
 

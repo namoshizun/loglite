@@ -2,7 +2,7 @@
 
 #include "log.hpp"
 
-#include <format>
+#include <fmt/format.h>
 #include <ranges>
 #include <stdexcept>
 
@@ -17,7 +17,7 @@ void ReaderDatabase::Open() {
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
     apply_params(AccessMode::READ);
-    log::debug(std::format("Opened reader SQLite connection: {}", path));
+    log::debug(fmt::format("Opened reader SQLite connection: {}", path));
 }
 
 PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,
@@ -34,7 +34,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     auto [where, params] = build_where_clause(filters);
 
     // Get total count of rows matching the filters.
-    auto count_sql = std::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
+    auto count_sql = fmt::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement count_stmt{db_, count_sql};
     for (int i = 0; i < static_cast<int>(params.size()); ++i)
         bind_param(count_stmt, i + 1, params[i]);
@@ -49,7 +49,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
         if (i) field_list += ",";
         field_list += effective_fields[i];
     }
-    auto select_sql = std::format("SELECT {} FROM {} WHERE {} ORDER BY {} DESC LIMIT ? OFFSET ?",
+    auto select_sql = fmt::format("SELECT {} FROM {} WHERE {} ORDER BY {} DESC LIMIT ? OFFSET ?",
                                   field_list, cfg_.log_table_name, where, cfg_.log_timestamp_field);
 
     Statement sel{db_, select_sql};
@@ -86,7 +86,7 @@ StatsQueryResult ReaderDatabase::QueryActivityStats(std::string_view since, std:
 
     for (const auto& f : resolved)
         if (std::ranges::find(known, f) == known.end())
-            throw std::runtime_error(std::format("Unknown activity_stats field: '{}'", f));
+            throw std::runtime_error(fmt::format("Unknown activity_stats field: '{}'", f));
 
     std::string col_list;
     col_list.reserve(resolved.size() * 16);
@@ -98,7 +98,7 @@ StatsQueryResult ReaderDatabase::QueryActivityStats(std::string_view since, std:
     std::string order = "DESC";
     if (ordering == "asc") order = "ASC";
 
-    auto sql = std::format(
+    auto sql = fmt::format(
         "SELECT {} FROM activity_stats WHERE until >= ? AND until <= ? ORDER BY until {}", col_list,
         order);
     Statement stmt{db_, sql};
@@ -127,7 +127,7 @@ StatsQueryResult ReaderDatabase::QueryDatabaseStats(std::string_view since, std:
 
     for (const auto& f : resolved)
         if (std::ranges::find(known, f) == known.end())
-            throw std::runtime_error(std::format("Unknown database_stats field: '{}'", f));
+            throw std::runtime_error(fmt::format("Unknown database_stats field: '{}'", f));
 
     std::string col_list;
     col_list.reserve(resolved.size() * 16);
@@ -139,7 +139,7 @@ StatsQueryResult ReaderDatabase::QueryDatabaseStats(std::string_view since, std:
     std::string order = "DESC";
     if (ordering == "asc") order = "ASC";
 
-    auto sql = std::format(
+    auto sql = fmt::format(
         "SELECT {} FROM database_stats WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp "
         "{}",
         col_list, order);

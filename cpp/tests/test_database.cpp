@@ -106,7 +106,7 @@ TEST_F(DatabaseTest, InsertBatch) {
     for (int i = 0; i < 5; ++i) {
         logs.push_back({
             {"timestamp", "2024-01-01T00:00:00"},
-            {"message", std::format("msg {}", i)},
+            {"message", fmt::format("msg {}", i)},
             {"level", "INFO"},
         });
     }
@@ -147,8 +147,8 @@ TEST_F(DatabaseTest, QueryPagination) {
     std::vector<nlohmann::json> logs;
     for (int i = 0; i < 10; ++i) {
         logs.push_back({
-            {"timestamp", std::format("2024-01-01T00:00:{:02d}", i)},
-            {"message", std::format("msg {}", i)},
+            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}", i)},
+            {"message", fmt::format("msg {}", i)},
             {"level", "INFO"},
         });
     }

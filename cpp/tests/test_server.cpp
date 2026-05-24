@@ -11,7 +11,7 @@
 #include <boost/beast.hpp>
 
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <fstream>
 #include <thread>
 
@@ -51,6 +51,41 @@ static http::response<http::string_body> http_req(const std::string& host, uint1
     beast::error_code ec;
     socket.shutdown(tcp::socket::shutdown_both, ec);
     return res;
+}
+
+static std::vector<http::response<http::string_body>> http_req_keep_alive(
+    const std::string& host, uint16_t port, http::verb method, std::string_view target,
+    std::string_view body, std::string_view content_type, unsigned int repeat) {
+    asio::io_context ioc;
+    tcp::socket socket{ioc};
+    tcp::resolver resolver{ioc};
+    auto endpoints = resolver.resolve(host, std::to_string(port));
+    asio::connect(socket, endpoints);
+
+    beast::tcp_stream stream{std::move(socket)};
+    beast::flat_buffer buf;
+    std::vector<http::response<http::string_body>> responses;
+    responses.reserve(repeat);
+
+    for (unsigned i = 0; i < repeat; ++i) {
+        http::request<http::string_body> req{method, std::string(target), 11};
+        req.set(http::field::host, host);
+        req.set(http::field::user_agent, "loglite-test");
+        req.keep_alive(i + 1 < repeat);
+        req.body() = std::string(body);
+        req.set(http::field::content_type, content_type);
+        req.prepare_payload();
+
+        http::write(stream, req);
+
+        http::response<http::string_body> res;
+        http::read(stream, buf, res);
+        responses.push_back(std::move(res));
+    }
+
+    beast::error_code ec;
+    stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+    return responses;
 }
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
@@ -209,6 +244,19 @@ TEST_F(ServerTest, InsertSingleLog) {
     EXPECT_EQ(body["status"], "accepted");
 }
 
+TEST_F(ServerTest, InsertTwoLogsOnKeepAliveConnection) {
+    const std::string payload =
+        R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
+    auto responses = http_req_keep_alive("127.0.0.1", 17788, http::verb::post, "/logs", payload,
+                                         "application/json", 2);
+    ASSERT_EQ(responses.size(), 2u);
+    for (const auto& res : responses) {
+        EXPECT_EQ(res.result(), http::status::ok);
+        auto body = nlohmann::json::parse(res.body());
+        EXPECT_EQ(body["status"], "accepted");
+    }
+}
+
 TEST_F(ServerTest, InsertArrayOfLogs) {
     auto payload = R"([
         {"timestamp":"2024-01-01T00:00:00Z","message":"a","level":"INFO"},
@@ -284,8 +332,8 @@ TEST_F(ServerTest, QueryPagination) {
     std::vector<nlohmann::json> logs;
     for (int i = 0; i < 5; ++i) {
         logs.push_back({
-            {"timestamp", std::format("2024-01-01T00:00:{:02d}Z", i)},
-            {"message", std::format("msg{}", i)},
+            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}Z", i)},
+            {"message", fmt::format("msg{}", i)},
             {"level", "INFO"},
         });
     }
@@ -347,7 +395,7 @@ TEST_F(ServerTest, StatsRequiresAllParams) {
 }
 
 TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*&ordering=desc");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -374,7 +422,7 @@ TEST_F(ServerTest, StatsWithPopulatedData) {
     db_->InsertActivityStats(activity);
     db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
 
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=query_count,query_avg&database_stats_fields=rows_count,db_size"
         "&ordering=asc");
@@ -393,7 +441,7 @@ TEST_F(ServerTest, StatsWithPopulatedData) {
 }
 
 TEST_F(ServerTest, StatsWindowExceedsOneDay) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-03T00:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -401,7 +449,7 @@ TEST_F(ServerTest, StatsWindowExceedsOneDay) {
 }
 
 TEST_F(ServerTest, StatsUntilBeforeSince) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-02T00:00:00Z&until=2024-01-01T00:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -409,7 +457,7 @@ TEST_F(ServerTest, StatsUntilBeforeSince) {
 }
 
 TEST_F(ServerTest, StatsInvalidOrdering) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*&ordering=sideways");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
@@ -417,7 +465,7 @@ TEST_F(ServerTest, StatsInvalidOrdering) {
 }
 
 TEST_F(ServerTest, StatsInvalidTimestamp) {
-    auto url = std::format(
+    auto url = fmt::format(
         "/stats?since=notatime&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=*&database_stats_fields=*");
     auto res = http_req("127.0.0.1", 17788, http::verb::get, url);

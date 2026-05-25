@@ -38,9 +38,9 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
     try {
         std::rethrow_exception(eptr);
     } catch (const std::exception& e) {
-        log::error(fmt::format("{} {}", tag, e.what()));
+        log::ERROR(fmt::format("{} {}", tag, e.what()));
     } catch (...) {
-        log::error(fmt::format("{} unknown exception", tag));
+        log::ERROR(fmt::format("{} unknown exception", tag));
     }
 }
 
@@ -59,13 +59,13 @@ void Server::Run() {
     acceptor_.set_option(ip::tcp::acceptor::reuse_address{true});
     acceptor_.bind(endpoint);
     acceptor_.listen();
-    log::info(fmt::format("Listening on {}:{}", cfg.host, cfg.port));
+    log::INFO(fmt::format("Listening on {}:{}", cfg.host, cfg.port));
 
     // ── Signal handling ───────────────────────────────────────────────────────
     asio::signal_set signals{ex, SIGINT, SIGTERM};
     signals.async_wait([this](const boost::system::error_code& ec, int signo) {
         if (!ec) {
-            log::info(fmt::format("Received signal {}, shutting down gracefully", signo));
+            log::INFO(fmt::format("Received signal {}, shutting down gracefully", signo));
             Stop();
         }
     });
@@ -109,7 +109,7 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
         auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
         if (ec) {
             if (ec != asio::error::operation_aborted)
-                log::error(fmt::format("accept error: {}", ec.message()));
+                log::ERROR(fmt::format("accept error: {}", ec.message()));
             co_return;
         }
 

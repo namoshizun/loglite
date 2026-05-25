@@ -41,7 +41,7 @@ bool MigrationManager::RollbackMigration(int version, bool force) {
         std::string ans;
         std::getline(std::cin, ans);
         if (ans != "y" && ans != "Y") {
-            log::info("Rollback cancelled.");
+            log::INFO("Rollback cancelled.");
             return false;
         }
     }

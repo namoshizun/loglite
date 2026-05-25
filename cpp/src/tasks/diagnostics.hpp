@@ -115,7 +115,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     asio::steady_timer timer{ex};
     auto window_since = std::chrono::system_clock::now();
 
-    log::info(
+    log::INFO(
         fmt::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
 
     while (true) {
@@ -141,7 +141,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
-        log::info(fmt::format(
+        log::INFO(fmt::format(
             "[query]: count={} avg={}ms max={}ms | "
             "[ingest]: count={} avg_size={}B drops={} | "
             "[insert]: batches={} rows={} total={}ms | "

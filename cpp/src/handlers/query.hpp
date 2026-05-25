@@ -59,7 +59,7 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
     }
 
     if (ctx.config.debug)
-        log::debug(fmt::format("Query fields={} limit={} offset={} filters={}", fields_str, limit,
+        log::DEBUG(fmt::format("Query fields={} limit={} offset={} filters={}", fields_str, limit,
                                offset, filters.size()));
 
     // ── Execute ───────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ http::response<http::string_body> HandleQuery(const http::request<Body>& req, Se
             [&](ReaderDatabase& r) { return r.Query(fields, filters, limit, offset); });
         return MakeOKResp(result.to_json(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
-        log::error(fmt::format("Query error: {}", e.what()));
+        log::ERROR(fmt::format("Query error: {}", e.what()));
         return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }

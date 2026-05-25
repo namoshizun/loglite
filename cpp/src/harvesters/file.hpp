@@ -27,13 +27,13 @@ class FileHarvester final : public Harvester {
 
     void Start() override {
         thread_ = std::jthread{[this](std::stop_token st) { run(st); }};
-        log::info(fmt::format("FileHarvester '{}' started: tailing {}", name_, path_.string()));
+        log::INFO(fmt::format("FileHarvester '{}' started: tailing {}", name_, path_.string()));
     }
 
     void Stop() override {
         thread_.request_stop();
         thread_.join();
-        log::info(fmt::format("FileHarvester '{}' stopped", name_));
+        log::INFO(fmt::format("FileHarvester '{}' stopped", name_));
     }
 
    private:
@@ -41,7 +41,7 @@ class FileHarvester final : public Harvester {
         // Wait for the file to exist.
         while (!std::filesystem::exists(path_)) {
             if (st.stop_requested()) return;
-            log::debug(fmt::format("FileHarvester '{}': waiting for {}", name_, path_.string()));
+            log::DEBUG(fmt::format("FileHarvester '{}': waiting for {}", name_, path_.string()));
             std::this_thread::sleep_for(5s);
         }
 
@@ -59,11 +59,11 @@ class FileHarvester final : public Harvester {
             auto new_size = std::filesystem::file_size(path_);
 
             if (new_inode != inode) {
-                log::info(fmt::format("FileHarvester '{}': file rotated, reopening", name_));
+                log::INFO(fmt::format("FileHarvester '{}': file rotated, reopening", name_));
                 inode = new_inode;
                 offset = 0;
             } else if (new_size < offset) {
-                log::warn(fmt::format("FileHarvester '{}': file truncated, resetting", name_));
+                log::WARN(fmt::format("FileHarvester '{}': file truncated, resetting", name_));
                 offset = 0;
             }
 
@@ -100,7 +100,7 @@ class FileHarvester final : public Harvester {
             }
             Ingest(std::move(entry));
         } catch (const nlohmann::json::parse_error&) {
-            log::warn(fmt::format("FileHarvester '{}': failed to parse line: {}", name_, line));
+            log::WARN(fmt::format("FileHarvester '{}': failed to parse line: {}", name_, line));
         }
     }
 

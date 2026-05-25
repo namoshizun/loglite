@@ -30,7 +30,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
     auto& cfg = ctx.config;
     asio::steady_timer timer{ex};
 
-    log::info("Backlog flush task started");
+    log::INFO("Backlog flush task started");
 
     while (true) {
         // Poll every 100 ms; break early when the backlog hits the flush watermark.
@@ -43,7 +43,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         auto logs = ctx.backlog.Flush();
         if (logs.empty()) continue;
 
-        if (cfg.debug) log::debug(fmt::format("Flushing {} log(s) from backlog", logs.size()));
+        log::DEBUG(fmt::format("Flushing {} log(s) from backlog", logs.size()));
 
         // Serialise DB writes through the strand.
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
@@ -58,7 +58,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, t.elapsed_ms(), count);
         ctx.notifier.Notify(max);
 
-        if (cfg.debug) log::debug(fmt::format("Inserted {} row(s), max_log_id={}", count, max));
+        log::DEBUG(fmt::format("Inserted {} row(s), max_log_id={}", count, max));
     }
 }
 

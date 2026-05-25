@@ -86,9 +86,9 @@ TEST(ConfigTest, ResolvePoolSizeDirect) {
     cfg.db_pool_size = "auto";
     EXPECT_GE(cfg.resolve_pool_size(), 1u);
     cfg.db_pool_size = "0";
-    EXPECT_THROW(cfg.resolve_pool_size(), std::exception);
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
     cfg.db_pool_size = "nope";
-    EXPECT_THROW(cfg.resolve_pool_size(), std::exception);
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
 }
 
 TEST(ConfigTest, DbPathDerived) {

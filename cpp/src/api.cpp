@@ -35,13 +35,13 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
         if (hdef.type == "loglite.harvesters.FileHarvester" || hdef.type == "FileHarvester") {
             auto it = hdef.config.find("path");
             if (it == hdef.config.end()) {
-                log::warn(fmt::format("FileHarvester '{}': missing 'path' config", hdef.name));
+                log::WARN(fmt::format("FileHarvester '{}': missing 'path' config", hdef.name));
                 continue;
             }
             harvesters.push_back(
                 std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
         } else {
-            log::warn(fmt::format("Unknown harvester type '{}', skipping", hdef.type));
+            log::WARN(fmt::format("Unknown harvester type '{}', skipping", hdef.type));
         }
     }
     return harvesters;
@@ -52,6 +52,7 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
+    log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
     WriterDatabase db_write{cfg};
     db_write.Open();
@@ -87,7 +88,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     Server server{ctx, effective_threads};
     g_server = &server;
 
-    log::info(fmt::format("loglite server starting on {}:{}", cfg.host, cfg.port));
+    log::INFO(fmt::format("loglite server starting on {}:{}", cfg.host, cfg.port));
     server.Run();
 
     // Teardown
@@ -120,7 +121,7 @@ void Rollout(const std::filesystem::path& config_path, int start_version) {
     db.CreateInternalTables();
     MigrationManager mgr{db, cfg.migrations};
     if (!mgr.ApplyPendingMigrations(start_version)) {
-        log::info("No pending migrations to apply.");
+        log::INFO("No pending migrations to apply.");
     }
 }
 

@@ -14,6 +14,14 @@ namespace loglite::log {
 
 enum class Level { kDebug, kInfo, kWarn, kError };
 
+inline Level g_min_level = Level::kInfo;
+
+inline void SetLevel(Level level) { g_min_level = level; }
+
+namespace detail {
+inline bool enabled(Level level) {
+    return static_cast<int>(level) >= static_cast<int>(g_min_level);
+}
 inline std::string timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto s = std::chrono::floor<std::chrono::seconds>(now);
@@ -54,29 +62,47 @@ inline std::string_view level_label(Level level) {
 
 inline bool stream_supports_color(FILE* stream) {
     if (stream == nullptr) return false;
+
+    static const bool kStdoutColor = isatty(fileno(stdout)) != 0;
+    static const bool kStderrColor = isatty(fileno(stderr)) != 0;
+    if (stream == stdout) return kStdoutColor;
+    if (stream == stderr) return kStderrColor;
+
     return isatty(fileno(stream)) != 0;
 }
 
 inline void write(FILE* stream, Level level, std::string_view msg) {
-    const auto ts = timestamp();
-    const auto label = level_label(level);
+    const auto ts = detail::timestamp();
+    const auto label = detail::level_label(level);
     std::string line;
     if (stream_supports_color(stream)) {
-        line = fmt::format("[{}] [{}] {}\n", ts, fmt::format(style_for(level), "{}", label), msg);
+        const auto levelStyled = fmt::format(detail::style_for(level), "{}", label);
+        line = fmt::format("[{}] [{}] {}\n", ts, levelStyled, msg);
     } else {
         line = fmt::format("[{}] [{}] {}\n", ts, label, msg);
     }
     std::fwrite(line.data(), 1, line.size(), stream);
 }
+}  // namespace detail
 
-inline void info(std::string_view msg) { write(stdout, Level::kInfo, msg); }
+inline void INFO(std::string_view msg) {
+    if (!detail::enabled(Level::kInfo)) return;
+    detail::write(stdout, Level::kInfo, msg);
+}
 
-inline void warn(std::string_view msg) { write(stderr, Level::kWarn, msg); }
+inline void WARN(std::string_view msg) {
+    if (!detail::enabled(Level::kWarn)) return;
+    detail::write(stderr, Level::kWarn, msg);
+}
 
-inline void error(std::string_view msg) { write(stderr, Level::kError, msg); }
+inline void ERROR(std::string_view msg) {
+    if (!detail::enabled(Level::kError)) return;
+    detail::write(stderr, Level::kError, msg);
+}
 
-inline void debug(std::string_view msg, bool enabled = true) {
-    if (enabled) write(stdout, Level::kDebug, msg);
+inline void DEBUG(std::string_view msg) {
+    if (!detail::enabled(Level::kDebug)) return;
+    detail::write(stdout, Level::kDebug, msg);
 }
 
 }  // namespace loglite::log

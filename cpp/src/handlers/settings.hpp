@@ -32,6 +32,8 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     AppendSetting(settings, "sqlite_params", sqlite_params,
                   "SQLite PRAGMA key/value pairs applied when opening the database.");
 
+    AppendSetting(settings, "db_pool_size", cfg.db_pool_size, "Reader connection pool size");
+
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");
 

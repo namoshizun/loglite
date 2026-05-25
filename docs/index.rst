@@ -91,10 +91,13 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
 .. code-block:: yaml
 
    # ── Server ───────────────────────────────────────────────
-   host: 0.0.0.0          # Bind host
-   port: 7788             # Bind port
-   debug: true            # Verbose logging
-   allow_origin: "*"      # CORS Access-Control-Allow-Origin
+   host: 0.0.0.0      # Bind host
+   port: 7788         # Bind port
+   debug: true        # Verbose logging
+   allow_origin: "*"  # CORS Access-Control-Allow-Origin
+   db_pool_size: 2    # Read DB pool. Positive int, or "auto" (= hardware concurrency);
+                      # More readers can help queries but use N times more RAM because
+                      # each SQLite connection holds a distinct cache memory.
 
    # ── Database ─────────────────────────────────────────────
    sqlite_dir: ./db       # Directory holding the SQLite db file

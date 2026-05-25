@@ -59,7 +59,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
 
     auto effective_threads =
         thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
-    ReadDatabasePool db_read(cfg, db_write.catalog(), effective_threads);
+    ReadDatabasePool db_read(cfg, db_write.catalog(), cfg.resolve_pool_size());
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};

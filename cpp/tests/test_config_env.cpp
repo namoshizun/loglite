@@ -100,6 +100,15 @@ TEST(ConfigEnvTest, EnvOverrideTaskInterval) {
     unsetenv("LOGLITE_task_diagnostics_interval");
 }
 
+TEST(ConfigEnvTest, EnvOverridePoolSize) {
+    setenv("LOGLITE_DB_POOL_SIZE", "6", 1);
+    auto path = write_temp_config(kEnvConfig);
+    auto cfg = Config::from_file(path);
+    EXPECT_EQ(cfg.db_pool_size, "6");
+    EXPECT_EQ(cfg.resolve_pool_size(), 6u);
+    unsetenv("LOGLITE_DB_POOL_SIZE");
+}
+
 TEST(ConfigEnvTest, MissingFileThrows) {
     EXPECT_THROW(Config::from_file("/nonexistent/loglite_config.yaml"), std::runtime_error);
 }

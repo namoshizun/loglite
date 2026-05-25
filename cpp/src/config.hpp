@@ -25,6 +25,7 @@ struct Config {
     std::filesystem::path sqlite_dir{"./db"};
     std::filesystem::path db_path;  // derived
     std::map<std::string, std::string> sqlite_params;
+    std::string db_pool_size{"2"};  // "auto" or positive integer
     bool auto_rollout{false};
 
     // ── Log table ─────────────────────────────────────────────────────────────
@@ -67,13 +68,15 @@ struct Config {
 
     // ── Factory ───────────────────────────────────────────────────────────────
     static Config from_file(const std::filesystem::path& path);
+
+    [[nodiscard]] unsigned resolve_pool_size() const;
 };
 
 // Boost.Describe: every public data member is listed.
 BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
 BOOST_DESCRIBE_STRUCT(Config, (),
                       (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,
-                       auto_rollout, log_table_name, log_timestamp_field, sse_limit,
+                       db_pool_size, auto_rollout, log_table_name, log_timestamp_field, sse_limit,
                        sse_debounce_ms, vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes,
                        vacuum_target_size, vacuum_target_size_bytes, vacuum_delete_batch_size,
                        task_diagnostics_interval, task_backlog_flush_interval,

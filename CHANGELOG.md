@@ -6,6 +6,7 @@
 - docs: mention the expected runtime memory (RSS) usage pattern.
 - feat: `POST /logs` ingestion supports long-lived connection.
 - feat: implement a standalone stress test tool `burn`.
+- feat: add `db_pool_size` config option to control the number of reader database connections, default to 2.
 - perf: `GET /logs` use quick estimate of total row count (max_id - min_id + 1) if no filters are applied.
 
 ### 1.2.0

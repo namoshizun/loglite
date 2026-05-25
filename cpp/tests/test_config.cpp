@@ -51,6 +51,44 @@ TEST(ConfigTest, DefaultValues) {
     EXPECT_FALSE(cfg.debug);
     EXPECT_FALSE(cfg.auto_rollout);
     EXPECT_EQ(cfg.allow_origin, "*");
+    EXPECT_EQ(cfg.db_pool_size, "2");
+    EXPECT_EQ(cfg.resolve_pool_size(), 2u);
+}
+
+TEST(ConfigTest, PoolSizeAuto) {
+    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: auto\n";
+    auto path = write_temp_config(yaml);
+    auto cfg = Config::from_file(path);
+    EXPECT_EQ(cfg.db_pool_size, "auto");
+    EXPECT_GE(cfg.resolve_pool_size(), 1u);
+}
+
+TEST(ConfigTest, PoolSizeIntegerYaml) {
+    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: 4\n";
+    auto path = write_temp_config(yaml);
+    auto cfg = Config::from_file(path);
+    EXPECT_EQ(cfg.db_pool_size, "4");
+    EXPECT_EQ(cfg.resolve_pool_size(), 4u);
+}
+
+TEST(ConfigTest, PoolSizeInvalidThrows) {
+    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: 0\n";
+    EXPECT_THROW(Config::from_file(write_temp_config(yaml)), std::exception);
+
+    yaml = std::string(kMinimalConfig) + "\ndb_pool_size: bogus\n";
+    EXPECT_THROW(Config::from_file(write_temp_config(yaml)), std::exception);
+}
+
+TEST(ConfigTest, ResolvePoolSizeDirect) {
+    Config cfg;
+    cfg.db_pool_size = "4";
+    EXPECT_EQ(cfg.resolve_pool_size(), 4u);
+    cfg.db_pool_size = "auto";
+    EXPECT_GE(cfg.resolve_pool_size(), 1u);
+    cfg.db_pool_size = "0";
+    EXPECT_THROW(cfg.resolve_pool_size(), std::exception);
+    cfg.db_pool_size = "nope";
+    EXPECT_THROW(cfg.resolve_pool_size(), std::exception);
 }
 
 TEST(ConfigTest, DbPathDerived) {

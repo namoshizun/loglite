@@ -18,6 +18,7 @@
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
 - Use C++ 20. Prefer modern features over legacy ones.
+- Supports GCC 12+, Clang 16+.
 - Follow the Google C++ Style Guide.
 - Use CMake and GTest
 - Use `cpp/build.sh` to build the debug / release binary.

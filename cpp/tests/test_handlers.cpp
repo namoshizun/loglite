@@ -127,6 +127,7 @@ TEST_F(HandlersTest, HealthContainsCorsHeaders) {
 
 TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     cfg_.log_table_name = "MyLogs";
+    cfg_.db_pool_size = "8";
     cfg_.compression.enabled = true;
     cfg_.harvesters.push_back(Config::HarvesterDef{
         .type = "loglite.harvesters.FileHarvester",
@@ -154,6 +155,11 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     ASSERT_FALSE(table.is_null());
     EXPECT_EQ(table["value"], "MyLogs");
     EXPECT_TRUE(table["description"].is_string());
+
+    auto pool = find_key("db_pool_size");
+    ASSERT_FALSE(pool.is_null());
+    EXPECT_EQ(pool["value"], "8");
+    EXPECT_TRUE(pool["description"].is_string());
 
     auto compression = find_key("compression_enabled");
     ASSERT_FALSE(compression.is_null());

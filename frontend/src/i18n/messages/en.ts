@@ -119,6 +119,7 @@ export const en = {
   'settingsDesc.sqlite_params': 'SQLite PRAGMA key/value pairs applied when opening the database.',
   'settingsDesc.auto_rollout':
     'Whether pending migrations are applied automatically on server startup.',
+  'settingsDesc.db_pool_size': 'Reader connection pool size',
   'settingsDesc.vacuum_max_days': 'Drop log rows older than this many days during vacuum.',
   'settingsDesc.vacuum_max_size': 'Trigger vacuum when the database file exceeds this size.',
   'settingsDesc.vacuum_target_size':

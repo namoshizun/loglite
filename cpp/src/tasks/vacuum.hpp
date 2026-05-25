@@ -15,7 +15,7 @@ namespace loglite::tasks {
 
 using namespace std::chrono_literals;
 
-namespace detail {
+namespace {
 
 // Remove log entries older than max_age_days; returns deleted count.
 inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
@@ -85,7 +85,7 @@ inline int incremental_vacuum_pass(WriterDatabase& db, int max_size_mb) {
     return static_cast<int>(std::stoll(db.GetPragma("freelist_count")));
 }
 
-}  // namespace detail
+}  // namespace
 
 // ── Vacuum task ────────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
         int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
 
         if (vacuum_mode == 2) {  // INCREMENTAL
-            int remain = detail::incremental_vacuum_pass(ctx.db_write, cfg.task_vacuum_max_size);
+            int remain = incremental_vacuum_pass(ctx.db_write, cfg.task_vacuum_max_size);
             if (remain > 0) {
                 co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
                 continue;
@@ -120,9 +120,9 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
             return ci.name == cfg.log_timestamp_field;
         });
 
-        if (has_ts) detail::remove_stale_logs(ctx.db_write, cfg);
+        if (has_ts) remove_stale_logs(ctx.db_write, cfg);
 
-        detail::remove_excessive_logs(ctx.db_write, cfg);
+        remove_excessive_logs(ctx.db_write, cfg);
 
         if (vacuum_mode == 1) {  // FULL
             Timer t;

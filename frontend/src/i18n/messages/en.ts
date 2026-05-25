@@ -124,8 +124,6 @@ export const en = {
   'settingsDesc.vacuum_max_size': 'Trigger vacuum when the database file exceeds this size.',
   'settingsDesc.vacuum_target_size':
     'After vacuum, trim oldest rows until the database is under this size.',
-  'settingsDesc.vacuum_delete_batch_size':
-    'Number of row IDs deleted per batch when vacuum removes old logs.',
   'settingsDesc.task_diagnostics_interval':
     'Seconds between activity and database stats collection passes.',
   'settingsDesc.task_backlog_flush_interval': 'Seconds between backlog flush passes to SQLite.',

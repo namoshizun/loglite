@@ -42,14 +42,12 @@ struct Config {
     int64_t vacuum_max_size_bytes{};  // derived
     std::string vacuum_target_size{"800GB"};
     int64_t vacuum_target_size_bytes{};  // derived
-    int vacuum_delete_batch_size{2500};
-
     // ── Background tasks ──────────────────────────────────────────────────────
     int task_diagnostics_interval{60};   // seconds
     int task_backlog_flush_interval{5};  // seconds
     int task_backlog_max_size{200};      // max entries before force-flush
     int task_vacuum_interval{120};       // seconds
-    int task_vacuum_max_size{20};        // MB budget per incremental vacuum pass
+    int task_vacuum_max_size{5};         // MB budget per incremental vacuum pass
     int stats_retention_hours{24};
 
     // ── Compression ───────────────────────────────────────────────────────────
@@ -78,10 +76,10 @@ BOOST_DESCRIBE_STRUCT(Config, (),
                       (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,
                        db_pool_size, auto_rollout, log_table_name, log_timestamp_field, sse_limit,
                        sse_debounce_ms, vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes,
-                       vacuum_target_size, vacuum_target_size_bytes, vacuum_delete_batch_size,
-                       task_diagnostics_interval, task_backlog_flush_interval,
-                       task_backlog_max_size, task_vacuum_interval, task_vacuum_max_size,
-                       stats_retention_hours, compression, harvesters, migrations))
+                       vacuum_target_size, vacuum_target_size_bytes, task_diagnostics_interval,
+                       task_backlog_flush_interval, task_backlog_max_size, task_vacuum_interval,
+                       task_vacuum_max_size, stats_retention_hours, compression, harvesters,
+                       migrations))
 
 }  // namespace loglite
 

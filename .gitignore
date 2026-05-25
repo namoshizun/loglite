@@ -188,6 +188,7 @@ playground/
 !docs/_templates/**/*.html
 
 .cursor
+.kilo
 py/_cpp
 
 frontend/dist

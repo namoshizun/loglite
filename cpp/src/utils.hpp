@@ -101,6 +101,14 @@ inline std::string_view strip_spaces(std::string_view s) {
 }
 
 // ── Time utils ───────────────────────────────────────────────────────────────
+
+// ISO-8601 date-time to second precision, no zone suffix (for TEXT timestamp compare).
+inline std::string format_iso_seconds(std::chrono::system_clock::time_point tp) {
+    using namespace std::chrono;
+    const auto sec = floor<seconds>(tp.time_since_epoch());
+    return fmt::format("{:%Y-%m-%dT%H:%M:%S}", date::sys_seconds{sec});
+}
+
 inline std::string format_utc(std::chrono::system_clock::time_point tp) {
     using namespace std::chrono;
     const auto ns = time_point_cast<nanoseconds>(tp).time_since_epoch();

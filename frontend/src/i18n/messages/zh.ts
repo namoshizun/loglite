@@ -126,7 +126,6 @@ export const zh: Record<MessageKey, string> = {
   'settingsDesc.vacuum_max_days': '数据清理: 触发清理的日志条目保留天数',
   'settingsDesc.vacuum_max_size': '数据清理: 触发清理的存储体积上限（MB）',
   'settingsDesc.vacuum_target_size': '数据清理: 清理到此目标体积（MB）',
-  'settingsDesc.vacuum_delete_batch_size': '数据清理: INCREMENTAL VACUUM 时每批删除多少行日志',
   'settingsDesc.db_pool_size': '数据库连接池大小',
   'settingsDesc.compression_enabled': '是否启用字典压缩',
   'settingsDesc.harvester_types': '启用的日期采集器',

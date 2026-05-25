@@ -192,8 +192,6 @@ std::string WriterDatabase::GetMinTimestamp() const {
     return "";
 }
 
-std::string WriterDatabase::GetPragma(std::string_view name) const { return get_pragma(name); }
-
 void WriterDatabase::SetPragma(std::string_view name, std::string_view value) {
     log::info(fmt::format(" PRAGMA {}={}", name, value));
     set_pragma(name, value);
@@ -208,15 +206,6 @@ void WriterDatabase::Vacuum() { exec_sql("VACUUM"); }
 void WriterDatabase::WALCheckpoint(std::string_view mode) {
     exec_sql(fmt::format("PRAGMA wal_checkpoint({})", mode));
 }
-
-int64_t WriterDatabase::GetSizeBytes() const {
-    int64_t page_count = std::stoll(GetPragma("page_count"));
-    int64_t page_size = std::stoll(GetPragma("page_size"));
-    int64_t freelist = std::stoll(GetPragma("freelist_count"));
-    return (page_count - freelist) * page_size;
-}
-
-double WriterDatabase::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
 
 bool WriterDatabase::InsertActivityStats(const ActivityStatsRow& row) {
     Statement stmt{db_, R"(INSERT INTO activity_stats (

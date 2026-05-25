@@ -42,16 +42,6 @@ void Database::exec_sql(std::string_view sql) const {
     }
 }
 
-std::string Database::get_pragma(std::string_view name) const {
-    auto sql = fmt::format("PRAGMA {}", name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        return txt ? txt : "";
-    }
-    return "";
-}
-
 void Database::set_pragma(std::string_view name, std::string_view value) {
     exec_sql(fmt::format("PRAGMA {}={}", name, value));
 }
@@ -67,7 +57,7 @@ void Database::apply_params(AccessMode mode) {
         }
 
         if (mode == AccessMode::WRITE && k == "auto_vacuum") {
-            auto current = get_pragma("auto_vacuum");
+            auto current = GetPragma("auto_vacuum");
             if (current != v) {
                 set_pragma("auto_vacuum", v);
                 exec_sql("VACUUM");
@@ -139,12 +129,39 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
     return out;
 }
 
+std::string Database::GetPragma(std::string_view name) const {
+    auto sql = fmt::format("PRAGMA {}", name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        return txt ? txt : "";
+    }
+    return "";
+}
+
+int64_t Database::GetSizeBytes() const {
+    int64_t page_count = std::stoll(GetPragma("page_count"));
+    int64_t page_size = std::stoll(GetPragma("page_size"));
+    int64_t freelist = std::stoll(GetPragma("freelist_count"));
+    return (page_count - freelist) * page_size;
+}
+
+double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
+
 int64_t Database::EstimateLogRowCount() const {
     auto sql =
         fmt::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
     if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
     return 0;
+}
+
+int64_t Database::EstimateAvgRowBytes() const {
+    int64_t rowcnt = EstimateLogRowCount();
+    int64_t db_size = GetSizeBytes();
+    int64_t avg_row_bytes = db_size / std::max(int64_t{1}, rowcnt);
+    if (avg_row_bytes == 0) avg_row_bytes = 1;
+    return avg_row_bytes;
 }
 
 void Database::validate_field(std::string_view name) const {

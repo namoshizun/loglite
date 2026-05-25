@@ -59,8 +59,11 @@ class Database {
     // DB query helpers
     [[nodiscard]] std::vector<ColumnInfo> FetchTableColumns(std::string_view table_name) const;
     [[nodiscard]] int64_t EstimateLogRowCount() const;
-
+    [[nodiscard]] int64_t EstimateAvgRowBytes() const;
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
+    [[nodiscard]] int64_t GetSizeBytes() const;
+    [[nodiscard]] double GetSizeMB() const;
+    [[nodiscard]] std::string GetPragma(std::string_view name) const;
 
    protected:
     struct WhereClause {
@@ -84,7 +87,6 @@ class Database {
     // SQLite param helpers
     void apply_params(AccessMode mode);
     void set_pragma(std::string_view name, std::string_view value);
-    [[nodiscard]] std::string get_pragma(std::string_view name) const;
 
     // Generic helpers
     void exec_sql(std::string_view sql) const;

@@ -385,7 +385,7 @@ Included settings:
 - ``log_table_name``, ``log_timestamp_field``
 - ``sqlite_params`` (object of PRAGMA key/value pairs)
 - ``auto_rollout``
-- ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``, ``vacuum_delete_batch_size``
+- ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``,
 - ``task_diagnostics_interval``, ``task_backlog_flush_interval``, ``task_backlog_max_size``
 - ``task_vacuum_interval``, ``task_vacuum_max_size``, ``stats_retention_hours``
 - ``compression_enabled`` (boolean)

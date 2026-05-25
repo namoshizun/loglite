@@ -71,7 +71,7 @@ class VacuumTest : public ::testing::Test {
 };
 
 TEST_F(VacuumTest, RemoveStaleLogsEmptyDb) {
-    int removed = tasks::detail::remove_stale_logs(*db_, cfg_);
+    int removed = tasks::detail::remove_stale_logs(*db_, cfg_, 0);
     EXPECT_EQ(removed, 0);
 }
 
@@ -79,7 +79,7 @@ TEST_F(VacuumTest, RemoveStaleLogsNewData) {
     // Insert fresh logs — they should not be removed (max_days=3650 by default)
     insert_logs(10);
 
-    int removed = tasks::detail::remove_stale_logs(*db_, cfg_);
+    int removed = tasks::detail::remove_stale_logs(*db_, cfg_, 0);
     EXPECT_EQ(removed, 0);
 
     auto result = reader_->Query({"*"}, {}, 100, 0);
@@ -88,7 +88,7 @@ TEST_F(VacuumTest, RemoveStaleLogsNewData) {
 
 TEST_F(VacuumTest, RemoveExcessiveLogsUnderLimit) {
     insert_logs(10);
-    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_);
+    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_, 0);
     EXPECT_EQ(removed, 0);
 }
 
@@ -98,9 +98,8 @@ TEST_F(VacuumTest, RemoveExcessiveLogsOverLimit) {
     // Force deletion of oldest 50% of logs.
     cfg_.vacuum_max_size_bytes = 1;
     cfg_.vacuum_target_size_bytes = db_->GetSizeBytes() / 2;
-    cfg_.vacuum_delete_batch_size = 3;  // multiple batches of size 3
 
-    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_);
+    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_, 0);
     EXPECT_EQ(removed, 10);
 
     auto result = reader_->Query({"id"}, {}, 100, 0);
@@ -161,7 +160,7 @@ TEST(VacuumUtilsTest, RemoveStaleLogsWithFreshData) {
     // Insert fresh data
     db.Insert({{{"timestamp", "2025-01-01T00:00:00Z"}, {"message", "hello"}}});
 
-    int removed = tasks::detail::remove_stale_logs(db, cfg);
+    int removed = tasks::detail::remove_stale_logs(db, cfg, 0);
     EXPECT_EQ(removed, 0);
 
     db.Close();

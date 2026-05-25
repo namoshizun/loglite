@@ -8,6 +8,7 @@
 #include <boost/asio.hpp>
 #include <chrono>
 #include <fmt/format.h>
+#include <limits>
 
 namespace asio = boost::asio;
 
@@ -15,10 +16,11 @@ namespace loglite::tasks {
 
 using namespace std::chrono_literals;
 
-namespace {
+namespace detail {
 
 // Remove log entries older than max_age_days; returns deleted count.
-inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
+// When limit_mb > 0, at most ~limit_mb MB worth of rows are removed per call.
+inline int remove_stale_logs(WriterDatabase& db, const Config& cfg, int limit_mb) {
     auto min_ts = db.GetMinTimestamp();
     if (min_ts.empty()) return 0;
 
@@ -28,11 +30,23 @@ inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
     auto cutoff_t = std::chrono::system_clock::to_time_t(cutoff);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::gmtime(&cutoff_t));
+    std::string cutoff_str{buf};
 
     // Only bother if the oldest log pre-dates the cutoff.
-    if (min_ts >= std::string{buf}) return 0;
+    if (min_ts >= cutoff_str) return 0;
 
-    std::vector<QueryFilter> flt{{cfg.log_timestamp_field, "<=", std::string{buf}}};
+    std::vector<QueryFilter> flt{{cfg.log_timestamp_field, "<=", cutoff_str}};
+
+    if (limit_mb > 0) {
+        // Control how much data to actually delete
+        int64_t remove_max_id = db.GetMaxLogId();
+        int64_t avg_row_bytes = db.EstimateAvgRowBytes();
+        int64_t max_rows = static_cast<int64_t>(limit_mb) * 1024 * 1024 / avg_row_bytes;
+        remove_max_id = std::min(remove_max_id, db.GetMinLogId() + max_rows - 1);
+
+        flt.push_back({"id", "<=", remove_max_id});
+    }
+
     int n = db.DeleteLogs(flt);
     if (n > 0)
         log::info(fmt::format("[vacuum] removed {} stale log(s) older than {} days", n,
@@ -41,11 +55,11 @@ inline int remove_stale_logs(WriterDatabase& db, const Config& cfg) {
 }
 
 // Delete oldest logs until DB size is below target; returns deleted count.
-inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg) {
+// When limit_mb > 0, at most ~limit_mb MB worth of rows are removed per call.
+inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg, int limit_mb) {
     double db_mb = db.GetSizeMB();
     double max_mb = bytes_to_mb(cfg.vacuum_max_size_bytes);
     double target_mb = bytes_to_mb(cfg.vacuum_target_size_bytes);
-
     if (db_mb <= max_mb) return 0;
 
     int64_t min_id = db.GetMinLogId();
@@ -55,17 +69,19 @@ inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg) {
     double ratio = (db_mb - target_mb) / db_mb;
     int64_t remove_max_id = min_id + static_cast<int64_t>(rowcnt * ratio) - 1;
 
+    if (limit_mb > 0) {
+        int64_t avg_row_bytes = db.EstimateAvgRowBytes();
+        int64_t max_rows = static_cast<int64_t>(limit_mb) * 1024 * 1024 / avg_row_bytes;
+        remove_max_id = std::min(remove_max_id, min_id + max_rows - 1);
+    }
+
     log::info(
         fmt::format("[vacuum] db={:.1f}MB limit={:.1f}MB target={:.1f}MB – deleting id {} to {}",
                     db_mb, max_mb, target_mb, min_id, remove_max_id));
 
-    int removed = 0;
-    for (int64_t start = min_id; start <= remove_max_id; start += cfg.vacuum_delete_batch_size) {
-        int64_t end_id = std::min(start + cfg.vacuum_delete_batch_size - 1, remove_max_id);
-        std::vector<QueryFilter> flt{{"id", "<=", end_id}, {"id", ">=", start}};
-        removed += db.DeleteLogs(flt);
-        log::info(fmt::format("[vacuum] ... removed {} entries so far", removed));
-    }
+    std::vector<QueryFilter> flt{{"id", "<=", remove_max_id}};
+    int removed = db.DeleteLogs(flt);
+    log::info(fmt::format("[vacuum] ... removed {} entries", removed));
     return removed;
 }
 
@@ -85,7 +101,9 @@ inline int incremental_vacuum_pass(WriterDatabase& db, int max_size_mb) {
     return static_cast<int>(std::stoll(db.GetPragma("freelist_count")));
 }
 
-}  // namespace
+}  // namespace detail
+
+using namespace detail;
 
 // ── Vacuum task ────────────────────────────────────────────────────────────────
 
@@ -103,10 +121,10 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
         // All vacuum operations mutate the DB → run on write strand.
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
 
-        ctx.db_write.WALCheckpoint("TRUNCATE");
-
         auto vacuum_mode_str = ctx.db_write.GetPragma("auto_vacuum");
         int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
+
+        int limit_mb = (vacuum_mode == 2) ? cfg.task_vacuum_max_size : 0;
 
         if (vacuum_mode == 2) {  // INCREMENTAL
             int remain = incremental_vacuum_pass(ctx.db_write, cfg.task_vacuum_max_size);
@@ -120,9 +138,9 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
             return ci.name == cfg.log_timestamp_field;
         });
 
-        if (has_ts) remove_stale_logs(ctx.db_write, cfg);
+        if (has_ts) remove_stale_logs(ctx.db_write, cfg, limit_mb);
 
-        remove_excessive_logs(ctx.db_write, cfg);
+        remove_excessive_logs(ctx.db_write, cfg, limit_mb);
 
         if (vacuum_mode == 1) {  // FULL
             Timer t;

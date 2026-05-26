@@ -23,25 +23,6 @@ namespace loglite::handlers {
 
 using namespace std::chrono_literals;
 
-// ── Connection check ─────────────────────────────────────────────────────────
-
-inline bool IsSocketConnected(asio::ip::tcp::socket& socket) {
-    if (!socket.is_open()) return false;
-    char buf[1];
-    boost::system::error_code ec;
-    socket.non_blocking(true, ec);
-    if (ec) return false;
-
-    auto bytes = socket.receive(asio::buffer(buf), asio::socket_base::message_peek, ec);
-    if (ec == asio::error::would_block) {
-        return true;  // Still connected
-    }
-    if (bytes == 0 || ec) {
-        return false;  // Connection closed or error
-    }
-    return true;
-}
-
 // ── SSE handler ────────────────────────────────────────────────────────────────
 //
 // Long-running coroutine that owns the TCP stream.  It:
@@ -110,10 +91,6 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
-
-        if (!IsSocketConnected(stream.socket())) {
-            break;  // Client disconnected during sleep
-        }
 
         int64_t current_id = ctx.notifier.GetLastId();
         if (current_id <= pushed_id) {

@@ -55,13 +55,13 @@ struct PaginatedQueryResult {
     int limit{};
     std::vector<nlohmann::json> results;
 
-    nlohmann::json to_json() const {
-        return {
-            {"total", total},
-            {"offset", offset},
-            {"limit", limit},
-            {"results", results},
-        };
+    nlohmann::json ToJSON() {
+        auto obj = nlohmann::json::object();
+        obj["total"] = total;
+        obj["offset"] = offset;
+        obj["limit"] = limit;
+        obj["results"] = std::move(results);
+        return obj;
     }
 };
 

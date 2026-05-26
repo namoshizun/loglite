@@ -18,11 +18,20 @@
 
 #include <boost/asio.hpp>
 #include <filesystem>
+#include <future>
 
 namespace fs = std::filesystem;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 using namespace loglite;
+
+template <typename T>
+static T sync_await(asio::awaitable<T> coro) {
+    asio::io_context ioc;
+    auto fut = asio::co_spawn(ioc, std::move(coro), asio::use_future);
+    ioc.run();
+    return fut.get();
+}
 
 class HandlersTest : public ::testing::Test {
    protected:
@@ -64,6 +73,7 @@ class HandlersTest : public ::testing::Test {
         notifier_ = std::make_unique<LogNotifier>();
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
+        reader_pool_ = std::make_unique<asio::thread_pool>(1u);
         db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 1u);
 
         ctx_ = std::make_unique<ServerContext>(ServerContext{
@@ -73,6 +83,7 @@ class HandlersTest : public ::testing::Test {
             *backlog_,
             *notifier_,
             asio::make_strand(db_ops_pool_->get_executor()),
+            reader_pool_->get_executor(),
         });
     }
 
@@ -80,6 +91,8 @@ class HandlersTest : public ::testing::Test {
         ctx_.reset();
         db_read_->Close();
         db_read_.reset();
+        reader_pool_->join();
+        reader_pool_.reset();
         db_ops_pool_->join();
         db_ops_pool_.reset();
         db_->Close();
@@ -105,6 +118,7 @@ class HandlersTest : public ::testing::Test {
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;
+    std::unique_ptr<asio::thread_pool> reader_pool_;
     std::unique_ptr<ServerContext> ctx_;
 };
 
@@ -112,7 +126,7 @@ class HandlersTest : public ::testing::Test {
 
 TEST_F(HandlersTest, HealthReturnsOk) {
     auto req = make_req(http::verb::get, "/health");
-    auto res = handlers::HandleHealth(req, *ctx_);
+    auto res = sync_await(handlers::HandleHealth(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -121,7 +135,7 @@ TEST_F(HandlersTest, HealthReturnsOk) {
 
 TEST_F(HandlersTest, HealthContainsCorsHeaders) {
     auto req = make_req(http::verb::get, "/health");
-    auto res = handlers::HandleHealth(req, *ctx_);
+    auto res = sync_await(handlers::HandleHealth(req, *ctx_));
     EXPECT_EQ(res[http::field::access_control_allow_origin], "*");
 }
 
@@ -272,13 +286,13 @@ TEST_F(HandlersTest, InsertWrongType) {
 
 TEST_F(HandlersTest, QueryMissingFieldsParam) {
     auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryRecordsRequestMetricOnValidationFailure) {
     auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 
     auto samples = metrics::MetricsRegistry::Instance().Flush();
@@ -289,19 +303,19 @@ TEST_F(HandlersTest, QueryRecordsRequestMetricOnValidationFailure) {
 
 TEST_F(HandlersTest, QueryMissingLimitParam) {
     auto req = make_req(http::verb::get, "/logs?fields=*&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryMissingOffsetParam) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryWithEmptyDbReturnsEmpty) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -318,7 +332,7 @@ TEST_F(HandlersTest, QueryReturnsInsertedLogs) {
     db_->Insert({log1, log2});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -333,7 +347,7 @@ TEST_F(HandlersTest, QueryWithFilter) {
     db_->Insert({log1, log2});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&level==ERROR");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -343,19 +357,19 @@ TEST_F(HandlersTest, QueryWithFilter) {
 
 TEST_F(HandlersTest, QueryNonNumericLimit) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=abc&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryNonNumericOffset) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=abc");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryInvalidFilterExpression) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&bad_field=novalue");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
@@ -365,7 +379,7 @@ TEST_F(HandlersTest, QuerySpecificFields) {
     db_->Insert({log1});
 
     auto req = make_req(http::verb::get, "/logs?fields=message,level&limit=10&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -382,7 +396,7 @@ TEST_F(HandlersTest, QueryWithUnknownFieldInFilter) {
     db_->Insert({log1});
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&nonexistent==val");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 500);
 }
 
@@ -398,7 +412,7 @@ TEST_F(HandlersTest, QueryPagination) {
     db_->Insert(logs);
 
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=2&offset=0");
-    auto res = handlers::HandleQuery(req, *ctx_);
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());

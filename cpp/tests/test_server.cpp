@@ -132,6 +132,7 @@ class ServerTest : public ::testing::Test {
         db_->Initialize();
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
+        reader_pool_ = std::make_unique<asio::thread_pool>(2u);
 
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
@@ -146,6 +147,7 @@ class ServerTest : public ::testing::Test {
             *backlog_,
             *notifier_,
             asio::make_strand(db_ops_pool_->get_executor()),
+            reader_pool_->get_executor(),
         });
 
         server_ = std::make_unique<Server>(*ctx_, 2u);
@@ -177,6 +179,11 @@ class ServerTest : public ::testing::Test {
             db_ops_pool_->join();
             db_ops_pool_.reset();
         }
+        if (reader_pool_) {
+            reader_pool_->stop();
+            reader_pool_->join();
+            reader_pool_.reset();
+        }
 
         db_->Close();
         db_.reset();
@@ -191,6 +198,7 @@ class ServerTest : public ::testing::Test {
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<ServerContext> ctx_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;
+    std::unique_ptr<asio::thread_pool> reader_pool_;
     std::unique_ptr<Server> server_;
     std::thread server_thread_;
 };

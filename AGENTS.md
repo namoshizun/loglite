@@ -5,6 +5,7 @@
 - **Important**: try to fix things at the cause, not the symptom.
 - When asked to review the code, GO BY THE BOOK! Be thoughtful, critical and brutally honest.
 - Do not delete my code comments unless they are outdated / incorrect / no longer relevant.
+- Don't assume. Don't hide confusion. Surface tradeoffs.
 
 ## Python dev
 

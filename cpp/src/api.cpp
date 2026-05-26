@@ -13,7 +13,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <thread>
 #include <vector>
 
 namespace loglite {
@@ -48,7 +47,7 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 
 }  // namespace
 
-void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
+void RunServer(const std::filesystem::path& config_path) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
     log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
@@ -57,15 +56,15 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     db_write.Open();
     db_write.Initialize();
 
-    auto effective_threads =
-        thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
     ReadDatabasePool db_read(cfg, db_write.catalog(), cfg.resolve_pool_size());
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
     notifier.Notify(db_write.GetMaxLogId());
+
     asio::thread_pool db_write_pool{1u};
+    asio::thread_pool db_read_pool{cfg.resolve_pool_size()};
     const auto server_started_at = std::chrono::steady_clock::now();
     ServerContext ctx{cfg,
                       db_write,
@@ -73,6 +72,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
                       backlog,
                       notifier,
                       asio::make_strand(db_write_pool.get_executor()),
+                      db_read_pool.get_executor(),
                       server_started_at};
 
     g_backlog = &backlog;
@@ -84,7 +84,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     }
 
     // Run server
-    Server server{ctx, effective_threads};
+    Server server{ctx, 1u};
     g_server = &server;
 
     log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);

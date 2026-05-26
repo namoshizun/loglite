@@ -7,12 +7,14 @@
 namespace loglite::handlers {
 
 template <class Body>
-http::response<http::string_body> HandleHealth(const http::request<Body>& req, ServerContext& ctx) {
-    bool ok_flag = ctx.db_read.UseConnection([&](ReaderDatabase& r) { return r.Ping(); });
+asio::awaitable<http::response<http::string_body>> HandleHealth(const http::request<Body>& req,
+                                                                ServerContext& ctx) {
+    bool ok_flag = co_await ctx.db_read.AsyncUseConnection(
+        ctx.reader_executor, [&](ReaderDatabase& r) { return r.Ping(); });
     if (ok_flag) {
-        return MakeOKResp({{"status", "ok"}}, req, ctx.config.allow_origin);
+        co_return MakeOKResp({{"status", "ok"}}, req, ctx.config.allow_origin);
     } else {
-        return MakeNotAvailableResp({{"status", "error"}}, req, ctx.config.allow_origin);
+        co_return MakeNotAvailableResp({{"status", "error"}}, req, ctx.config.allow_origin);
     }
 }
 

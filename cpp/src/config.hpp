@@ -25,7 +25,8 @@ struct Config {
     std::filesystem::path sqlite_dir{"./db"};
     std::filesystem::path db_path;  // derived
     std::map<std::string, std::string> sqlite_params;
-    std::string db_pool_size{"2"};  // "auto" or positive integer
+    std::string db_pool_size{"2"};  // "auto" or positive integer, default to a low size to avoid
+                                    // unintentional memory bloat
     bool auto_rollout{false};
 
     // ── Log table ─────────────────────────────────────────────────────────────

@@ -16,15 +16,16 @@ namespace loglite::handlers {
 using namespace std::chrono_literals;
 
 template <class Body>
-http::response<http::string_body> HandleStats(const http::request<Body>& req, ServerContext& ctx) {
+asio::awaitable<http::response<http::string_body>> HandleStats(const http::request<Body>& req,
+                                                               ServerContext& ctx) {
     auto [path, qs] = SplitURLTarget(req.target());
     auto params = ParseQueryString(qs);
 
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"since", "until", "activity_stats_fields", "database_stats_fields"}) {
         if (!params.contains(p))
-            return MakeFailResp(400, fmt::format("Required parameter '{}' is missing", p), req,
-                                ctx.config.allow_origin);
+            co_return MakeFailResp(400, fmt::format("Required parameter '{}' is missing", p), req,
+                                   ctx.config.allow_origin);
     }
 
     auto since_str = params.find("since")->second;
@@ -36,22 +37,23 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
     if (auto it = params.find("ordering"); it != params.end()) {
         ordering = it->second;
         if (ordering != "asc" && ordering != "desc")
-            return MakeFailResp(400, "Parameter 'ordering' must be 'asc' or 'desc'", req,
-                                ctx.config.allow_origin);
+            co_return MakeFailResp(400, "Parameter 'ordering' must be 'asc' or 'desc'", req,
+                                   ctx.config.allow_origin);
     }
 
     // ── Parse timestamps, validate window ≤ 1 day ────────────────────────────
     auto since_tp = loglite::parse_iso8601(since_str);
     auto until_tp = loglite::parse_iso8601(until_str);
     if (!since_tp || !until_tp)
-        return MakeFailResp(400, "'since' and 'until' must be ISO-8601 timestamps", req,
-                            ctx.config.allow_origin);
+        co_return MakeFailResp(400, "'since' and 'until' must be ISO-8601 timestamps", req,
+                               ctx.config.allow_origin);
 
     if (*until_tp <= *since_tp)
-        return MakeFailResp(400, "'until' must be after 'since'", req, ctx.config.allow_origin);
+        co_return MakeFailResp(400, "'until' must be after 'since'", req, ctx.config.allow_origin);
 
     if (*until_tp - *since_tp > 24h)
-        return MakeFailResp(400, "Time window must not exceed 1 day", req, ctx.config.allow_origin);
+        co_return MakeFailResp(400, "Time window must not exceed 1 day", req,
+                               ctx.config.allow_origin);
 
     // ── Resolve field lists ──────────────────────────────────────────────────
     auto split_fields = [](std::string_view s) -> std::vector<std::string> {
@@ -67,14 +69,16 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
 
     // ── Execute queries ───────────────────────────────────────────────────────
     try {
-        auto activities = ctx.db_read.UseConnection([&](ReaderDatabase& r) {
-            return r.QueryActivityStats(since_str, until_str, split_fields(activity_fields_str),
-                                        ordering);
-        });
-        auto database = ctx.db_read.UseConnection([&](ReaderDatabase& r) {
-            return r.QueryDatabaseStats(since_str, until_str, split_fields(database_fields_str),
-                                        ordering);
-        });
+        auto activities =
+            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](ReaderDatabase& r) {
+                return r.QueryActivityStats(since_str, until_str, split_fields(activity_fields_str),
+                                            ordering);
+            });
+        auto database =
+            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](ReaderDatabase& r) {
+                return r.QueryDatabaseStats(since_str, until_str, split_fields(database_fields_str),
+                                            ordering);
+            });
 
         const auto uptime_s = std::chrono::duration_cast<std::chrono::seconds>(
                                   std::chrono::steady_clock::now() - ctx.server_started_at)
@@ -87,10 +91,10 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
              {{"fields", std::move(database.fields)}, {"data", std::move(database.data)}}},
             {"uptime", uptime_s},
         };
-        return MakeOKResp(body, req, ctx.config.allow_origin);
+        co_return MakeOKResp(body, req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::ERROR("Stats query error: {}", e.what());
-        return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
+        co_return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }
 

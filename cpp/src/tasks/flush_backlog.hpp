@@ -44,20 +44,18 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
 
         log::DEBUG("Flushing {} log(s) from backlog", logs.size());
 
-        // Serialise DB writes through the strand.
-        co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
+        auto [count, max_id, elapsed] =
+            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
+                Timer t;
+                int c = db.Insert(logs);
+                int64_t m = db.GetMaxLogId();
+                return std::make_tuple(c, m, t.elapsed_ms());
+            });
 
-        Timer t;
-        int count = ctx.db_write.Insert(logs);
-        int64_t max = ctx.db_write.GetMaxLogId();
+        metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);
+        ctx.notifier.Notify(max_id);
 
-        // Leave the strand by posting back to the generic pool executor.
-        co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
-
-        metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, t.elapsed_ms(), count);
-        ctx.notifier.Notify(max);
-
-        log::DEBUG("Inserted {} row(s), max_log_id={}", count, max);
+        log::DEBUG("Inserted {} row(s), max_log_id={}", count, max_id);
     }
 }
 

@@ -116,37 +116,32 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
         co_await timer.async_wait(asio::use_awaitable);
 
         // All vacuum operations mutate the DB → run on write strand.
-        co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
+        co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
+            auto vacuum_mode_str = db.GetPragma("auto_vacuum");
+            int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
 
-        auto vacuum_mode_str = ctx.db_write.GetPragma("auto_vacuum");
-        int vacuum_mode = vacuum_mode_str.empty() ? 0 : std::stoi(vacuum_mode_str);
+            int limit_mb = (vacuum_mode == 2) ? cfg.task_vacuum_max_size : 0;
 
-        int limit_mb = (vacuum_mode == 2) ? cfg.task_vacuum_max_size : 0;
-
-        if (vacuum_mode == 2) {  // INCREMENTAL
-            int remain = incremental_vacuum_pass(ctx.db_write, cfg.task_vacuum_max_size);
-            if (remain > 0) {
-                co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
-                continue;
+            if (vacuum_mode == 2) {  // INCREMENTAL
+                int remain = incremental_vacuum_pass(db, cfg.task_vacuum_max_size);
+                if (remain > 0) return;
             }
-        }
 
-        bool has_ts = std::ranges::any_of(ctx.db_write.GetColumnInfo(), [&](const ColumnInfo& ci) {
-            return ci.name == cfg.log_timestamp_field;
+            bool has_ts = std::ranges::any_of(db.GetColumnInfo(), [&](const ColumnInfo& ci) {
+                return ci.name == cfg.log_timestamp_field;
+            });
+
+            if (has_ts) remove_stale_logs(db, cfg, limit_mb);
+
+            remove_excessive_logs(db, cfg, limit_mb);
+
+            if (vacuum_mode == 1) {  // FULL
+                Timer t;
+                db.Vacuum();
+                db.WALCheckpoint("FULL");
+                log::INFO("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s());
+            }
         });
-
-        if (has_ts) remove_stale_logs(ctx.db_write, cfg, limit_mb);
-
-        remove_excessive_logs(ctx.db_write, cfg, limit_mb);
-
-        if (vacuum_mode == 1) {  // FULL
-            Timer t;
-            ctx.db_write.Vacuum();
-            ctx.db_write.WALCheckpoint("FULL");
-            log::INFO("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s());
-        }
-
-        co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
     }
 }
 

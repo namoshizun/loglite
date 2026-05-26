@@ -9,6 +9,7 @@
 - feat: add `db_pool_size` config option to control the number of reader database connections, default to 2.
 - perf: `GET /logs` use quick estimate of total row count (max_id - min_id + 1) if no filters are applied.
 - perf: in incremental vacuum mode, cap each vacuum task cycle to roughly `task_vacuum_max_size` MB of row deletes and freelist page reclaim per step, instead of deleting all expired logs in one pass.
+- perf: delegate db reads to a separate thread pool so slow SQL won't block other co-routines.
 
 ### 1.2.0
 

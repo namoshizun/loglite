@@ -114,7 +114,9 @@ nlohmann::json Database::column_to_json(sqlite3_stmt* stmt, int col) {
         return sqlite3_column_double(stmt, col);
     case SQLITE_TEXT: {
         const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
-        return std::string{txt ? txt : ""};
+        if (!txt) return std::string{};
+        int bytes = sqlite3_column_bytes(stmt, col);
+        return std::string(txt, bytes);
     }
     case SQLITE_NULL:
         return nullptr;

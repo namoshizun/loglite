@@ -3,11 +3,18 @@
 
 #include "database.hpp"
 
+#include <boost/asio.hpp>
+
+#include <concepts>
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
+
+namespace asio = boost::asio;
 
 namespace loglite {
 
@@ -38,6 +45,22 @@ class WriterDatabase final : public Database {
 
     std::vector<std::tuple<std::string, std::string, ValueId>> GetColumnDictRows() const;
     bool InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
+
+    template <std::invocable<WriterDatabase&> F>
+    asio::awaitable<std::invoke_result_t<F, WriterDatabase&>> AsyncUseConnection(
+        asio::any_io_executor write_strand_ex, F&& f) {
+        auto caller_ex = co_await asio::this_coro::executor;
+        co_await asio::post(write_strand_ex, asio::use_awaitable);
+        if constexpr (std::is_void_v<std::invoke_result_t<F, WriterDatabase&>>) {
+            std::invoke(std::forward<F>(f), *this);
+            co_await asio::post(caller_ex, asio::use_awaitable);
+            co_return;
+        } else {
+            auto result = std::invoke(std::forward<F>(f), *this);
+            co_await asio::post(caller_ex, asio::use_awaitable);
+            co_return result;
+        }
+    }
 };
 
 }  // namespace loglite

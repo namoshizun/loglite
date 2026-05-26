@@ -3,6 +3,10 @@
 
 #include "database.hpp"
 
+#include <boost/asio.hpp>
+
+namespace asio = boost::asio;
+
 #include <concepts>
 #include <condition_variable>
 #include <cstddef>
@@ -48,6 +52,16 @@ class ReadDatabasePool {
     auto UseConnection(F&& f) -> std::invoke_result_t<F, ReaderDatabase&> {
         ConnectionLease lease{*this};
         return std::invoke(std::forward<F>(f), lease.db());
+    }
+
+    template <std::invocable<ReaderDatabase&> F>
+    asio::awaitable<std::invoke_result_t<F, ReaderDatabase&>> AsyncUseConnection(
+        asio::any_io_executor reader_ex, F&& f) {
+        auto caller_ex = co_await asio::this_coro::executor;
+        co_await asio::post(reader_ex, asio::use_awaitable);
+        auto result = UseConnection(std::forward<F>(f));
+        co_await asio::post(caller_ex, asio::use_awaitable);
+        co_return result;
     }
 
     void Close();

@@ -56,6 +56,8 @@ export const en = {
   'stats.chart.insertCost': 'Insert cost (ms)',
   'stats.chart.httpConn': 'HTTP connections',
   'stats.chart.sseSessions': 'SSE sessions',
+  'stats.chartZoomHint':
+    'Drag on the chart to zoom the time range. Shift+drag to pan. Double-click to reset. Scroll to zoom.',
   'live.resume': 'Resume Stream',
   'live.pause': 'Pause Stream',
   'live.clear': 'Clear Screen',

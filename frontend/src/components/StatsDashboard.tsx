@@ -75,6 +75,7 @@ export default function StatsDashboard() {
   };
 
   const { since, until } = getStatsTimeWindow(timeRange);
+  const chartWindow = useMemo(() => ({ since, until }), [since, until]);
 
   const {
     data: stats,
@@ -107,6 +108,7 @@ export default function StatsDashboard() {
             database={stats?.database}
             activityCategory={activityCategory}
             subMetrics={subMetrics}
+            chartWindow={chartWindow}
           />
         </div>
 

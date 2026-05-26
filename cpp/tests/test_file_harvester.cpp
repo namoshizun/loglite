@@ -212,3 +212,33 @@ TEST_F(FileHarvesterTest, NameReturnsConstructorValue) {
     create_file_and_start();
     EXPECT_EQ(harvester_->Name(), "test");
 }
+
+TEST_F(FileHarvesterTest, IngestsPartialWritesAcrossPolls) {
+    create_file_and_start();
+
+    // 1. Write first part of the JSON log without a newline.
+    {
+        std::ofstream f{log_file_, std::ios::app};
+        f << R"({"msg":"partial-write","level":"INF)";
+    }
+
+    // Wait at least one poll interval (500ms) + buffer room.
+    std::this_thread::sleep_for(800ms);
+
+    // Verify it wasn't ingested yet (incomplete JSON, no newline).
+    EXPECT_EQ(backlog_.Size(), 0u);
+
+    // 2. Append the rest of the line with a newline.
+    {
+        std::ofstream f{log_file_, std::ios::app};
+        f << R"(O"})" << "\n";
+    }
+
+    // Wait for the next poll interval.
+    ASSERT_TRUE(wait_for(backlog_, 1, 2000ms)) << "Harvester failed to assemble partial write";
+
+    auto entries = backlog_.Flush();
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0]["msg"].get<std::string>(), "partial-write");
+    EXPECT_EQ(entries[0]["level"].get<std::string>(), "INFO");
+}

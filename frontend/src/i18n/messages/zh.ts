@@ -56,6 +56,7 @@ export const zh: Record<MessageKey, string> = {
   'stats.chart.insertCost': '写入耗时 (ms)',
   'stats.chart.httpConn': 'HTTP 连接数',
   'stats.chart.sseSessions': 'SSE 会话数',
+  'stats.chartZoomHint': '在图表上拖拽可缩放时间范围。Shift+拖拽平移。双击重置。滚轮缩放。',
   'live.resume': '恢复流',
   'live.pause': '暂停流',
   'live.clear': '清空屏幕',

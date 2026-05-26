@@ -5,6 +5,7 @@ import ActivityCategoryChart from './ActivityCategoryChart';
 import DatabaseGrowthCharts from './DatabaseGrowthCharts';
 import './chartSetup';
 import type { ActivityCategory, SubMetricsState, ViewMode } from './types';
+import type { StatsChartWindow } from './constants';
 
 type StatsChartPanelProps = {
   viewMode: ViewMode;
@@ -15,6 +16,7 @@ type StatsChartPanelProps = {
   database: DatabaseStatRecord[] | undefined;
   activityCategory: ActivityCategory;
   subMetrics: SubMetricsState;
+  chartWindow: StatsChartWindow;
 };
 
 function ChartPlaceholder({ children }: { children: ReactNode }) {
@@ -34,6 +36,7 @@ export default function StatsChartPanel({
   database,
   activityCategory,
   subMetrics,
+  chartWindow,
 }: StatsChartPanelProps) {
   const { t } = useI18n();
 
@@ -73,12 +76,16 @@ export default function StatsChartPanel({
     }
 
     return (
-      <div className="h-[300px] w-full">
-        <ActivityCategoryChart
-          category={activityCategory}
-          subMetrics={subMetrics}
-          data={chartData}
-        />
+      <div className="space-y-2">
+        <div className="h-[300px] w-full" key={`${chartWindow.since}-${activityCategory}`}>
+          <ActivityCategoryChart
+            category={activityCategory}
+            subMetrics={subMetrics}
+            data={chartData}
+            chartWindow={chartWindow}
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">{t('stats.chartZoomHint')}</p>
       </div>
     );
   }
@@ -87,5 +94,10 @@ export default function StatsChartPanel({
     return <ChartPlaceholder>{t('stats.noDatabase')}</ChartPlaceholder>;
   }
 
-  return <DatabaseGrowthCharts rows={database} />;
+  return (
+    <div className="space-y-2">
+      <DatabaseGrowthCharts rows={database} chartWindow={chartWindow} />
+      <p className="text-[11px] text-muted-foreground">{t('stats.chartZoomHint')}</p>
+    </div>
+  );
 }

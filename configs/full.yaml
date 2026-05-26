@@ -1,0 +1,66 @@
+host: 0.0.0.0
+port: 7788
+debug: true
+allow_origin: "*"
+
+# ── Database ─────────────────────────────────────────────
+sqlite_dir: ./db       # Directory holding the SQLite db file
+auto_rollout: false    # Apply pending migrations on startup
+
+sqlite_params:         # Any valid SQLite PRAGMA key/value pairs
+  auto_vacuum: INCREMENTAL   # Required to use incremental vacuuming
+  journal_mode: WAL
+  synchronous: NORMAL
+  cache_size: -32000   # 32 MB
+  temp_store: MEMORY
+  mmap_size: 52428800  # 50 MB
+  foreign_keys: OFF
+
+# ── Log table ────────────────────────────────────────────
+log_table_name: Log
+log_timestamp_field: timestamp   # Column used for age-based vacuum
+
+# ── SSE ──────────────────────────────────────────────────
+sse_limit: 1000          # Max logs per SSE event payload
+sse_debounce_ms: 500     # Coalesce bursts faster than this window
+
+# ── Vacuum ───────────────────────────────────────────────
+vacuum_max_days: 7         # Drop logs older than N days
+vacuum_max_size: 200MB     # Trigger vacuum when db exceeds this
+vacuum_target_size: 170MB  # Trim oldest rows until db is under this
+
+# ── Background tasks ──────────────────────────────────────
+task_diagnostics_interval: 60   # Seconds between stats collections
+task_backlog_flush_interval: 5  # Seconds between backlog flush passes
+task_backlog_max_size: 200      # Max backlog entries before force-flush
+task_vacuum_interval: 120       # Seconds between incremental vacuum pass
+task_vacuum_max_size: 5        # MB budget per incremental vacuum pass
+stats_retention_hours: 24       # Hours to keep stats data before pruning
+
+# ── Optional: column compression ─────────────────────────
+# See configs/enable-compression.yaml for the full example.
+# Listed columns must be declared INTEGER in the schema; LogLite
+# transparently maps unique values to canonical ids.
+compression:
+  enabled: true
+  columns: [service, filename, path, function, process_name]
+
+# --- Migrations ------------------------------------------
+migrations:
+  - version: 1
+    rollout:
+      - |
+        CREATE TABLE Log (
+            id INTEGER PRIMARY KEY,
+            timestamp DATETIME NOT NULL,
+            message TEXT NOT NULL,
+            level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+            service TEXT NOT NULL,
+            extra JSON
+        );
+      - CREATE INDEX IF NOT EXISTS idx_timestamp ON Log(timestamp);
+      - CREATE INDEX IF NOT EXISTS idx_level ON Log(level) WHERE level IN ('WARNING', 'ERROR', 'CRITICAL');
+    rollback:
+      - DROP INDEX IF EXISTS idx_level;
+      - DROP INDEX IF EXISTS idx_timestamp;
+      - DROP TABLE IF EXISTS Log;

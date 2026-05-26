@@ -180,28 +180,28 @@ TEST(UtilsTest, ParseQueryStringNoEquals) {
 #include "log.hpp"
 
 TEST(UtilsTest, LogDebugEnabled) {
-    // Should not crash
-    log::debug("test message", true);
+    log::SetLevel(log::Level::kDebug);
+    log::DEBUG("test message");
     SUCCEED();
 }
 
 TEST(UtilsTest, LogDebugDisabled) {
-    // Should not print
-    log::debug("hidden message", false);
+    log::SetLevel(log::Level::kInfo);
+    log::DEBUG("hidden message");
     SUCCEED();
 }
 
 TEST(UtilsTest, LogInfo) {
-    log::info("test info");
+    log::INFO("test info");
     SUCCEED();
 }
 
 TEST(UtilsTest, LogWarn) {
-    log::warn("test warning");
+    log::WARN("test warning");
     SUCCEED();
 }
 
 TEST(UtilsTest, LogError) {
-    log::error("test error");
+    log::ERROR("test error");
     SUCCEED();
 }

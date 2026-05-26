@@ -64,6 +64,7 @@ struct ServerContext {
     LogNotifier& notifier;
 
     asio::strand<asio::thread_pool::executor_type> write_strand;
+    asio::thread_pool::executor_type reader_executor;
     std::chrono::steady_clock::time_point server_started_at{std::chrono::steady_clock::now()};
 };
 

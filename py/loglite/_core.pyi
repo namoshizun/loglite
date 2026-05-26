@@ -16,7 +16,7 @@ class Config:
     @staticmethod
     def from_file(path: str) -> Config: ...
 
-def run_server(config_path: str, thread_count: int = 0) -> None:
+def run_server(config_path: str) -> None:
     """Start the HTTP server.  Blocks until a shutdown signal is received."""
     ...
 

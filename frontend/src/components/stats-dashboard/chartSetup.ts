@@ -9,12 +9,16 @@ import {
   LineController,
   LineElement,
   PointElement,
+  TimeScale,
   Tooltip,
 } from 'chart.js';
+import zoomPlugin from 'chartjs-plugin-zoom';
+import 'chartjs-adapter-date-fns';
 
 ChartJS.register(
   CategoryScale,
   LinearScale,
+  TimeScale,
   PointElement,
   LineElement,
   BarElement,
@@ -23,4 +27,5 @@ ChartJS.register(
   Filler,
   Tooltip,
   Legend,
+  zoomPlugin,
 );

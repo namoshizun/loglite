@@ -20,7 +20,6 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <chrono>
-#include <fmt/format.h>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -38,9 +37,9 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
     try {
         std::rethrow_exception(eptr);
     } catch (const std::exception& e) {
-        log::error(fmt::format("{} {}", tag, e.what()));
+        log::ERROR("{} {}", tag, e.what());
     } catch (...) {
-        log::error(fmt::format("{} unknown exception", tag));
+        log::ERROR("{} unknown exception", tag);
     }
 }
 
@@ -59,13 +58,13 @@ void Server::Run() {
     acceptor_.set_option(ip::tcp::acceptor::reuse_address{true});
     acceptor_.bind(endpoint);
     acceptor_.listen();
-    log::info(fmt::format("Listening on {}:{}", cfg.host, cfg.port));
+    log::INFO("Listening on {}:{}", cfg.host, cfg.port);
 
     // ── Signal handling ───────────────────────────────────────────────────────
     asio::signal_set signals{ex, SIGINT, SIGTERM};
     signals.async_wait([this](const boost::system::error_code& ec, int signo) {
         if (!ec) {
-            log::info(fmt::format("Received signal {}, shutting down gracefully", signo));
+            log::INFO("Received signal {}, shutting down gracefully", signo);
             Stop();
         }
     });
@@ -108,8 +107,7 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
     while (true) {
         auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
         if (ec) {
-            if (ec != asio::error::operation_aborted)
-                log::error(fmt::format("accept error: {}", ec.message()));
+            if (ec != asio::error::operation_aborted) log::ERROR("accept error: {}", ec.message());
             co_return;
         }
 
@@ -173,13 +171,13 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
         if (path == "/logs" && method == http::verb::post) {
             res = handlers::HandleInsert(req, ctx_);
         } else if (path == "/logs" && method == http::verb::get) {
-            res = handlers::HandleQuery(req, ctx_);
+            res = co_await handlers::HandleQuery(req, ctx_);
         } else if (path == "/health" && method == http::verb::get) {
-            res = handlers::HandleHealth(req, ctx_);
+            res = co_await handlers::HandleHealth(req, ctx_);
         } else if (path == "/version" && method == http::verb::get) {
             res = handlers::HandleVersion(req, ctx_);
         } else if (path == "/stats" && method == http::verb::get) {
-            res = handlers::HandleStats(req, ctx_);
+            res = co_await handlers::HandleStats(req, ctx_);
         } else if (path == "/settings" && method == http::verb::get) {
             res = handlers::HandleSettings(req, ctx_);
         } else if (path == "/schema" && method == http::verb::get) {

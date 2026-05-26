@@ -12,9 +12,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <fmt/format.h>
 #include <memory>
-#include <thread>
 #include <vector>
 
 namespace loglite {
@@ -35,13 +33,13 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
         if (hdef.type == "loglite.harvesters.FileHarvester" || hdef.type == "FileHarvester") {
             auto it = hdef.config.find("path");
             if (it == hdef.config.end()) {
-                log::warn(fmt::format("FileHarvester '{}': missing 'path' config", hdef.name));
+                log::WARN("FileHarvester '{}': missing 'path' config", hdef.name);
                 continue;
             }
             harvesters.push_back(
                 std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
         } else {
-            log::warn(fmt::format("Unknown harvester type '{}', skipping", hdef.type));
+            log::WARN("Unknown harvester type '{}', skipping", hdef.type);
         }
     }
     return harvesters;
@@ -49,23 +47,24 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 
 }  // namespace
 
-void RunServer(const std::filesystem::path& config_path, unsigned int thread_count) {
+void RunServer(const std::filesystem::path& config_path) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
+    log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
     WriterDatabase db_write{cfg};
     db_write.Open();
     db_write.Initialize();
 
-    auto effective_threads =
-        thread_count > 0 ? thread_count : std::max(1u, std::thread::hardware_concurrency());
-    ReadDatabasePool db_read(cfg, db_write.catalog(), effective_threads);
+    ReadDatabasePool db_read(cfg, db_write.catalog(), cfg.resolve_pool_size());
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
     notifier.Notify(db_write.GetMaxLogId());
+
     asio::thread_pool db_write_pool{1u};
+    asio::thread_pool db_read_pool{cfg.resolve_pool_size()};
     const auto server_started_at = std::chrono::steady_clock::now();
     ServerContext ctx{cfg,
                       db_write,
@@ -73,6 +72,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
                       backlog,
                       notifier,
                       asio::make_strand(db_write_pool.get_executor()),
+                      db_read_pool.get_executor(),
                       server_started_at};
 
     g_backlog = &backlog;
@@ -84,10 +84,10 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     }
 
     // Run server
-    Server server{ctx, effective_threads};
+    Server server{ctx, 1u};
     g_server = &server;
 
-    log::info(fmt::format("loglite server starting on {}:{}", cfg.host, cfg.port));
+    log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
     server.Run();
 
     // Teardown
@@ -120,7 +120,7 @@ void Rollout(const std::filesystem::path& config_path, int start_version) {
     db.CreateInternalTables();
     MigrationManager mgr{db, cfg.migrations};
     if (!mgr.ApplyPendingMigrations(start_version)) {
-        log::info("No pending migrations to apply.");
+        log::INFO("No pending migrations to apply.");
     }
 }
 

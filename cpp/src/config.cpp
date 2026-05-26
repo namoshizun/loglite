@@ -4,11 +4,14 @@
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fmt/format.h>
 #include <map>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <yaml-cpp/yaml.h>
 
 extern "C" {
@@ -105,7 +108,14 @@ void load_yaml_map(S& out, const YAML::Node& node);
 template <class T>
 T from_yaml(const YAML::Node& node) {
     if constexpr (std::is_same_v<T, std::string>) {
-        return node.as<std::string>();
+        try {
+            return node.as<std::string>();
+        } catch (const YAML::BadConversion&) {
+            // NOTE: a nasty hack... db_pool_size config in yaml
+            // is parsed as int64_t, but we want to store it as a string
+            // into config first...
+            return std::to_string(node.as<int64_t>());
+        }
     } else if constexpr (std::is_same_v<T, bool>) {
         return node.as<bool>();
     } else if constexpr (std::is_same_v<T, std::filesystem::path>) {
@@ -180,6 +190,28 @@ void load_root_config(Config& cfg, const StringMap& env, const YAML::Node& yaml)
 
 }  // namespace
 
+unsigned Config::resolve_pool_size() const {
+    const std::string_view raw = db_pool_size;
+    const std::string_view t = strip_spaces(raw);
+    if (t.empty()) {
+        throw std::runtime_error("db_pool_size must be 'auto' or a positive integer");
+    }
+
+    std::string lc{t};
+    std::ranges::transform(lc, lc.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (lc == "auto") {
+        return std::max(1u, std::thread::hardware_concurrency());
+    }
+
+    char* end = nullptr;
+    const unsigned long n = std::strtoul(lc.c_str(), &end, 10);
+    if (end == lc.c_str() || *end != '\0' || n == 0) {
+        throw std::runtime_error(
+            fmt::format("db_pool_size must be 'auto' or a positive integer, got '{}'", raw));
+    }
+    return static_cast<unsigned>(n);
+}
+
 Config Config::from_file(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path))
         throw std::runtime_error(fmt::format("Config file not found: {}", path.string()));
@@ -217,10 +249,11 @@ Config Config::from_file(const std::filesystem::path& path) {
     // Post init
     cfg.vacuum_max_size_bytes = parse_size_to_bytes(cfg.vacuum_max_size);
     cfg.vacuum_target_size_bytes = parse_size_to_bytes(cfg.vacuum_target_size);
+    (void)cfg.resolve_pool_size();
     std::filesystem::create_directories(cfg.sqlite_dir);
     cfg.db_path = cfg.sqlite_dir / "logs.db";
 
-    log::info(fmt::format("Config loaded from {}", path.string()));
+    log::INFO("Config loaded from {}", path.string());
     return cfg;
 }
 

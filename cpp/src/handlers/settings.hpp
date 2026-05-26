@@ -32,6 +32,8 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     AppendSetting(settings, "sqlite_params", sqlite_params,
                   "SQLite PRAGMA key/value pairs applied when opening the database.");
 
+    AppendSetting(settings, "db_pool_size", cfg.db_pool_size, "Reader connection pool size");
+
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");
 
@@ -52,8 +54,6 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
                   "Trigger vacuum when the database file exceeds this size.");
     AppendSetting(settings, "vacuum_target_size", cfg.vacuum_target_size,
                   "After vacuum, trim oldest rows until the database is under this size.");
-    AppendSetting(settings, "vacuum_delete_batch_size", cfg.vacuum_delete_batch_size,
-                  "Number of row IDs deleted per batch when vacuum removes old logs.");
     AppendSetting(settings, "stats_retention_hours", cfg.stats_retention_hours,
                   "Hours to retain collected stats rows before pruning.");
 

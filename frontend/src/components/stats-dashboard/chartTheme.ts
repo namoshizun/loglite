@@ -1,5 +1,6 @@
 import type { ChartOptions } from 'chart.js';
-import { formatChartTime, formatChartTooltipLabel } from './constants';
+import type { StatsChartWindow } from './constants';
+import { formatChartTimeFromMs, formatChartTooltipLabel } from './constants';
 
 export type ChartColors = {
   grid: string;
@@ -25,30 +26,37 @@ export function readChartColors(_theme?: string): ChartColors {
 
 type ScaleOptionsParams = {
   colors: ChartColors;
-  labels: string[];
+  window: StatsChartWindow;
   needsRightAxis: boolean;
   showLeftAxis: boolean;
 };
 
+function timeXScale(colors: ChartColors, window: StatsChartWindow) {
+  const tickColor = colors.axis;
+  return {
+    type: 'time' as const,
+    min: window.since,
+    max: window.until,
+    ticks: {
+      color: tickColor,
+      maxRotation: 0,
+      autoSkip: true,
+      maxTicksLimit: 8,
+      callback: (value: string | number) => formatChartTimeFromMs(Number(value)),
+    },
+    grid: { color: colors.grid },
+  };
+}
+
 export function activityScaleOptions({
   colors,
-  labels,
+  window,
   needsRightAxis,
   showLeftAxis,
 }: ScaleOptionsParams): ChartOptions<'bar'>['scales'] {
   const tickColor = colors.axis;
   return {
-    x: {
-      ticks: {
-        color: tickColor,
-        font: { size: 11 },
-        maxRotation: 0,
-        autoSkip: true,
-        maxTicksLimit: 8,
-        callback: (_value, index) => formatChartTime(labels[index] ?? ''),
-      },
-      grid: { color: colors.grid },
-    },
+    x: timeXScale(colors, window),
     y: {
       type: 'linear',
       position: 'left',
@@ -68,20 +76,18 @@ export function activityScaleOptions({
 
 export function databaseScaleOptions(
   colors: ChartColors,
-  labels: string[],
+  window: StatsChartWindow,
 ): ChartOptions<'line'>['scales'] {
   const tickColor = colors.axis;
+  const x = timeXScale(colors, window);
   return {
     x: {
+      ...x,
       ticks: {
-        color: tickColor,
+        ...x.ticks,
         font: { size: 10 },
-        maxRotation: 0,
-        autoSkip: true,
         maxTicksLimit: 6,
-        callback: (_value, index) => formatChartTime(labels[index] ?? ''),
       },
-      grid: { color: colors.grid },
     },
     y: {
       ticks: { color: tickColor, font: { size: 10 } },
@@ -90,8 +96,28 @@ export function databaseScaleOptions(
   };
 }
 
-export function baseChartPlugins(colors: ChartColors): ChartOptions['plugins'] {
+export function statsChartZoomPlugin(colors: ChartColors): ChartOptions['plugins'] {
   return {
+    zoom: {
+      pan: {
+        enabled: true,
+        mode: 'x',
+        modifierKey: 'shift',
+      },
+      zoom: {
+        wheel: { enabled: true, speed: 0.08 },
+        drag: {
+          enabled: true,
+          backgroundColor: 'rgba(59, 130, 246, 0.12)',
+          borderColor: 'rgba(59, 130, 246, 0.55)',
+          borderWidth: 1,
+        },
+        mode: 'x',
+      },
+      limits: {
+        x: { min: 'original', max: 'original' },
+      },
+    },
     legend: {
       position: 'top',
       labels: { color: colors.axis, boxWidth: 12, font: { size: 11 } },
@@ -104,12 +130,20 @@ export function baseChartPlugins(colors: ChartColors): ChartOptions['plugins'] {
       bodyColor: colors.tooltipFg,
       callbacks: {
         title: (items) => {
+          const parsedX = items[0]?.parsed?.x;
+          if (parsedX != null && typeof parsedX === 'number') {
+            return formatChartTooltipLabel(new Date(parsedX).toISOString());
+          }
           const label = items[0]?.label;
           return label ? formatChartTooltipLabel(label) : '';
         },
       },
     },
   };
+}
+
+export function baseChartPlugins(colors: ChartColors): ChartOptions['plugins'] {
+  return statsChartZoomPlugin(colors);
 }
 
 export const chartLayout = {

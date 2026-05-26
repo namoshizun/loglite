@@ -56,6 +56,8 @@ export const en = {
   'stats.chart.insertCost': 'Insert cost (ms)',
   'stats.chart.httpConn': 'HTTP connections',
   'stats.chart.sseSessions': 'SSE sessions',
+  'stats.chartZoomHint':
+    'Drag on the chart to zoom the time range. Shift+drag to pan. Double-click to reset. Scroll to zoom.',
   'live.resume': 'Resume Stream',
   'live.pause': 'Pause Stream',
   'live.clear': 'Clear Screen',
@@ -119,12 +121,11 @@ export const en = {
   'settingsDesc.sqlite_params': 'SQLite PRAGMA key/value pairs applied when opening the database.',
   'settingsDesc.auto_rollout':
     'Whether pending migrations are applied automatically on server startup.',
+  'settingsDesc.db_pool_size': 'Reader connection pool size',
   'settingsDesc.vacuum_max_days': 'Drop log rows older than this many days during vacuum.',
   'settingsDesc.vacuum_max_size': 'Trigger vacuum when the database file exceeds this size.',
   'settingsDesc.vacuum_target_size':
     'After vacuum, trim oldest rows until the database is under this size.',
-  'settingsDesc.vacuum_delete_batch_size':
-    'Number of row IDs deleted per batch when vacuum removes old logs.',
   'settingsDesc.task_diagnostics_interval':
     'Seconds between activity and database stats collection passes.',
   'settingsDesc.task_backlog_flush_interval': 'Seconds between backlog flush passes to SQLite.',

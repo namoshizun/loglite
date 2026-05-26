@@ -91,10 +91,13 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
 .. code-block:: yaml
 
    # ── Server ───────────────────────────────────────────────
-   host: 0.0.0.0          # Bind host
-   port: 7788             # Bind port
-   debug: true            # Verbose logging
-   allow_origin: "*"      # CORS Access-Control-Allow-Origin
+   host: 0.0.0.0      # Bind host
+   port: 7788         # Bind port
+   debug: true        # Verbose logging
+   allow_origin: "*"  # CORS Access-Control-Allow-Origin
+   db_pool_size: 2    # Read DB pool. Positive int, or "auto" (= hardware concurrency);
+                      # More readers can help queries but use N times more RAM because
+                      # each SQLite connection holds a distinct cache memory.
 
    # ── Database ─────────────────────────────────────────────
    sqlite_dir: ./db       # Directory holding the SQLite db file
@@ -187,7 +190,7 @@ background; the response returns immediately with ``{"status": "accepted"}``.
    curl -X POST http://localhost:7788/logs \
      -H "Content-Type: application/json" \
      -d '{
-       "timestamp": "2026-05-05T12:34:56.123Z",
+       "timestamp": "2026-05-05T12:34:56.123",
        "message": "User signed in",
        "level": "INFO",
        "service": "auth"
@@ -382,7 +385,7 @@ Included settings:
 - ``log_table_name``, ``log_timestamp_field``
 - ``sqlite_params`` (object of PRAGMA key/value pairs)
 - ``auto_rollout``
-- ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``, ``vacuum_delete_batch_size``
+- ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``,
 - ``task_diagnostics_interval``, ``task_backlog_flush_interval``, ``task_backlog_max_size``
 - ``task_vacuum_interval``, ``task_vacuum_max_size``, ``stats_retention_hours``
 - ``compression_enabled`` (boolean)
@@ -558,9 +561,9 @@ backlog, metrics sampling window, query/SSE result batches). RSS can still
 **Why RSS increases**
 
 - **SQLite page cache** — ``cache_size`` (for example ``-32000`` → 32 MiB) applies
-  **per database connection**. The server opens one **writer** plus one **reader
-  per hardware thread** (same count as the HTTP thread pool). Caches grow lazily
-  toward those caps as the database is used.
+  **per database connection**. The server opens one **writer** plus 
+  **multiple reader connections** (controlled by ``db_pool_size``).
+  Caches grow lazily toward those caps as the database is used.
 - **Memory-mapped I/O** — ``mmap_size`` caps how much of the DB file each
   connection may map; mapping ramps up as the file grows (vacuum limits on-disk
   size separately).
@@ -573,10 +576,6 @@ backlog, metrics sampling window, query/SSE result batches). RSS can still
 - Rising ``ingest_drop_count`` in activity stats (backlog cannot keep up).
 - RSS far above what your ``sqlite_params`` and core count imply, with no
   heavy query/SSE load.
-
-Tune ``cache_size`` and ``mmap_size`` downward on memory-constrained hosts; use
-``task_backlog_max_size`` and ingest rate to keep the backlog small.
-
 
 
 License

@@ -25,6 +25,8 @@ struct Config {
     std::filesystem::path sqlite_dir{"./db"};
     std::filesystem::path db_path;  // derived
     std::map<std::string, std::string> sqlite_params;
+    std::string db_pool_size{"2"};  // "auto" or positive integer, default to a low size to avoid
+                                    // unintentional memory bloat
     bool auto_rollout{false};
 
     // ── Log table ─────────────────────────────────────────────────────────────
@@ -41,14 +43,12 @@ struct Config {
     int64_t vacuum_max_size_bytes{};  // derived
     std::string vacuum_target_size{"800GB"};
     int64_t vacuum_target_size_bytes{};  // derived
-    int vacuum_delete_batch_size{2500};
-
     // ── Background tasks ──────────────────────────────────────────────────────
     int task_diagnostics_interval{60};   // seconds
     int task_backlog_flush_interval{5};  // seconds
     int task_backlog_max_size{200};      // max entries before force-flush
     int task_vacuum_interval{120};       // seconds
-    int task_vacuum_max_size{20};        // MB budget per incremental vacuum pass
+    int task_vacuum_max_size{5};         // MB budget per incremental vacuum pass
     int stats_retention_hours{24};
 
     // ── Compression ───────────────────────────────────────────────────────────
@@ -67,18 +67,20 @@ struct Config {
 
     // ── Factory ───────────────────────────────────────────────────────────────
     static Config from_file(const std::filesystem::path& path);
+
+    [[nodiscard]] unsigned resolve_pool_size() const;
 };
 
 // Boost.Describe: every public data member is listed.
 BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
 BOOST_DESCRIBE_STRUCT(Config, (),
                       (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,
-                       auto_rollout, log_table_name, log_timestamp_field, sse_limit,
+                       db_pool_size, auto_rollout, log_table_name, log_timestamp_field, sse_limit,
                        sse_debounce_ms, vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes,
-                       vacuum_target_size, vacuum_target_size_bytes, vacuum_delete_batch_size,
-                       task_diagnostics_interval, task_backlog_flush_interval,
-                       task_backlog_max_size, task_vacuum_interval, task_vacuum_max_size,
-                       stats_retention_hours, compression, harvesters, migrations))
+                       vacuum_target_size, vacuum_target_size_bytes, task_diagnostics_interval,
+                       task_backlog_flush_interval, task_backlog_max_size, task_vacuum_interval,
+                       task_vacuum_max_size, stats_retention_hours, compression, harvesters,
+                       migrations))
 
 }  // namespace loglite
 

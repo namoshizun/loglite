@@ -5,6 +5,7 @@
 - **Important**: try to fix things at the cause, not the symptom.
 - When asked to review the code, GO BY THE BOOK! Be thoughtful, critical and brutally honest.
 - Do not delete my code comments unless they are outdated / incorrect / no longer relevant.
+- Don't assume. Don't hide confusion. Surface tradeoffs.
 
 ## Python dev
 
@@ -18,6 +19,7 @@
 
 - Write elegant, professional and most importantly, MODERN C++ code. 
 - Use C++ 20. Prefer modern features over legacy ones.
+- Supports GCC 12+, Clang 16+.
 - Follow the Google C++ Style Guide.
 - Use CMake and GTest
 - Use `cpp/build.sh` to build the debug / release binary.

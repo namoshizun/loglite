@@ -118,12 +118,11 @@ PYBIND11_MODULE(_core, m) {
     // ── Server ────────────────────────────────────────────────────────────────
     m.def(
         "run_server",
-        [](const std::string& config_path, unsigned int thread_count) {
+        [](const std::string& config_path) {
             py::gil_scoped_release release;
-            RunServer(config_path, thread_count);
+            RunServer(config_path);
         },
-        py::arg("config_path"), py::arg("thread_count") = 0u,
-        "Start the server (blocks until shutdown).");
+        py::arg("config_path"), "Start the server (blocks until shutdown).");
 
     m.def("stop_server", &StopServer, "Signal the running server to shut down.");
 

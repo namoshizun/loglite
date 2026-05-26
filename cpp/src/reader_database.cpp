@@ -17,7 +17,7 @@ void ReaderDatabase::Open() {
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
     apply_params(AccessMode::READ);
-    log::debug(fmt::format("Opened reader SQLite connection: {}", path));
+    log::DEBUG("Opened reader SQLite connection: {}", path);
 }
 
 PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,
@@ -33,14 +33,18 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
 
     auto [where, params] = build_where_clause(filters);
 
-    // Get total count of rows matching the filters.
-    auto count_sql = fmt::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
-    Statement count_stmt{db_, count_sql};
-    for (int i = 0; i < static_cast<int>(params.size()); ++i)
-        bind_param(count_stmt, i + 1, params[i]);
-
+    // Get the total row number count (use quick estimate if no filters are applied).
     int total = 0;
-    if (sqlite3_step(count_stmt) == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
+    if (filters.empty()) {
+        total = static_cast<int>(EstimateLogRowCount());
+    } else {
+        auto count_sql =
+            fmt::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
+        Statement count_stmt{db_, count_sql};
+        for (int i = 0; i < static_cast<int>(params.size()); ++i)
+            bind_param(count_stmt, i + 1, params[i]);
+        if (sqlite3_step(count_stmt) == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
+    }
     if (total == 0) return {total, offset, limit, {}};
 
     // Execute the main query.

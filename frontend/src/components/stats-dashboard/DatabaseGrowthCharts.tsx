@@ -5,10 +5,12 @@ import { useMemo, type ReactNode } from 'react';
 import type { DatabaseStatRecord } from '../../api/client';
 import { useI18n } from '../../i18n/locale';
 import { useTheme } from '../../theme';
+import type { StatsChartWindow } from './constants';
 import { baseChartPlugins, chartLayout, databaseScaleOptions, readChartColors } from './chartTheme';
 
 type DatabaseGrowthChartsProps = {
   rows: DatabaseStatRecord[];
+  chartWindow: StatsChartWindow;
 };
 
 function formatDbRows(rows: DatabaseStatRecord[]) {
@@ -21,18 +23,18 @@ function formatDbRows(rows: DatabaseStatRecord[]) {
 function DbAreaChart({
   title,
   titleIcon,
-  labels,
+  points,
   datasetLabel,
-  values,
   strokeColor,
+  chartWindow,
   formatTooltipValue,
 }: {
   title: string;
   titleIcon: ReactNode;
-  labels: string[];
+  points: { x: number; y: number }[];
   datasetLabel: string;
-  values: number[];
   strokeColor: string;
+  chartWindow: StatsChartWindow;
   formatTooltipValue: (value: number) => [string, string];
 }) {
   const { theme } = useTheme();
@@ -42,11 +44,10 @@ function DbAreaChart({
     const fill = strokeColor.startsWith('#') ? `${strokeColor}1a` : 'rgba(59, 130, 246, 0.1)';
 
     const data: ChartData<'line'> = {
-      labels,
       datasets: [
         {
           label: datasetLabel,
-          data: values,
+          data: points,
           borderColor: strokeColor,
           backgroundColor: fill,
           fill: true,
@@ -75,11 +76,11 @@ function DbAreaChart({
           },
         },
       },
-      scales: databaseScaleOptions(colors, labels),
+      scales: databaseScaleOptions(colors, chartWindow),
     };
 
     return { data, options };
-  }, [labels, values, datasetLabel, strokeColor, theme, formatTooltipValue]);
+  }, [points, datasetLabel, strokeColor, chartWindow, theme, formatTooltipValue]);
 
   return (
     <div className="h-[280px] bg-muted/50 p-3 rounded-lg border border-border flex flex-col">
@@ -93,29 +94,33 @@ function DbAreaChart({
   );
 }
 
-export default function DatabaseGrowthCharts({ rows }: DatabaseGrowthChartsProps) {
+export default function DatabaseGrowthCharts({ rows, chartWindow }: DatabaseGrowthChartsProps) {
   const { t } = useI18n();
   const chartData = formatDbRows(rows);
-  const labels = chartData.map((d) => d.timestamp);
+  const points = (field: 'db_size_mb' | 'rows_count') =>
+    chartData.map((d) => ({
+      x: new Date(d.timestamp).getTime(),
+      y: d[field],
+    }));
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <DbAreaChart
         title={t('stats.dbSizeChart')}
         titleIcon={<ChartIcon size={12} className="text-blue-400" />}
-        labels={labels}
+        points={points('db_size_mb')}
         datasetLabel="Database Size"
-        values={chartData.map((d) => d.db_size_mb)}
         strokeColor="#3b82f6"
+        chartWindow={chartWindow}
         formatTooltipValue={(value) => [`${value} MB`, 'Database Size']}
       />
       <DbAreaChart
         title={t('stats.rowsChart')}
         titleIcon={<BarChart3 size={12} className="text-purple-400" />}
-        labels={labels}
+        points={points('rows_count')}
         datasetLabel="Row Count"
-        values={chartData.map((d) => d.rows_count)}
         strokeColor="#8b5cf6"
+        chartWindow={chartWindow}
         formatTooltipValue={(value) => [value.toLocaleString(), 'Row Count']}
       />
     </div>

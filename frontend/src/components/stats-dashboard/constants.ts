@@ -16,9 +16,18 @@ const RANGE_MS: Record<TimeRange, number> = {
   '24h': 24 * 60 * 60 * 1000,
 };
 
-export function getStatsTimeWindow(range: TimeRange, now = new Date()) {
+export type StatsChartWindow = {
+  since: string;
+  until: string;
+};
+
+export function getStatsTimeWindow(range: TimeRange, now = new Date()): StatsChartWindow {
   const since = new Date(now.getTime() - RANGE_MS[range]);
   return { since: since.toISOString(), until: now.toISOString() };
+}
+
+export function activityBucketCenterMs(row: Pick<ActivityStatRecord, 'since' | 'until'>): number {
+  return (new Date(row.since).getTime() + new Date(row.until).getTime()) / 2;
 }
 
 export type EnrichedActivityRow = ActivityStatRecord;
@@ -32,6 +41,10 @@ export function formatChartTime(isoString: string): string {
   } catch {
     return isoString;
   }
+}
+
+export function formatChartTimeFromMs(ms: number): string {
+  return formatChartTime(new Date(ms).toISOString());
 }
 
 export function formatChartTooltipLabel(value: unknown): string {

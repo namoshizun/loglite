@@ -12,7 +12,6 @@
 #include <boost/beast/http/chunk_encode.hpp>
 
 #include <chrono>
-#include <fmt/format.h>
 #include <sstream>
 
 namespace asio = boost::asio;
@@ -23,25 +22,6 @@ namespace net = boost::asio;
 namespace loglite::handlers {
 
 using namespace std::chrono_literals;
-
-// ── Connection check ─────────────────────────────────────────────────────────
-
-inline bool IsSocketConnected(asio::ip::tcp::socket& socket) {
-    if (!socket.is_open()) return false;
-    char buf[1];
-    boost::system::error_code ec;
-    socket.non_blocking(true, ec);
-    if (ec) return false;
-
-    auto bytes = socket.receive(asio::buffer(buf), asio::socket_base::message_peek, ec);
-    if (ec == asio::error::would_block) {
-        return true;  // Still connected
-    }
-    if (bytes == 0 || ec) {
-        return false;  // Connection closed or error
-    }
-    return true;
-}
 
 // ── SSE handler ────────────────────────────────────────────────────────────────
 //
@@ -101,8 +81,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     auto last_write_tp = std::chrono::steady_clock::now();
 
     auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
-    log::info(fmt::format("SSE subscriber {} connected (subscribers={})", subscriber_id,
-                          ctx.notifier.SubscriberCount()));
+    log::INFO("SSE subscriber {} connected (subscribers={})", subscriber_id,
+              ctx.notifier.SubscriberCount());
 
     // ── Event loop ────────────────────────────────────────────────────────────
     while (true) {
@@ -111,10 +91,6 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
-
-        if (!IsSocketConnected(stream.socket())) {
-            break;  // Client disconnected during sleep
-        }
 
         int64_t current_id = ctx.notifier.GetLastId();
         if (current_id <= pushed_id) {
@@ -145,10 +121,11 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         };
         PaginatedQueryResult result;
         try {
-            result = ctx.db_read.UseConnection(
+            result = co_await ctx.db_read.AsyncUseConnection(
+                ctx.reader_executor,
                 [&](ReaderDatabase& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
         } catch (const std::exception& e) {
-            log::error(fmt::format("SSE query error: {}", e.what()));
+            log::ERROR("SSE query error: {}", e.what());
             continue;
         }
 
@@ -178,9 +155,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
         last_push_tp = now;
         last_write_tp = now;
 
-        if (cfg.debug)
-            log::debug(
-                fmt::format("SSE {} pushed {} log(s)", subscriber_id, result.results.size()));
+        log::DEBUG("SSE {} pushed {} log(s)", subscriber_id, result.results.size());
     }
 
     // Send chunked terminator (best-effort; client may already be gone).
@@ -189,8 +164,8 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
     } catch (...) {
     }
 
-    log::info(fmt::format("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
-                          ctx.notifier.SubscriberCount()));
+    log::INFO("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
+              ctx.notifier.SubscriberCount());
 }
 
 }  // namespace loglite::handlers

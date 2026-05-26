@@ -17,7 +17,7 @@ void WriterDatabase::Open() {
     auto path = cfg_.db_path.string();
     ensure_ok(sqlite3_open(path.c_str(), &db_), "sqlite3_open");
     apply_params(AccessMode::WRITE);
-    log::debug(fmt::format("Opened writer SQLite connection: {}", path));
+    log::DEBUG("Opened writer SQLite connection: {}", path);
 }
 
 void WriterDatabase::CreateInternalTables() {
@@ -74,22 +74,12 @@ void WriterDatabase::Initialize() {
     for (const auto& [col, value, id] : GetColumnDictRows()) {
         lut[col][value] = id;
     }
-    log::info(fmt::format("Loaded column dictionary ({} entries)", lut.size()));
+    log::INFO("Loaded column dictionary ({} entries)", lut.size());
 
     catalog_->col_dict = std::make_shared<ColumnDictionary>(
         std::move(lut), [this](const std::string& col, const std::string& val, ValueId vid) {
             return InsertColumnDictValue(col, val, vid);
         });
-}
-
-const std::vector<ColumnInfo>& WriterDatabase::GetColumnInfo() const {
-    return catalog_->log_column_info;
-}
-
-void WriterDatabase::RefreshColumnInfo() {
-    catalog_->log_column_info = FetchTableColumns(cfg_.log_table_name);
-    catalog_->activity_stats_column_info = FetchTableColumns("activity_stats");
-    catalog_->db_stats_column_info = FetchTableColumns("database_stats");
 }
 
 int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
@@ -127,8 +117,7 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
                 nlohmann::json raw = (it != log.end()) ? *it : nlohmann::json(nullptr);
 
                 if (ci.not_null && raw.is_null()) {
-                    log::warn(
-                        fmt::format("Skipping log: column '{}' required but missing", ci.name));
+                    log::WARN("Skipping log: column '{}' required but missing", ci.name);
                     valid = false;
                     break;
                 }
@@ -147,7 +136,7 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
             if (rc == SQLITE_DONE)
                 ++inserted;
             else
-                log::error(fmt::format("Insert step failed: {}", sqlite3_errmsg(db_)));
+                log::ERROR("Insert step failed: {}", sqlite3_errmsg(db_));
         }
         exec_sql("COMMIT");
         return inserted;
@@ -166,36 +155,8 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     return sqlite3_changes(db_);
 }
 
-int64_t WriterDatabase::GetMaxLogId() const {
-    auto sql = fmt::format("SELECT MAX(id) FROM {}", cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
-        return sqlite3_column_int64(stmt, 0);
-    return 0;
-}
-
-int64_t WriterDatabase::GetMinLogId() const {
-    auto sql = fmt::format("SELECT MIN(id) FROM {}", cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
-        return sqlite3_column_int64(stmt, 0);
-    return 0;
-}
-
-std::string WriterDatabase::GetMinTimestamp() const {
-    auto sql = fmt::format("SELECT MIN({}) FROM {}", cfg_.log_timestamp_field, cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
-        const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        return txt ? txt : "";
-    }
-    return "";
-}
-
-std::string WriterDatabase::GetPragma(std::string_view name) const { return get_pragma(name); }
-
 void WriterDatabase::SetPragma(std::string_view name, std::string_view value) {
-    log::info(fmt::format(" PRAGMA {}={}", name, value));
+    log::INFO(" PRAGMA {}={}", name, value);
     set_pragma(name, value);
 }
 
@@ -208,15 +169,6 @@ void WriterDatabase::Vacuum() { exec_sql("VACUUM"); }
 void WriterDatabase::WALCheckpoint(std::string_view mode) {
     exec_sql(fmt::format("PRAGMA wal_checkpoint({})", mode));
 }
-
-int64_t WriterDatabase::GetSizeBytes() const {
-    int64_t page_count = std::stoll(GetPragma("page_count"));
-    int64_t page_size = std::stoll(GetPragma("page_size"));
-    int64_t freelist = std::stoll(GetPragma("freelist_count"));
-    return (page_count - freelist) * page_size;
-}
-
-double WriterDatabase::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
 
 bool WriterDatabase::InsertActivityStats(const ActivityStatsRow& row) {
     Statement stmt{db_, R"(INSERT INTO activity_stats (
@@ -289,7 +241,7 @@ std::vector<int> WriterDatabase::GetAppliedVersions() const {
 bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>& statements) {
     auto applied = GetAppliedVersions();
     if (range_contains(applied, version)) {
-        log::info(fmt::format("Migration v{} already applied", version));
+        log::INFO("Migration v{} already applied", version);
         return true;
     }
 
@@ -300,12 +252,12 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
         sqlite3_bind_int(ins, 1, version);
         sqlite3_step(ins);
         exec_sql("COMMIT");
-        log::info(fmt::format("Applied migration v{}", version));
+        log::INFO("Applied migration v{}", version);
         RefreshColumnInfo();
         return true;
     } catch (const std::exception& e) {
         exec_sql("ROLLBACK");
-        log::error(fmt::format("Failed to apply migration v{}: {}", version, e.what()));
+        log::ERROR("Failed to apply migration v{}: {}", version, e.what());
         return false;
     }
 }
@@ -318,12 +270,12 @@ bool WriterDatabase::RollbackMigration(int version, const std::vector<std::strin
         sqlite3_bind_int(del, 1, version);
         sqlite3_step(del);
         exec_sql("COMMIT");
-        log::info(fmt::format("Rolled back migration v{}", version));
+        log::INFO("Rolled back migration v{}", version);
         RefreshColumnInfo();
         return true;
     } catch (const std::exception& e) {
         exec_sql("ROLLBACK");
-        log::error(fmt::format("Failed to rollback migration v{}: {}", version, e.what()));
+        log::ERROR("Failed to rollback migration v{}: {}", version, e.what());
         return false;
     }
 }

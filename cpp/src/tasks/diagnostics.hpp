@@ -12,7 +12,6 @@
 #include <chrono>
 #include <cmath>
 #include <concepts>
-#include <fmt/format.h>
 #include <limits>
 #include <string>
 #include <vector>
@@ -115,8 +114,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     asio::steady_timer timer{ex};
     auto window_since = std::chrono::system_clock::now();
 
-    log::info(
-        fmt::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
+    log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
 
     while (true) {
         timer.expires_after(cfg.task_diagnostics_interval * 1s);
@@ -129,26 +127,25 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
         auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
         window_since = window_until;
 
-        co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
+        int pruned =
+            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
+                db.InsertActivityStats(row);
+                db.InsertDatabaseStats({
+                    row.until,
+                    db.EstimateLogRowCount(),
+                    db.GetSizeBytes(),
+                });
+                return db.DeleteStatsBefore(cutoff);
+            });
 
-        ctx.db_write.InsertActivityStats(row);
-        ctx.db_write.InsertDatabaseStats({
-            row.until,
-            ctx.db_write.EstimateLogRowCount(),
-            ctx.db_write.GetSizeBytes(),
-        });
-        int pruned = ctx.db_write.DeleteStatsBefore(cutoff);
-
-        co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
-
-        log::info(fmt::format(
+        log::INFO(
             "[query]: count={} avg={}ms max={}ms | "
             "[ingest]: count={} avg_size={}B drops={} | "
             "[insert]: batches={} rows={} total={}ms | "
             "sse_sessions={} http_conns={} pruned={}",
             row.query_count, row.query_avg, row.query_max, row.ingest_count, row.ingest_size_avg,
             row.ingest_drop_count, row.insert_batch_count, row.insert_total_count,
-            row.insert_total_cost, row.sse_session_count, row.http_conn_count, pruned));
+            row.insert_total_cost, row.sse_session_count, row.http_conn_count, pruned);
     }
 }
 

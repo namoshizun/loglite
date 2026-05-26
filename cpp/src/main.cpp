@@ -3,7 +3,6 @@
 #include "version.hpp"
 
 #include <CLI/CLI.hpp>
-#include <fmt/format.h>
 #include <string>
 
 int main(int argc, char** argv) {
@@ -56,7 +55,7 @@ int main(int argc, char** argv) {
             return 0;
         }
     } catch (const std::exception& e) {
-        loglite::log::error(fmt::format("Fatal: {}", e.what()));
+        loglite::log::ERROR("Fatal: {}", e.what());
         return 1;
     }
 

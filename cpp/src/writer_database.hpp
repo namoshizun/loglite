@@ -20,15 +20,8 @@ class WriterDatabase final : public Database {
 
     void CreateInternalTables();
 
-    [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
-    void RefreshColumnInfo();
-
     int Insert(const std::vector<nlohmann::json>& logs);
     int DeleteLogs(const std::vector<QueryFilter>& filters);
-
-    int64_t GetMaxLogId() const;
-    int64_t GetMinLogId() const;
-    std::string GetMinTimestamp() const;
 
     void SetPragma(std::string_view name, std::string_view value);
     void IncrementalVacuum(int page_count);

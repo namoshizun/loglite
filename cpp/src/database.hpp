@@ -55,6 +55,7 @@ class Database {
     Database& operator=(const Database&) = delete;
 
     void Close();
+    void RefreshColumnInfo();
 
     // DB query helpers
     [[nodiscard]] std::vector<ColumnInfo> FetchTableColumns(std::string_view table_name) const;
@@ -64,6 +65,10 @@ class Database {
     [[nodiscard]] int64_t GetSizeBytes() const;
     [[nodiscard]] double GetSizeMB() const;
     [[nodiscard]] std::string GetPragma(std::string_view name) const;
+    [[nodiscard]] int64_t GetMaxLogId() const;
+    [[nodiscard]] int64_t GetMinLogId() const;
+    [[nodiscard]] std::string GetMinTimestamp() const;
+    [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
 
    protected:
     struct WhereClause {

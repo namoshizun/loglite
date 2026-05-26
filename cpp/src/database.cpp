@@ -10,6 +10,18 @@
 
 namespace loglite {
 
+namespace {
+
+int normalize_vacuum_mode(std::string_view value) {
+    if (value.size() == 1 && value[0] >= '0' && value[0] <= '2') return value[0] - '0';
+    if (value == "NONE") return 0;
+    if (value == "FULL") return 1;
+    if (value == "INCREMENTAL") return 2;
+    throw std::runtime_error(fmt::format("Unknown auto_vacuum value: '{}'", value));
+}
+
+}  // namespace
+
 Statement::Statement(sqlite3* db, std::string_view sql) {
     if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw, nullptr) !=
         SQLITE_OK)
@@ -20,6 +32,12 @@ Database::Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
     : cfg_(cfg), catalog_(std::move(catalog)) {}
 
 Database::~Database() { Close(); }
+
+void Database::RefreshColumnInfo() {
+    catalog_->log_column_info = FetchTableColumns(cfg_.log_table_name);
+    catalog_->activity_stats_column_info = FetchTableColumns("activity_stats");
+    catalog_->db_stats_column_info = FetchTableColumns("database_stats");
+}
 
 void Database::Close() {
     if (db_) {
@@ -59,10 +77,11 @@ void Database::apply_params(AccessMode mode) {
 
         if (mode == AccessMode::WRITE && k == "auto_vacuum") {
             auto current = GetPragma("auto_vacuum");
-            if (current != v) {
+            if (normalize_vacuum_mode(current) != normalize_vacuum_mode(v)) {
                 log::WARN(
-                    "Existing vacuum mode is not incremental, changing it to incremental mode "
-                    "requires a full vacuum. This may take a while...");
+                    "Changing auto_vacuum from {} to {} requires a full VACUUM. This may take a "
+                    "while...",
+                    current, v);
                 set_pragma("auto_vacuum", v);
                 exec_sql("VACUUM");
             }
@@ -143,6 +162,32 @@ std::string Database::GetPragma(std::string_view name) const {
     return "";
 }
 
+int64_t Database::GetMaxLogId() const {
+    auto sql = fmt::format("SELECT MAX(id) FROM {}", cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        return sqlite3_column_int64(stmt, 0);
+    return 0;
+}
+
+int64_t Database::GetMinLogId() const {
+    auto sql = fmt::format("SELECT MIN(id) FROM {}", cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        return sqlite3_column_int64(stmt, 0);
+    return 0;
+}
+
+std::string Database::GetMinTimestamp() const {
+    auto sql = fmt::format("SELECT MIN({}) FROM {}", cfg_.log_timestamp_field, cfg_.log_table_name);
+    Statement stmt{db_, sql};
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
+        const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        return txt ? txt : "";
+    }
+    return "";
+}
+
 int64_t Database::GetSizeBytes() const {
     int64_t page_count = std::stoll(GetPragma("page_count"));
     int64_t page_size = std::stoll(GetPragma("page_size"));
@@ -151,6 +196,8 @@ int64_t Database::GetSizeBytes() const {
 }
 
 double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
+
+const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return catalog_->log_column_info; }
 
 int64_t Database::EstimateLogRowCount() const {
     auto sql =

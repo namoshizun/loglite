@@ -82,16 +82,6 @@ void WriterDatabase::Initialize() {
         });
 }
 
-const std::vector<ColumnInfo>& WriterDatabase::GetColumnInfo() const {
-    return catalog_->log_column_info;
-}
-
-void WriterDatabase::RefreshColumnInfo() {
-    catalog_->log_column_info = FetchTableColumns(cfg_.log_table_name);
-    catalog_->activity_stats_column_info = FetchTableColumns("activity_stats");
-    catalog_->db_stats_column_info = FetchTableColumns("database_stats");
-}
-
 int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
     std::vector<ColumnInfo> cols;
     cols.reserve(catalog_->log_column_info.size());
@@ -163,32 +153,6 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(stmt, i + 1, params[i]);
     ensure_ok(sqlite3_step(stmt), "delete_logs");
     return sqlite3_changes(db_);
-}
-
-int64_t WriterDatabase::GetMaxLogId() const {
-    auto sql = fmt::format("SELECT MAX(id) FROM {}", cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
-        return sqlite3_column_int64(stmt, 0);
-    return 0;
-}
-
-int64_t WriterDatabase::GetMinLogId() const {
-    auto sql = fmt::format("SELECT MIN(id) FROM {}", cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
-        return sqlite3_column_int64(stmt, 0);
-    return 0;
-}
-
-std::string WriterDatabase::GetMinTimestamp() const {
-    auto sql = fmt::format("SELECT MIN({}) FROM {}", cfg_.log_timestamp_field, cfg_.log_table_name);
-    Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
-        const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        return txt ? txt : "";
-    }
-    return "";
 }
 
 void WriterDatabase::SetPragma(std::string_view name, std::string_view value) {

@@ -7,7 +7,6 @@
 
 #include <boost/asio.hpp>
 #include <chrono>
-#include <fmt/format.h>
 #include <limits>
 
 namespace asio = boost::asio;
@@ -49,8 +48,7 @@ inline int remove_stale_logs(WriterDatabase& db, const Config& cfg, int limit_mb
 
     int n = db.DeleteLogs(flt);
     if (n > 0)
-        log::INFO(fmt::format("[vacuum] removed {} stale log(s) older than {} days", n,
-                              cfg.vacuum_max_days));
+        log::INFO("[vacuum] removed {} stale log(s) older than {} days", n, cfg.vacuum_max_days);
     return n;
 }
 
@@ -75,13 +73,12 @@ inline int remove_excessive_logs(WriterDatabase& db, const Config& cfg, int limi
         remove_max_id = std::min(remove_max_id, min_id + max_rows - 1);
     }
 
-    log::INFO(
-        fmt::format("[vacuum] db={:.1f}MB limit={:.1f}MB target={:.1f}MB – deleting id {} to {}",
-                    db_mb, max_mb, target_mb, min_id, remove_max_id));
+    log::INFO("[vacuum] db={:.1f}MB limit={:.1f}MB target={:.1f}MB – deleting id {} to {}", db_mb,
+              max_mb, target_mb, min_id, remove_max_id);
 
     std::vector<QueryFilter> flt{{"id", "<=", remove_max_id}};
     int removed = db.DeleteLogs(flt);
-    log::INFO(fmt::format("[vacuum] ... removed {} entries", removed));
+    log::INFO("[vacuum] ... removed {} entries", removed);
     return removed;
 }
 
@@ -96,7 +93,7 @@ inline int incremental_vacuum_pass(WriterDatabase& db, int max_size_mb) {
 
     Timer t;
     db.IncrementalVacuum(static_cast<int>(pages));
-    log::INFO(fmt::format("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, t.elapsed_s()));
+    log::INFO("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, t.elapsed_s());
 
     return static_cast<int>(std::stoll(db.GetPragma("freelist_count")));
 }
@@ -112,7 +109,7 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
     auto& cfg = ctx.config;
     asio::steady_timer timer{ex};
 
-    log::INFO(fmt::format("Vacuum task started (interval={}s)", cfg.task_vacuum_interval));
+    log::INFO("Vacuum task started (interval={}s)", cfg.task_vacuum_interval);
 
     while (true) {
         timer.expires_after(cfg.task_vacuum_interval * 1s);
@@ -146,7 +143,7 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
             Timer t;
             ctx.db_write.Vacuum();
             ctx.db_write.WALCheckpoint("FULL");
-            log::INFO(fmt::format("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s()));
+            log::INFO("[vacuum] full vacuum completed in {:.1f}s", t.elapsed_s());
         }
 
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));

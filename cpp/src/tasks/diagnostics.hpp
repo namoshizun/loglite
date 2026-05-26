@@ -12,7 +12,6 @@
 #include <chrono>
 #include <cmath>
 #include <concepts>
-#include <fmt/format.h>
 #include <limits>
 #include <string>
 #include <vector>
@@ -115,8 +114,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     asio::steady_timer timer{ex};
     auto window_since = std::chrono::system_clock::now();
 
-    log::INFO(
-        fmt::format("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval));
+    log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
 
     while (true) {
         timer.expires_after(cfg.task_diagnostics_interval * 1s);
@@ -141,14 +139,14 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         co_await asio::post(asio::bind_executor(ex, asio::use_awaitable));
 
-        log::INFO(fmt::format(
+        log::INFO(
             "[query]: count={} avg={}ms max={}ms | "
             "[ingest]: count={} avg_size={}B drops={} | "
             "[insert]: batches={} rows={} total={}ms | "
             "sse_sessions={} http_conns={} pruned={}",
             row.query_count, row.query_avg, row.query_max, row.ingest_count, row.ingest_size_avg,
             row.ingest_drop_count, row.insert_batch_count, row.insert_total_count,
-            row.insert_total_cost, row.sse_session_count, row.http_conn_count, pruned));
+            row.insert_total_cost, row.sse_session_count, row.http_conn_count, pruned);
     }
 }
 

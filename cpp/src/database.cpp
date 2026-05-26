@@ -1,4 +1,5 @@
 #include "database.hpp"
+#include "log.hpp"
 #include "utils.hpp"
 
 #include <algorithm>
@@ -59,6 +60,9 @@ void Database::apply_params(AccessMode mode) {
         if (mode == AccessMode::WRITE && k == "auto_vacuum") {
             auto current = GetPragma("auto_vacuum");
             if (current != v) {
+                log::WARN(
+                    "Existing vacuum mode is not incremental, changing it to incremental mode "
+                    "requires a full vacuum. This may take a while...");
                 set_pragma("auto_vacuum", v);
                 exec_sql("VACUUM");
             }

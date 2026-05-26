@@ -17,7 +17,7 @@ void WriterDatabase::Open() {
     auto path = cfg_.db_path.string();
     ensure_ok(sqlite3_open(path.c_str(), &db_), "sqlite3_open");
     apply_params(AccessMode::WRITE);
-    log::DEBUG(fmt::format("Opened writer SQLite connection: {}", path));
+    log::DEBUG("Opened writer SQLite connection: {}", path);
 }
 
 void WriterDatabase::CreateInternalTables() {
@@ -74,7 +74,7 @@ void WriterDatabase::Initialize() {
     for (const auto& [col, value, id] : GetColumnDictRows()) {
         lut[col][value] = id;
     }
-    log::INFO(fmt::format("Loaded column dictionary ({} entries)", lut.size()));
+    log::INFO("Loaded column dictionary ({} entries)", lut.size());
 
     catalog_->col_dict = std::make_shared<ColumnDictionary>(
         std::move(lut), [this](const std::string& col, const std::string& val, ValueId vid) {
@@ -127,8 +127,7 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
                 nlohmann::json raw = (it != log.end()) ? *it : nlohmann::json(nullptr);
 
                 if (ci.not_null && raw.is_null()) {
-                    log::WARN(
-                        fmt::format("Skipping log: column '{}' required but missing", ci.name));
+                    log::WARN("Skipping log: column '{}' required but missing", ci.name);
                     valid = false;
                     break;
                 }
@@ -147,7 +146,7 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
             if (rc == SQLITE_DONE)
                 ++inserted;
             else
-                log::ERROR(fmt::format("Insert step failed: {}", sqlite3_errmsg(db_)));
+                log::ERROR("Insert step failed: {}", sqlite3_errmsg(db_));
         }
         exec_sql("COMMIT");
         return inserted;
@@ -193,7 +192,7 @@ std::string WriterDatabase::GetMinTimestamp() const {
 }
 
 void WriterDatabase::SetPragma(std::string_view name, std::string_view value) {
-    log::INFO(fmt::format(" PRAGMA {}={}", name, value));
+    log::INFO(" PRAGMA {}={}", name, value);
     set_pragma(name, value);
 }
 
@@ -278,7 +277,7 @@ std::vector<int> WriterDatabase::GetAppliedVersions() const {
 bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>& statements) {
     auto applied = GetAppliedVersions();
     if (range_contains(applied, version)) {
-        log::INFO(fmt::format("Migration v{} already applied", version));
+        log::INFO("Migration v{} already applied", version);
         return true;
     }
 
@@ -289,12 +288,12 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
         sqlite3_bind_int(ins, 1, version);
         sqlite3_step(ins);
         exec_sql("COMMIT");
-        log::INFO(fmt::format("Applied migration v{}", version));
+        log::INFO("Applied migration v{}", version);
         RefreshColumnInfo();
         return true;
     } catch (const std::exception& e) {
         exec_sql("ROLLBACK");
-        log::ERROR(fmt::format("Failed to apply migration v{}: {}", version, e.what()));
+        log::ERROR("Failed to apply migration v{}: {}", version, e.what());
         return false;
     }
 }
@@ -307,12 +306,12 @@ bool WriterDatabase::RollbackMigration(int version, const std::vector<std::strin
         sqlite3_bind_int(del, 1, version);
         sqlite3_step(del);
         exec_sql("COMMIT");
-        log::INFO(fmt::format("Rolled back migration v{}", version));
+        log::INFO("Rolled back migration v{}", version);
         RefreshColumnInfo();
         return true;
     } catch (const std::exception& e) {
         exec_sql("ROLLBACK");
-        log::ERROR(fmt::format("Failed to rollback migration v{}: {}", version, e.what()));
+        log::ERROR("Failed to rollback migration v{}: {}", version, e.what());
         return false;
     }
 }

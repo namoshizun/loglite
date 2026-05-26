@@ -253,7 +253,7 @@ Config Config::from_file(const std::filesystem::path& path) {
     std::filesystem::create_directories(cfg.sqlite_dir);
     cfg.db_path = cfg.sqlite_dir / "logs.db";
 
-    log::INFO(fmt::format("Config loaded from {}", path.string()));
+    log::INFO("Config loaded from {}", path.string());
     return cfg;
 }
 

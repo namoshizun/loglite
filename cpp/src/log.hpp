@@ -1,6 +1,7 @@
 #ifndef LOGLITE_LOG_HPP_
 #define LOGLITE_LOG_HPP_
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <fmt/chrono.h>
@@ -8,19 +9,20 @@
 #include <fmt/format.h>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <unistd.h>
 
 namespace loglite::log {
 
 enum class Level { kDebug, kInfo, kWarn, kError };
 
-inline Level g_min_level = Level::kInfo;
+inline std::atomic<Level> g_min_level{Level::kInfo};
 
-inline void SetLevel(Level level) { g_min_level = level; }
+inline void SetLevel(Level level) { g_min_level.store(level, std::memory_order_relaxed); }
 
 namespace detail {
 inline bool enabled(Level level) {
-    return static_cast<int>(level) >= static_cast<int>(g_min_level);
+    return static_cast<int>(level) >= static_cast<int>(g_min_level.load(std::memory_order_relaxed));
 }
 inline std::string timestamp() {
     const auto now = std::chrono::system_clock::now();
@@ -71,12 +73,16 @@ inline bool stream_supports_color(FILE* stream) {
     return isatty(fileno(stream)) != 0;
 }
 
-inline void write(FILE* stream, Level level, std::string_view msg) {
-    const auto ts = detail::timestamp();
-    const auto label = detail::level_label(level);
+template <typename... Args>
+inline void log_formatted(FILE* stream, Level level, fmt::format_string<Args...> fmt,
+                          Args&&... args) {
+    if (!enabled(level)) return;
+    const auto msg = fmt::format(fmt, std::forward<Args>(args)...);
+    const auto ts = timestamp();
+    const auto label = level_label(level);
     std::string line;
     if (stream_supports_color(stream)) {
-        const auto levelStyled = fmt::format(detail::style_for(level), "{}", label);
+        const auto levelStyled = fmt::format(style_for(level), "{}", label);
         line = fmt::format("[{}] [{}] {}\n", ts, levelStyled, msg);
     } else {
         line = fmt::format("[{}] [{}] {}\n", ts, label, msg);
@@ -85,24 +91,32 @@ inline void write(FILE* stream, Level level, std::string_view msg) {
 }
 }  // namespace detail
 
-inline void INFO(std::string_view msg) {
-    if (!detail::enabled(Level::kInfo)) return;
-    detail::write(stdout, Level::kInfo, msg);
+inline void INFO(std::string_view msg) { detail::log_formatted(stdout, Level::kInfo, "{}", msg); }
+
+template <typename... Args>
+inline void INFO(fmt::format_string<Args...> fmt, Args&&... args) {
+    detail::log_formatted(stdout, Level::kInfo, fmt, std::forward<Args>(args)...);
 }
 
-inline void WARN(std::string_view msg) {
-    if (!detail::enabled(Level::kWarn)) return;
-    detail::write(stderr, Level::kWarn, msg);
+inline void WARN(std::string_view msg) { detail::log_formatted(stderr, Level::kWarn, "{}", msg); }
+
+template <typename... Args>
+inline void WARN(fmt::format_string<Args...> fmt, Args&&... args) {
+    detail::log_formatted(stderr, Level::kWarn, fmt, std::forward<Args>(args)...);
 }
 
-inline void ERROR(std::string_view msg) {
-    if (!detail::enabled(Level::kError)) return;
-    detail::write(stderr, Level::kError, msg);
+inline void ERROR(std::string_view msg) { detail::log_formatted(stderr, Level::kError, "{}", msg); }
+
+template <typename... Args>
+inline void ERROR(fmt::format_string<Args...> fmt, Args&&... args) {
+    detail::log_formatted(stderr, Level::kError, fmt, std::forward<Args>(args)...);
 }
 
-inline void DEBUG(std::string_view msg) {
-    if (!detail::enabled(Level::kDebug)) return;
-    detail::write(stdout, Level::kDebug, msg);
+inline void DEBUG(std::string_view msg) { detail::log_formatted(stdout, Level::kDebug, "{}", msg); }
+
+template <typename... Args>
+inline void DEBUG(fmt::format_string<Args...> fmt, Args&&... args) {
+    detail::log_formatted(stdout, Level::kDebug, fmt, std::forward<Args>(args)...);
 }
 
 }  // namespace loglite::log

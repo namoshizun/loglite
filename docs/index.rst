@@ -561,9 +561,9 @@ backlog, metrics sampling window, query/SSE result batches). RSS can still
 **Why RSS increases**
 
 - **SQLite page cache** — ``cache_size`` (for example ``-32000`` → 32 MiB) applies
-  **per database connection**. The server opens one **writer** plus one **reader
-  per hardware thread** (same count as the HTTP thread pool). Caches grow lazily
-  toward those caps as the database is used.
+  **per database connection**. The server opens one **writer** plus 
+  **multiple reader connections** (controlled by ``db_pool_size``).
+  Caches grow lazily toward those caps as the database is used.
 - **Memory-mapped I/O** — ``mmap_size`` caps how much of the DB file each
   connection may map; mapping ramps up as the file grows (vacuum limits on-disk
   size separately).
@@ -576,10 +576,6 @@ backlog, metrics sampling window, query/SSE result batches). RSS can still
 - Rising ``ingest_drop_count`` in activity stats (backlog cannot keep up).
 - RSS far above what your ``sqlite_params`` and core count imply, with no
   heavy query/SSE load.
-
-Tune ``cache_size`` and ``mmap_size`` downward on memory-constrained hosts; use
-``task_backlog_max_size`` and ingest rate to keep the backlog small.
-
 
 
 License

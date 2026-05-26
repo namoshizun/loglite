@@ -8,7 +8,6 @@
 
 #include <boost/asio.hpp>
 #include <chrono>
-#include <fmt/format.h>
 #include <thread>
 
 namespace asio = boost::asio;
@@ -43,7 +42,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         auto logs = ctx.backlog.Flush();
         if (logs.empty()) continue;
 
-        log::DEBUG(fmt::format("Flushing {} log(s) from backlog", logs.size()));
+        log::DEBUG("Flushing {} log(s) from backlog", logs.size());
 
         // Serialise DB writes through the strand.
         co_await asio::dispatch(asio::bind_executor(ctx.write_strand, asio::use_awaitable));
@@ -58,7 +57,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, t.elapsed_ms(), count);
         ctx.notifier.Notify(max);
 
-        log::DEBUG(fmt::format("Inserted {} row(s), max_log_id={}", count, max));
+        log::DEBUG("Inserted {} row(s), max_log_id={}", count, max);
     }
 }
 

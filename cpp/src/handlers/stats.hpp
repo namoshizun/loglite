@@ -89,7 +89,7 @@ http::response<http::string_body> HandleStats(const http::request<Body>& req, Se
         };
         return MakeOKResp(body, req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
-        log::ERROR(fmt::format("Stats query error: {}", e.what()));
+        log::ERROR("Stats query error: {}", e.what());
         return MakeFailResp(500, e.what(), req, ctx.config.allow_origin);
     }
 }

@@ -17,7 +17,7 @@ void ReaderDatabase::Open() {
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
     apply_params(AccessMode::READ);
-    log::DEBUG(fmt::format("Opened reader SQLite connection: {}", path));
+    log::DEBUG("Opened reader SQLite connection: {}", path);
 }
 
 PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,

@@ -12,7 +12,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <fmt/format.h>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -35,13 +34,13 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
         if (hdef.type == "loglite.harvesters.FileHarvester" || hdef.type == "FileHarvester") {
             auto it = hdef.config.find("path");
             if (it == hdef.config.end()) {
-                log::WARN(fmt::format("FileHarvester '{}': missing 'path' config", hdef.name));
+                log::WARN("FileHarvester '{}': missing 'path' config", hdef.name);
                 continue;
             }
             harvesters.push_back(
                 std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
         } else {
-            log::WARN(fmt::format("Unknown harvester type '{}', skipping", hdef.type));
+            log::WARN("Unknown harvester type '{}', skipping", hdef.type);
         }
     }
     return harvesters;
@@ -88,7 +87,7 @@ void RunServer(const std::filesystem::path& config_path, unsigned int thread_cou
     Server server{ctx, effective_threads};
     g_server = &server;
 
-    log::INFO(fmt::format("loglite server starting on {}:{}", cfg.host, cfg.port));
+    log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
     server.Run();
 
     // Teardown

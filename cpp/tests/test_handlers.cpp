@@ -144,7 +144,7 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     });
 
     auto req = make_req(http::verb::get, "/settings");
-    auto res = handlers::HandleSettings(req, *ctx_);
+    auto res = sync_await(handlers::HandleSettings(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -181,7 +181,7 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
 
 TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
     auto req = make_req(http::verb::get, "/schema");
-    auto res = handlers::HandleSchema(req, *ctx_);
+    auto res = sync_await(handlers::HandleSchema(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -214,7 +214,7 @@ TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
 
 TEST_F(HandlersTest, VersionReturnsProjectVersion) {
     auto req = make_req(http::verb::get, "/version");
-    auto res = handlers::HandleVersion(req, *ctx_);
+    auto res = sync_await(handlers::HandleVersion(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -226,7 +226,7 @@ TEST_F(HandlersTest, VersionReturnsProjectVersion) {
 TEST_F(HandlersTest, InsertSingleObject) {
     auto req = make_req(http::verb::post, "/logs",
                         R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})");
-    auto res = handlers::HandleInsert(req, *ctx_);
+    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -237,7 +237,7 @@ TEST_F(HandlersTest, InsertSingleObject) {
 TEST_F(HandlersTest, InsertRecordsPayloadSizeMetric) {
     std::string body = R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
     auto req = make_req(http::verb::post, "/logs", body);
-    auto res = handlers::HandleInsert(req, *ctx_);
+    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto samples = metrics::MetricsRegistry::Instance().Flush();
@@ -250,7 +250,7 @@ TEST_F(HandlersTest, InsertArray) {
     auto req = make_req(
         http::verb::post, "/logs",
         R"([{"timestamp":"2024-01-01T00:00:00Z","message":"a","level":"INFO"},{"timestamp":"2024-01-01T00:00:01Z","message":"b","level":"ERROR"}])");
-    auto res = handlers::HandleInsert(req, *ctx_);
+    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -260,7 +260,7 @@ TEST_F(HandlersTest, InsertArray) {
 
 TEST_F(HandlersTest, InsertInvalidJson) {
     auto req = make_req(http::verb::post, "/logs", "not json");
-    auto res = handlers::HandleInsert(req, *ctx_);
+    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 
     auto body = nlohmann::json::parse(res.body());
@@ -269,7 +269,7 @@ TEST_F(HandlersTest, InsertInvalidJson) {
 
 TEST_F(HandlersTest, InsertWrongType) {
     auto req = make_req(http::verb::post, "/logs", "42");
-    auto res = handlers::HandleInsert(req, *ctx_);
+    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 
     auto body = nlohmann::json::parse(res.body());

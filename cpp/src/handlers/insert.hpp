@@ -6,10 +6,15 @@
 #include "../log.hpp"
 #include "../metrics.hpp"
 
+#include <boost/asio.hpp>
+
+namespace asio = boost::asio;
+
 namespace loglite::handlers {
 
 template <class Body>
-http::response<http::string_body> HandleInsert(const http::request<Body>& req, ServerContext& ctx) {
+asio::awaitable<http::response<http::string_body>> HandleInsert(const http::request<Body>& req,
+                                                                ServerContext& ctx) {
     metrics::MetricsRegistry::Instance().Collect(metrics::kIngestRequest,
                                                  static_cast<double>(req.body().size()));
 
@@ -21,14 +26,14 @@ http::response<http::string_body> HandleInsert(const http::request<Body>& req, S
         } else if (body.is_object()) {
             ctx.backlog.Add(std::move(body));
         } else {
-            return MakeFailResp(400, "Body must be a JSON object or array", req,
-                                ctx.config.allow_origin);
+            co_return MakeFailResp(400, "Body must be a JSON object or array", req,
+                                   ctx.config.allow_origin);
         }
 
-        return MakeOKResp({{"status", "accepted"}}, req, ctx.config.allow_origin);
+        co_return MakeOKResp({{"status", "accepted"}}, req, ctx.config.allow_origin);
     } catch (const nlohmann::json::parse_error& e) {
-        return MakeFailResp(400, fmt::format("Invalid JSON: {}", e.what()), req,
-                            ctx.config.allow_origin);
+        co_return MakeFailResp(400, fmt::format("Invalid JSON: {}", e.what()), req,
+                               ctx.config.allow_origin);
     }
 }
 

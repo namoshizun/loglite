@@ -4,10 +4,13 @@
 #include "common.hpp"
 #include "../context.hpp"
 
+#include <boost/asio.hpp>
 #include <algorithm>
 #include <cctype>
 #include <string>
 #include <string_view>
+
+namespace asio = boost::asio;
 
 namespace loglite::handlers {
 
@@ -53,8 +56,9 @@ inline nlohmann::json BuildSchemaPayload(const ServerContext& ctx) {
 }
 
 template <class Body>
-http::response<http::string_body> HandleSchema(const http::request<Body>& req, ServerContext& ctx) {
-    return MakeOKResp(BuildSchemaPayload(ctx), req, ctx.config.allow_origin);
+asio::awaitable<http::response<http::string_body>> HandleSchema(const http::request<Body>& req,
+                                                                ServerContext& ctx) {
+    co_return MakeOKResp(BuildSchemaPayload(ctx), req, ctx.config.allow_origin);
 }
 
 }  // namespace loglite::handlers

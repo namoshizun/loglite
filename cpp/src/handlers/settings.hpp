@@ -4,9 +4,12 @@
 #include "common.hpp"
 #include "../context.hpp"
 
+#include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
+
+namespace asio = boost::asio;
 
 namespace loglite::handlers {
 
@@ -71,9 +74,9 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
 }
 
 template <class Body>
-http::response<http::string_body> HandleSettings(const http::request<Body>& req,
-                                                 ServerContext& ctx) {
-    return MakeOKResp(BuildSettingsPayload(ctx.config), req, ctx.config.allow_origin);
+asio::awaitable<http::response<http::string_body>> HandleSettings(const http::request<Body>& req,
+                                                                  ServerContext& ctx) {
+    co_return MakeOKResp(BuildSettingsPayload(ctx.config), req, ctx.config.allow_origin);
 }
 
 }  // namespace loglite::handlers

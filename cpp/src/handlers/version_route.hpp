@@ -5,12 +5,16 @@
 #include "../context.hpp"
 #include "version.hpp"
 
+#include <boost/asio.hpp>
+
+namespace asio = boost::asio;
+
 namespace loglite::handlers {
 
 template <class Body>
-http::response<http::string_body> HandleVersion(const http::request<Body>& req,
-                                                ServerContext& ctx) {
-    return MakeOKResp({{"version", std::string{kVersion}}}, req, ctx.config.allow_origin);
+asio::awaitable<http::response<http::string_body>> HandleVersion(const http::request<Body>& req,
+                                                                 ServerContext& ctx) {
+    co_return MakeOKResp({{"version", std::string{kVersion}}}, req, ctx.config.allow_origin);
 }
 
 }  // namespace loglite::handlers

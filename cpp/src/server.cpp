@@ -4,14 +4,8 @@
 
 #include <csignal>
 
-#include "handlers/health.hpp"
-#include "handlers/version_route.hpp"
-#include "handlers/settings.hpp"
-#include "handlers/schema.hpp"
-#include "handlers/insert.hpp"
-#include "handlers/query.hpp"
+#include "handlers/router.hpp"
 #include "handlers/sse.hpp"
-#include "handlers/stats.hpp"
 
 #include "tasks/diagnostics.hpp"
 #include "tasks/flush_backlog.hpp"
@@ -166,25 +160,10 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
             co_return;
         }
 
-        http::response<http::string_body> res;
-
-        if (path == "/logs" && method == http::verb::post) {
-            res = handlers::HandleInsert(req, ctx_);
-        } else if (path == "/logs" && method == http::verb::get) {
-            res = co_await handlers::HandleQuery(req, ctx_);
-        } else if (path == "/health" && method == http::verb::get) {
-            res = co_await handlers::HandleHealth(req, ctx_);
-        } else if (path == "/version" && method == http::verb::get) {
-            res = handlers::HandleVersion(req, ctx_);
-        } else if (path == "/stats" && method == http::verb::get) {
-            res = co_await handlers::HandleStats(req, ctx_);
-        } else if (path == "/settings" && method == http::verb::get) {
-            res = handlers::HandleSettings(req, ctx_);
-        } else if (path == "/schema" && method == http::verb::get) {
-            res = handlers::HandleSchema(req, ctx_);
-        } else {
-            res = handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
-        }
+        auto routed = co_await handlers::Dispatch(path, method, req, ctx_);
+        http::response<http::string_body> res =
+            routed ? std::move(*routed)
+                   : handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);
 
         try {
             co_await http::async_write(stream, res, asio::use_awaitable);

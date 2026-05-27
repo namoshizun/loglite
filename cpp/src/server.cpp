@@ -45,8 +45,7 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
 
 }  // namespace
 
-Server::Server(ServerContext& ctx, unsigned int thread_count)
-    : ctx_(ctx), pool_(thread_count), acceptor_(pool_) {}
+Server::Server(ServerContext& ctx) : ctx_(ctx), pool_(1u), acceptor_(pool_) {}
 
 void Server::Run() {
     auto& cfg = ctx_.config;
@@ -98,6 +97,7 @@ void Server::Run() {
 }
 
 void Server::Stop() {
+    ctx_.RequestStop();
     boost::system::error_code ec;
     acceptor_.close(ec);
     // Closing the acceptor will eventually call pool_.stop().

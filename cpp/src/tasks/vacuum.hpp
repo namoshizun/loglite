@@ -1,7 +1,7 @@
 #ifndef LOGLITE_TASKS_VACUUM_HPP_
 #define LOGLITE_TASKS_VACUUM_HPP_
 
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "../log.hpp"
 #include "../utils.hpp"
 
@@ -107,13 +107,19 @@ using namespace detail;
 inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
-    asio::steady_timer timer{ex};
+    auto timer = std::make_shared<asio::steady_timer>(ex);
+    ctx.RegisterShutdownTimer(timer);
 
     log::INFO("Vacuum task started (interval={}s)", cfg.task_vacuum_interval);
 
     while (true) {
-        timer.expires_after(cfg.task_vacuum_interval * 1s);
-        co_await timer.async_wait(asio::use_awaitable);
+        timer->expires_after(cfg.task_vacuum_interval * 1s);
+        co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
+
+        if (ctx.StopRequested()) {
+            log::INFO("[Termination] vacuum task stopped");
+            co_return;
+        }
 
         // All vacuum operations mutate the DB → run on write strand.
         co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {

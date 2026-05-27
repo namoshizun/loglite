@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_SETTINGS_HPP_
 
 #include "common.hpp"
-#include "../globals.hpp"
+#include "../context.hpp"
 
 #include <nlohmann/json.hpp>
 #include <string>

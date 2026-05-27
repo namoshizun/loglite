@@ -1,5 +1,10 @@
 ## Changelog
 
+## [Unreleased]
+### 1.3.1
+
+- refactor: graceful shutdown ensures all background co-routines exit cleanly.
+
 ### 1.3.0
 
 - deps: add `fmd/12.1.0` because GCC-12 does not support std::format 😳.

@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_VERSION_ROUTE_HPP_
 
 #include "common.hpp"
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "version.hpp"
 
 namespace loglite::handlers {

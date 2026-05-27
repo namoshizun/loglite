@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_INSERT_HPP_
 
 #include "common.hpp"
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
 

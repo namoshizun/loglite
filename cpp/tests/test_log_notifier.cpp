@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "globals.hpp"
+#include "notifier.hpp"
 
 #include <boost/asio.hpp>
 #include <thread>

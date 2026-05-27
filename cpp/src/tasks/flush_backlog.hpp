@@ -1,7 +1,7 @@
 #ifndef LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
 #define LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
 
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
 #include "../utils.hpp"
@@ -27,16 +27,24 @@ using namespace std::chrono_literals;
 inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
-    asio::steady_timer timer{ex};
+    auto timer = std::make_shared<asio::steady_timer>(ex);
+    ctx.RegisterShutdownTimer(timer);
 
     log::INFO("Backlog flush task started");
 
     while (true) {
         // Poll every 100 ms; break early when the backlog hits the flush watermark.
         auto deadline = std::chrono::steady_clock::now() + cfg.task_backlog_flush_interval * 1s;
-        while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.IsFull()) {
-            timer.expires_after(100ms);
-            co_await timer.async_wait(asio::use_awaitable);
+
+        while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.IsFull() &&
+               !ctx.StopRequested()) {
+            timer->expires_after(100ms);
+            co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
+        }
+
+        if (ctx.StopRequested()) {
+            log::INFO("[Termination] backlog flush task stopped");
+            co_return;
         }
 
         auto logs = ctx.backlog.Flush();

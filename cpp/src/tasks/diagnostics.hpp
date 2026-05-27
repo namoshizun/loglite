@@ -1,7 +1,7 @@
 #ifndef LOGLITE_TASKS_DIAGNOSTICS_HPP_
 #define LOGLITE_TASKS_DIAGNOSTICS_HPP_
 
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
 #include "../utils.hpp"
@@ -111,14 +111,19 @@ inline ActivityStatsRow build_activity_stats(std::string since, std::string unti
 inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
-    asio::steady_timer timer{ex};
+    auto timer = std::make_shared<asio::steady_timer>(ex);
+    ctx.RegisterShutdownTimer(timer);
     auto window_since = std::chrono::system_clock::now();
 
     log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
 
     while (true) {
-        timer.expires_after(cfg.task_diagnostics_interval * 1s);
-        co_await timer.async_wait(asio::use_awaitable);
+        timer->expires_after(cfg.task_diagnostics_interval * 1s);
+        co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
+        if (ctx.StopRequested()) {
+            log::INFO("[Termination] diagnostics task stopped");
+            co_return;
+        }
 
         auto window_until = std::chrono::system_clock::now();
         auto samples = metrics::MetricsRegistry::Instance().Flush();

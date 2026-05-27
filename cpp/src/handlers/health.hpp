@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_HEALTH_HPP_
 
 #include "common.hpp"
-#include "../globals.hpp"
+#include "../context.hpp"
 
 namespace loglite::handlers {
 

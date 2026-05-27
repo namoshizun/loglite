@@ -1,7 +1,7 @@
 #ifndef LOGLITE_SERVER_HPP_
 #define LOGLITE_SERVER_HPP_
 
-#include "globals.hpp"
+#include "context.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -14,7 +14,7 @@ namespace loglite {
 
 class Server {
    public:
-    Server(ServerContext& ctx, unsigned int thread_count = 0);
+    Server(ServerContext& ctx);
 
     // Start listening and run the thread pool (blocks until shutdown).
     void Run();

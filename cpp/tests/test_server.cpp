@@ -2,7 +2,7 @@
 
 #include "config.hpp"
 #include "writer_database.hpp"
-#include "globals.hpp"
+#include "context.hpp"
 #include "metrics.hpp"
 #include "reader_database.hpp"
 #include "server.hpp"
@@ -140,17 +140,11 @@ class ServerTest : public ::testing::Test {
 
         db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 2u);
 
-        ctx_ = std::make_unique<ServerContext>(ServerContext{
-            cfg_,
-            *db_,
-            *db_read_,
-            *backlog_,
-            *notifier_,
-            asio::make_strand(db_ops_pool_->get_executor()),
-            reader_pool_->get_executor(),
-        });
+        ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
+                                               asio::make_strand(db_ops_pool_->get_executor()),
+                                               reader_pool_->get_executor());
 
-        server_ = std::make_unique<Server>(*ctx_, 2u);
+        server_ = std::make_unique<Server>(*ctx_);
 
         server_thread_ = std::thread{[this]() { server_->Run(); }};
 

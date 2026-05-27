@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_STATS_HPP_
 
 #include "common.hpp"
-#include "../globals.hpp"
+#include "../context.hpp"
 #include "../log.hpp"
 
 #include <chrono>

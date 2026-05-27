@@ -16,7 +16,7 @@ gtest_discover_tests(loglite_tests)
 #
 # Two-pass capture (--initial baseline + actual run) ensures every instrumented
 # source file appears in the report — even TUs whose symbols are not linked into
-# loglite_tests (e.g. globals.cpp) show up at 0% instead of being absent.
+# loglite_tests show up at 0% instead of being absent.
 #
 # lcov -q -q suppresses the "Reading tracefile …" / "Message summary" noise
 # lines without needing a helper script or shell pipe.

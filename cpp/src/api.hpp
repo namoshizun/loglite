@@ -10,10 +10,6 @@ namespace loglite {
 //
 // Runs the HTTP server, blocking until a shutdown signal is received or
 // Stop() is called from another thread.
-//
-// thread_count: HTTP pool size (default 0 → 2). DB reads and writes use
-// separately sized pools; the HTTP pool only does async-native I/O and
-// needs very few threads.
 
 void RunServer(const std::filesystem::path& config_path);
 

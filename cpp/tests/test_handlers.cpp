@@ -10,7 +10,7 @@
 #include "handlers/query.hpp"
 #include "config.hpp"
 #include "writer_database.hpp"
-#include "globals.hpp"
+#include "context.hpp"
 #include "backlog.hpp"
 #include "metrics.hpp"
 #include "types.hpp"
@@ -76,15 +76,9 @@ class HandlersTest : public ::testing::Test {
         reader_pool_ = std::make_unique<asio::thread_pool>(1u);
         db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 1u);
 
-        ctx_ = std::make_unique<ServerContext>(ServerContext{
-            cfg_,
-            *db_,
-            *db_read_,
-            *backlog_,
-            *notifier_,
-            asio::make_strand(db_ops_pool_->get_executor()),
-            reader_pool_->get_executor(),
-        });
+        ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
+                                               asio::make_strand(db_ops_pool_->get_executor()),
+                                               reader_pool_->get_executor());
     }
 
     void TearDown() override {

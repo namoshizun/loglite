@@ -2,7 +2,7 @@
 
 #include "config.hpp"
 #include "writer_database.hpp"
-#include "globals.hpp"
+#include "context.hpp"
 #include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
 #include "log.hpp"
@@ -84,19 +84,26 @@ void RunServer(const std::filesystem::path& config_path) {
     }
 
     // Run server
-    Server server{ctx, 1u};
+    Server server{ctx};
     g_server = &server;
 
     log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
     server.Run();
 
     // Teardown
+    ctx.RequestStop();
     g_server = nullptr;
     g_backlog = nullptr;
 
     for (const auto& harvester : native) {
         harvester->Stop();
     }
+
+    db_write_pool.stop();
+    db_read_pool.stop();
+    db_write_pool.join();
+    db_read_pool.join();
+
     db_read.Close();
     db_write.Close();
 }

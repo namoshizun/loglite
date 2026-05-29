@@ -2,10 +2,10 @@
 
 ### 1.3.1
 
-**Unreleased**
 - refactor: graceful shutdown ensures all background co-routines exit cleanly.
 - build: disable not-needed SQLite features to reduce binary size.
 - build: enable Os (or Oz for clang) for release builds.
+- fix: re-arm HTTP idle timeout on each keep-alive request so connections are not closed 60s after accept.
 
 ### 1.3.0
 

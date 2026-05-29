@@ -26,6 +26,8 @@ using namespace std::chrono_literals;
 
 namespace {
 
+constexpr auto kHttpIdleTimeout = 60s;
+
 void log_exception(std::exception_ptr eptr, std::string_view tag) {
     if (!eptr) return;
     try {
@@ -106,7 +108,6 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
         }
 
         beast::tcp_stream stream{std::move(socket)};
-        stream.expires_after(60s);
 
         auto ex = co_await asio::this_coro::executor;
         asio::co_spawn(ex, HandleConnection(std::move(stream)),
@@ -121,6 +122,9 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
     auto& cfg = ctx_.config;
 
     for (;;) {
+        // Per-request idle timeout: re-arm each keep-alive iteration (not once at accept).
+        stream.expires_after(kHttpIdleTimeout);
+
         http::request<http::string_body> req;
 
         try {

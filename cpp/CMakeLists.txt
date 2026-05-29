@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(loglite VERSION 1.3.0 LANGUAGES CXX)
+project(loglite VERSION 1.3.1 LANGUAGES CXX)
 
 # Release defaults to -O3; for the standalone server, size usually matters more than peak CPU.
 option(LOGLITE_SIZE_OPT "Release: -Oz (Clang) / -Os (GCC) instead of -O3" ON)

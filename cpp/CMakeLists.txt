@@ -1,6 +1,19 @@
 cmake_minimum_required(VERSION 3.25)
 project(loglite VERSION 1.3.0 LANGUAGES CXX)
 
+# Release defaults to -O3; for the standalone server, size usually matters more than peak CPU.
+option(LOGLITE_SIZE_OPT "Release: -Oz (Clang) / -Os (GCC) instead of -O3" ON)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND LOGLITE_SIZE_OPT)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
+        set(_loglite_release_opt -Oz)
+    else()
+        set(_loglite_release_opt -Os)
+    endif()
+    set(CMAKE_CXX_FLAGS_RELEASE "${_loglite_release_opt} -DNDEBUG"
+        CACHE STRING "Flags used by the CXX compiler during RELEASE builds." FORCE)
+    message(STATUS "Release CXX flags: ${CMAKE_CXX_FLAGS_RELEASE}")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -74,7 +87,7 @@ target_link_libraries(loglite PRIVATE loglite_lib)
 # ── Release hardening ─────────────────────────────────────────────────────────
 #
 # Enabled automatically when build.sh --release is used.
-# Can also be set manually: cmake -DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON ...
+# Can also be set manually: cmake -DLOGLITE_SIZE_OPT=ON -DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON ...
 
 option(LOGLITE_LTO   "Enable link-time optimisation"          OFF)
 option(LOGLITE_STRIP "Strip debug symbols from the binary"    OFF)

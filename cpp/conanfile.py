@@ -17,7 +17,23 @@ class LogliteConan(ConanFile):
         self.requires("boost/1.90.0")
         self.requires("cli11/2.6.2")
         self.requires("nlohmann_json/3.12.0")
-        self.requires("sqlite3/3.53.0")
+        self.requires(
+            "sqlite3/3.53.0",
+            options={
+                "build_executable": False,
+                "omit_load_extension": True,
+                "enable_fts3": False,
+                "enable_fts4": False,
+                "enable_fts5": False,
+                "enable_rtree": False,
+                "enable_column_metadata": False,
+                "enable_json1": False,
+                "enable_math_functions": False,
+                "enable_unlock_notify": False,
+                "omit_deprecated": True,
+                "threadsafe": 2,
+            },
+        )
         self.requires("yaml-cpp/0.9.0")
         self.requires("date/3.0.4")
         self.requires("fmt/12.1.0")

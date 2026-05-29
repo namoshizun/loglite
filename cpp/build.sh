@@ -79,12 +79,12 @@ fi
 if [[ $RELEASE -eq 1 ]]; then
     BUILD_TYPE=Release
     BUILD_FLAVOR=release
-    RELEASE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON)
-    MODE_LABEL="Mode: RELEASE  (O3 · LTO · stripped · hidden symbols · dead-code elimination)"
+    RELEASE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON -DLOGLITE_SIZE_OPT=ON)
+    MODE_LABEL="Mode: RELEASE  (-Oz/-Os · LTO · stripped · hidden symbols · dead-code elimination)"
 else
     BUILD_TYPE=Debug
     BUILD_FLAVOR=debug
-    RELEASE_FLAGS=(-DLOGLITE_LTO=OFF -DLOGLITE_STRIP=OFF)
+    RELEASE_FLAGS=(-DLOGLITE_LTO=OFF -DLOGLITE_STRIP=OFF -DLOGLITE_SIZE_OPT=OFF)
     MODE_LABEL="Mode: DEBUG  (unoptimised · debug symbols · fast recompile)"
 fi
 

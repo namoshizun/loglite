@@ -23,7 +23,7 @@ On Linux, release builds must run in a musl environment, such as Alpine Linux or
 
 ```bash
 ./build.sh            # Debug (fast iteration)
-./build.sh --release  # Release (O3, LTO, stripped)
+./build.sh --release  # Release (-Oz/-Os, LTO, stripped)
 ```
 
 Runs `conan install`, configures CMake, and builds the `loglite` target. The binary is placed at `build/<os-arch>/<debug|release>/loglite`.

@@ -4,6 +4,7 @@
 .ruff_cache
 .pytest_cache
 .ipynb_checkpoints
+.kilo
 __pycache__
 docs/_build
 playground

@@ -1,5 +1,12 @@
 ## Changelog
 
+### 1.3.2
+
+- fix: compressed-column `~=` is a one-way substring match (`LIKE '%value%'`), not bidirectional.
+- fix: reject invalid `db_pool_size` values such as `-1`.
+- fix: flush the in-memory backlog on shutdown.
+- fix: `GET /logs` validates `limit` and `offset` query params.
+
 ### 1.3.1
 
 - refactor: graceful shutdown ensures all background co-routines exit cleanly.

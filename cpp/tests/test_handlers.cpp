@@ -361,6 +361,24 @@ TEST_F(HandlersTest, QueryNonNumericOffset) {
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
+TEST_F(HandlersTest, QueryRejectsNonPositiveLimit) {
+    for (const char* qs : {"/logs?fields=*&limit=0&offset=0", "/logs?fields=*&limit=-1&offset=0"}) {
+        auto req = make_req(http::verb::get, qs);
+        auto res = sync_await(handlers::HandleQuery(req, *ctx_));
+        EXPECT_EQ(static_cast<int>(res.result()), 400);
+        auto body = nlohmann::json::parse(res.body());
+        EXPECT_EQ(body["error"], "'limit' must be a positive integer");
+    }
+}
+
+TEST_F(HandlersTest, QueryRejectsNegativeOffset) {
+    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=-1");
+    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
+    EXPECT_EQ(static_cast<int>(res.result()), 400);
+    auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["error"], "'offset' must be a non-negative integer");
+}
+
 TEST_F(HandlersTest, QueryInvalidFilterExpression) {
     auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&bad_field=novalue");
     auto res = sync_await(handlers::HandleQuery(req, *ctx_));

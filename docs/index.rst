@@ -49,7 +49,7 @@ Pre-built wheels are published to PyPI for Python 3.10+. The wheel bundles the c
 
 **Standalone C++ binary**
 
-For build-from-source instructions and Docker images for Linux release builds, see `cpp/README.md <https://github.com/namoshizun/loglite/blob/main/cpp/README.md>`_. Recommended for memory-constrained environments. The musl-built binary is a self-contained ~5MB program.
+For build-from-source instructions and Docker images for Linux release builds, see `cpp/README.md <https://github.com/namoshizun/loglite/blob/main/cpp/README.md>`_. Recommended for memory-constrained environments. The musl-built binary is a statically linked portable ~3MB program.
 
 Configuration
 -------------

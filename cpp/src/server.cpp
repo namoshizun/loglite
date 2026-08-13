@@ -14,6 +14,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <chrono>
+#include <future>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -37,6 +38,26 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
     } catch (...) {
         log::ERROR("{} unknown exception", tag);
     }
+}
+
+void flush_pending_backlog(ServerContext& ctx) {
+    auto logs = ctx.backlog.Flush();
+    if (logs.empty()) return;
+
+    std::promise<int> done;
+    auto fut = done.get_future();
+
+    // Posted on the write strand so we queue behind any in-flight DB work rather
+    // than touching the connection from this thread.
+    asio::post(ctx.write_strand, [&ctx, logs = std::move(logs), done = std::move(done)]() mutable {
+        try {
+            done.set_value(ctx.db_write.Insert(logs));
+        } catch (...) {
+            done.set_exception(std::current_exception());
+        }
+    });
+    int count = fut.get();
+    log::INFO("[Termination] flushed {} pending log(s)", count);
 }
 
 }  // namespace
@@ -90,6 +111,7 @@ void Server::Run() {
     });
 
     pool_.join();  // blocks until AcceptLoop exits and calls pool_.stop()
+    flush_pending_backlog(ctx_);
 }
 
 void Server::Stop() {

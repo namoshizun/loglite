@@ -123,6 +123,10 @@ TEST_F(ColumnDictFixture, QueryCandidatesAllOperators) {
     // ~= (substring)
     EXPECT_EQ(dict.QueryCandidates({"level", "~=", "warn"}).size(), 1u);
     EXPECT_EQ(dict.QueryCandidates({"level", "~=", "XXX"}).size(), 0u);
+    // ~= is one-directional: a filter value that merely *contains* a stored value
+    // must not match (regression: "erroring" must not match stored "error").
+    EXPECT_EQ(dict.QueryCandidates({"level", "~=", "err"}).size(), 1u);
+    EXPECT_EQ(dict.QueryCandidates({"level", "~=", "erroring"}).size(), 0u);
 }
 
 TEST_F(ColumnDictFixture, QueryCandidatesUnknownColumnReturnsEmpty) {

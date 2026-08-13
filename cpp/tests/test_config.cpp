@@ -89,6 +89,14 @@ TEST(ConfigTest, ResolvePoolSizeDirect) {
     EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
     cfg.db_pool_size = "nope";
     EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
+    cfg.db_pool_size = "-1";
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
+    cfg.db_pool_size = "+4";
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
+    cfg.db_pool_size = "12a";
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
+    cfg.db_pool_size = "99999999999999999999";  // out of range for the pool size
+    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
 }
 
 TEST(ConfigTest, DbPathDerived) {

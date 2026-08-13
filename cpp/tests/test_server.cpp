@@ -271,6 +271,24 @@ TEST_F(ServerTest, InsertArrayOfLogs) {
     EXPECT_EQ(body["status"], "accepted");
 }
 
+TEST_F(ServerTest, ShutdownFlushesPendingBacklog) {
+    auto res =
+        http_req("127.0.0.1", 17788, http::verb::post, "/logs",
+                 R"({"timestamp":"2024-01-01T00:00:00Z","message":"shutdown","level":"INFO"})",
+                 "application/json");
+    EXPECT_EQ(res.result(), http::status::ok);
+
+    // The flush interval is 3600s, so the entry must still be buffered.
+    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
+
+    server_->Stop();
+    server_thread_.join();
+
+    // The final drain must persist the buffered entry before shutdown completes.
+    EXPECT_EQ(db_->EstimateLogRowCount(), 1);
+    EXPECT_EQ(db_->GetMaxLogId(), 1);
+}
+
 TEST_F(ServerTest, InsertInvalidJson) {
     auto res =
         http_req("127.0.0.1", 17788, http::verb::post, "/logs", "not json", "application/json");

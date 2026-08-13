@@ -36,6 +36,12 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
                                ctx.config.allow_origin);
     auto limit = *limit_opt;
     auto offset = *offset_opt;
+    if (limit < 1)
+        co_return MakeFailResp(400, "'limit' must be a positive integer", req,
+                               ctx.config.allow_origin);
+    if (offset < 0)
+        co_return MakeFailResp(400, "'offset' must be a non-negative integer", req,
+                               ctx.config.allow_origin);
 
     std::vector<std::string> fields;
     if (fields_str == "*") {

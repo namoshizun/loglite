@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/pypi/v/loglite" alt="python version" />
 </p>
 
-**LogLite** is a small logging *service* for a **single machine**: ingest with `POST /logs` or built-in harvesters (files, sockets, ZeroMQ), store in **your SQLite schema**, search and tail without standing up Elasticsearch or a DB server. Ships as `pip install loglite` (C++ core inside the wheel) or a standalone binary (~5 MB musl build).
+**LogLite** is a small logging *service* for a **single machine**: ingest with `POST /logs` or built-in harvesters (files, sockets, ZeroMQ), store in **your SQLite schema**, search and tail without standing up Elasticsearch or a DB server. Ships as `pip install loglite` (C++ core inside the wheel) or a standalone binary (~3 MB portable musl build).
 
 ## Built for
 

@@ -64,8 +64,7 @@ std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter
 
     const auto value_matches = [](std::string_view op, const std::string& fval_arg,
                                   const std::string& v) -> bool {
-        if (op == "~=")
-            return v.find(fval_arg) != std::string::npos || fval_arg.find(v) != std::string::npos;
+        if (op == "~=") return v.find(fval_arg) != std::string::npos;  // LIKE '%value%'
         if (op == "=") return v == fval_arg;
         if (op == "!=") return v != fval_arg;
         if (op == ">") return v > fval_arg;

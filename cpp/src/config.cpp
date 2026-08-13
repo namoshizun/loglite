@@ -6,8 +6,9 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
+#include <charconv>
 #include <fmt/format.h>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string_view>
@@ -203,9 +204,11 @@ unsigned Config::resolve_pool_size() const {
         return std::max(1u, std::thread::hardware_concurrency());
     }
 
-    char* end = nullptr;
-    const unsigned long n = std::strtoul(lc.c_str(), &end, 10);
-    if (end == lc.c_str() || *end != '\0' || n == 0) {
+    // "-1" will be resolved to ULONG_MAX.
+    unsigned long n = 0;
+    const auto [ptr, ec] = std::from_chars(lc.data(), lc.data() + lc.size(), n);
+    if (ec != std::errc{} || ptr != lc.data() + lc.size() || n == 0 ||
+        n > std::numeric_limits<unsigned>::max()) {
         throw std::runtime_error(
             fmt::format("db_pool_size must be 'auto' or a positive integer, got '{}'", raw));
     }

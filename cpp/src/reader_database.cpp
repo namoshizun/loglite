@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <ranges>
 #include <stdexcept>
@@ -62,9 +63,10 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     bind_param(sel, pi++, nlohmann::json(limit));
     bind_param(sel, pi++, nlohmann::json(offset));
 
-    // Build JSON results.
+    // Build JSON results. Cap the reservation so a huge `limit` cannot OOM before
+    // any row is read; the vector grows if the result set is larger.
     std::vector<nlohmann::json> results;
-    results.reserve(static_cast<size_t>(limit));
+    results.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
     while (sqlite3_step(sel) == SQLITE_ROW) {
         nlohmann::json row;
         for (int c = 0; c < static_cast<int>(effective_fields.size()); ++c) {

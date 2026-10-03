@@ -1,5 +1,9 @@
 ## Changelog
 
+### 1.3.3
+
+- fix: `AsyncUseConnection` runs database reads on the reader pool and writes on the write strand, keeping SQL off the HTTP thread while returning results and exceptions to the caller's executor.
+
 ### 1.3.2
 
 - fix: compressed-column `~=` is a one-way substring match (`LIKE '%value%'`), not bidirectional.

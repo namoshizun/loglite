@@ -3,6 +3,7 @@
 #include "backlog.hpp"
 #include "metrics.hpp"
 
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -20,6 +21,8 @@ TEST(BacklogTest, AddIncreasesSize) {
     backlog.Add({{"msg", "hello"}});
     EXPECT_EQ(backlog.Size(), 1u);
 }
+
+TEST(BacklogTest, ZeroCapacityThrows) { EXPECT_THROW(Backlog{0}, std::invalid_argument); }
 
 TEST(BacklogTest, FlushReturnsAllEntries) {
     Backlog backlog{10};

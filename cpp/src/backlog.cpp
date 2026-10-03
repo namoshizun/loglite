@@ -1,11 +1,16 @@
 #include "backlog.hpp"
 #include "metrics.hpp"
 
+#include <stdexcept>
 #include <utility>
 
 namespace loglite {
 
-Backlog::Backlog(size_t max_size) : max_size_(max_size) {}
+Backlog::Backlog(size_t max_size) : max_size_(max_size) {
+    if (max_size_ == 0) {
+        throw std::invalid_argument("Backlog capacity must be at least 1");
+    }
+}
 
 void Backlog::Add(nlohmann::json log) {
     bool dropped = false;

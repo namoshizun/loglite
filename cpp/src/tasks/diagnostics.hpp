@@ -117,7 +117,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
     log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
 
-    while (true) {
+    while (!ctx.StopRequested()) {
         timer->expires_after(cfg.task_diagnostics_interval * 1s);
         co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
         if (ctx.StopRequested()) {

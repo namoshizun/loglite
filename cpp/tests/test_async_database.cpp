@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "config.hpp"
+#include "test_support.hpp"
 #include "reader_database.hpp"
 #include "writer_database.hpp"
 
@@ -21,9 +21,7 @@ using namespace std::chrono_literals;
 class AsyncDatabaseTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        tmp_ = fs::temp_directory_path() / "loglite_async_database_test";
-        fs::remove_all(tmp_);
-        fs::create_directories(tmp_);
+        tmp_ = directory_.path();
         cfg_.db_path = tmp_ / "logs.db";
         cfg_.auto_rollout = true;
         cfg_.sqlite_params["journal_mode"] = "WAL";
@@ -43,7 +41,6 @@ class AsyncDatabaseTest : public ::testing::Test {
         writer_pool_.join();
         readers_.reset();
         writer_.reset();
-        fs::remove_all(tmp_);
     }
 
     asio::awaitable<void> CheckReaderExecutor() {
@@ -128,6 +125,7 @@ class AsyncDatabaseTest : public ::testing::Test {
                                                         });
     }
 
+    test::TempDirectory directory_;
     fs::path tmp_;
     Config cfg_;
     std::unique_ptr<WriterDatabase> writer_;

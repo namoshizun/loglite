@@ -112,7 +112,7 @@ inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
 
     log::INFO("Vacuum task started (interval={}s)", cfg.task_vacuum_interval);
 
-    while (true) {
+    while (!ctx.StopRequested()) {
         timer->expires_after(cfg.task_vacuum_interval * 1s);
         co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
 

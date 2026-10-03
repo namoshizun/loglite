@@ -58,6 +58,9 @@ class WriterDatabase final : public Database {
             },
             asio::use_awaitable);
     }
+
+   private:
+    void LoadColumnDictionary();
 };
 
 }  // namespace loglite

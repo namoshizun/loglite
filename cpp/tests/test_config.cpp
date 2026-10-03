@@ -1,50 +1,88 @@
 #include <gtest/gtest.h>
 
-#include "config.hpp"
-#include "utils.hpp"
+#include "test_support.hpp"
 
-#include <filesystem>
+#include <cstdlib>
 #include <fstream>
+#include <functional>
+#include <optional>
 
-namespace fs = std::filesystem;
 using namespace loglite;
 
-// Write a minimal config YAML to a temp file and return its path.
-static fs::path write_temp_config(const std::string& yaml) {
-    auto path = fs::temp_directory_path() / "test_loglite_config.yaml";
-    std::ofstream{path} << yaml;
-    return path;
+extern "C" {
+extern char** environ;
 }
 
-static const char* kMinimalConfig = R"yaml(
-host: 127.0.0.1
+namespace {
+
+// Config tests must neither inherit nor leak the caller's LOGLITE_* overrides.
+class ScopedEnvironment {
+   public:
+    ScopedEnvironment(std::initializer_list<std::pair<const char*, const char*>> overrides = {}) {
+        for (char** entry = ::environ; *entry; ++entry) {
+            std::string_view raw{*entry};
+            if (raw.starts_with("LOGLITE_")) {
+                const auto equals = raw.find('=');
+                saved_.emplace_back(raw.substr(0, equals), raw.substr(equals + 1));
+            }
+        }
+        for (const auto& [name, value] : saved_) ::unsetenv(name.c_str());
+        for (const auto& [name, value] : overrides) {
+            names_.emplace_back(name);
+            ::setenv(name, value, 1);
+        }
+    }
+    ~ScopedEnvironment() {
+        for (const auto& name : names_) ::unsetenv(name.c_str());
+        for (const auto& [name, value] : saved_) ::setenv(name.c_str(), value.c_str(), 1);
+    }
+    ScopedEnvironment(const ScopedEnvironment&) = delete;
+    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+
+   private:
+    std::vector<std::pair<std::string, std::string>> saved_;
+    std::vector<std::string> names_;
+};
+
+constexpr std::string_view kMinimalConfig = R"yaml(host: 127.0.0.1
 port: 9999
 log_table_name: TestLog
-sqlite_dir: /tmp/loglite_test_db
 migrations:
   - version: 1
-    rollout:
-      - "CREATE TABLE IF NOT EXISTS TestLog (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, message TEXT NOT NULL)"
-    rollback:
-      - "DROP TABLE IF EXISTS TestLog"
+    rollout: ["CREATE TABLE TestLog (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, message TEXT NOT NULL)"]
+    rollback: ["DROP TABLE TestLog"]
 )yaml";
 
-TEST(ConfigTest, ParsesMinimalYaml) {
-    auto path = write_temp_config(kMinimalConfig);
-    auto cfg = Config::from_file(path);
+}  // namespace
 
+class ConfigTest : public ::testing::Test {
+   protected:
+    // Write a minimal config YAML to an owned temporary file.
+    Config LoadYaml(std::string_view yaml) {
+        const auto path = directory_.path() / "config.yaml";
+        {
+            std::ofstream out{path};
+            out << "sqlite_dir: " << directory_.path().string() << '\n' << yaml;
+        }
+        return Config::from_file(path);
+    }
+    Config Load(std::string_view extra = "") {
+        return LoadYaml(std::string{kMinimalConfig} + std::string{extra});
+    }
+
+    ScopedEnvironment environment_;
+    test::TempDirectory directory_;
+};
+
+TEST_F(ConfigTest, LoadsYamlDefaultsAndDerivedPaths) {
+    const auto cfg = Load();
     EXPECT_EQ(cfg.host, "127.0.0.1");
     EXPECT_EQ(cfg.port, 9999);
     EXPECT_EQ(cfg.log_table_name, "TestLog");
-    EXPECT_EQ(cfg.migrations.size(), 1u);
+    ASSERT_EQ(cfg.migrations.size(), 1u);
     EXPECT_EQ(cfg.migrations[0].version, 1);
-    EXPECT_FALSE(cfg.migrations[0].rollout.empty());
-}
-
-TEST(ConfigTest, DefaultValues) {
-    auto path = write_temp_config(kMinimalConfig);
-    auto cfg = Config::from_file(path);
-
+    EXPECT_EQ(cfg.migrations[0].rollout.size(), 1u);
+    EXPECT_EQ(cfg.migrations[0].rollback.size(), 1u);
     EXPECT_EQ(cfg.sse_limit, 1000);
     EXPECT_EQ(cfg.sse_debounce_ms, 500);
     EXPECT_EQ(cfg.vacuum_max_days, 3650);
@@ -53,83 +91,121 @@ TEST(ConfigTest, DefaultValues) {
     EXPECT_EQ(cfg.allow_origin, "*");
     EXPECT_EQ(cfg.db_pool_size, "2");
     EXPECT_EQ(cfg.resolve_pool_size(), 2u);
+    EXPECT_EQ(cfg.db_path, directory_.path() / "logs.db");
+    EXPECT_TRUE(std::filesystem::exists(cfg.sqlite_dir));
+    EXPECT_EQ(cfg.vacuum_max_size_bytes, parse_size_to_bytes(cfg.vacuum_max_size));
+    EXPECT_EQ(cfg.vacuum_target_size_bytes, parse_size_to_bytes(cfg.vacuum_target_size));
 }
 
-TEST(ConfigTest, PoolSizeAuto) {
-    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: auto\n";
-    auto path = write_temp_config(yaml);
-    auto cfg = Config::from_file(path);
-    EXPECT_EQ(cfg.db_pool_size, "auto");
-    EXPECT_GE(cfg.resolve_pool_size(), 1u);
-}
-
-TEST(ConfigTest, PoolSizeIntegerYaml) {
-    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: 4\n";
-    auto path = write_temp_config(yaml);
-    auto cfg = Config::from_file(path);
+TEST_F(ConfigTest, PoolSizeParsingRejectsInvalidValues) {
+    auto cfg = Load("db_pool_size: 4\n");
     EXPECT_EQ(cfg.db_pool_size, "4");
     EXPECT_EQ(cfg.resolve_pool_size(), 4u);
-}
-
-TEST(ConfigTest, PoolSizeInvalidThrows) {
-    auto yaml = std::string(kMinimalConfig) + "\ndb_pool_size: 0\n";
-    EXPECT_THROW(Config::from_file(write_temp_config(yaml)), std::exception);
-
-    yaml = std::string(kMinimalConfig) + "\ndb_pool_size: bogus\n";
-    EXPECT_THROW(Config::from_file(write_temp_config(yaml)), std::exception);
-}
-
-TEST(ConfigTest, ResolvePoolSizeDirect) {
-    Config cfg;
-    cfg.db_pool_size = "4";
-    EXPECT_EQ(cfg.resolve_pool_size(), 4u);
-    cfg.db_pool_size = "auto";
+    cfg = Load("db_pool_size: auto\n");
+    EXPECT_EQ(cfg.db_pool_size, "auto");
     EXPECT_GE(cfg.resolve_pool_size(), 1u);
-    cfg.db_pool_size = "0";
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
-    cfg.db_pool_size = "nope";
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
-    cfg.db_pool_size = "-1";
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
-    cfg.db_pool_size = "+4";
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
-    cfg.db_pool_size = "12a";
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
-    cfg.db_pool_size = "99999999999999999999";  // out of range for the pool size
-    EXPECT_THROW((void)cfg.resolve_pool_size(), std::exception);
+    for (const auto* raw : {"0", "bogus", "-1", "+4", "12a", "99999999999999999999"}) {
+        SCOPED_TRACE(raw);
+        cfg.db_pool_size = raw;
+        EXPECT_THROW((void)cfg.resolve_pool_size(), std::runtime_error);
+        EXPECT_THROW(Load(fmt::format("db_pool_size: '{}'\n", raw)), std::runtime_error);
+    }
 }
 
-TEST(ConfigTest, DbPathDerived) {
-    auto path = write_temp_config(kMinimalConfig);
-    auto cfg = Config::from_file(path);
-
-    EXPECT_EQ(cfg.db_path, cfg.sqlite_dir / "logs.db");
-    EXPECT_TRUE(fs::exists(cfg.sqlite_dir));
+TEST_F(ConfigTest, RejectsMalformedOrInvalidYaml) {
+    struct Case {
+        const char* name;
+        const char* yaml;
+    };
+    const Case cases[]{
+        {"missing migrations", "host: 127.0.0.1\n"},
+        {"empty migrations", "migrations: []\n"},
+        {"missing version", "migrations:\n  - rollout: [SELECT 1]\n"},
+        {"missing harvester type", "migrations: [{version: 1}]\nharvesters: [{name: app}]\n"},
+        {"missing harvester name",
+         "migrations: [{version: 1}]\nharvesters: [{type: FileHarvester}]\n"},
+        {"zero backlog", "migrations: [{version: 1}]\ntask_backlog_max_size: 0\n"},
+        {"negative backlog", "migrations: [{version: 1}]\ntask_backlog_max_size: -1\n"},
+        {"short diagnostics interval",
+         "migrations: [{version: 1}]\ntask_diagnostics_interval: 29\n"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        EXPECT_THROW(LoadYaml(c.yaml), std::runtime_error);
+    }
+    EXPECT_THROW(Config::from_file(directory_.path() / "missing.yaml"), std::runtime_error);
 }
 
-TEST(ConfigTest, VacuumSizeParsed) {
-    auto path = write_temp_config(kMinimalConfig);
-    auto cfg = Config::from_file(path);
-
-    EXPECT_GT(cfg.vacuum_max_size_bytes, 0);
-    EXPECT_GT(cfg.vacuum_target_size_bytes, 0);
-    EXPECT_LT(cfg.vacuum_target_size_bytes, cfg.vacuum_max_size_bytes);
+TEST_F(ConfigTest, DirectValidationChecksConfigurationInvariants) {
+    Config valid;
+    valid.migrations = {{.version = 1, .rollout = {"SELECT 1"}, .rollback = {}}};
+    EXPECT_NO_THROW(valid.validate());
+    struct Case {
+        const char* name;
+        std::function<void(Config&)> invalidate;
+    };
+    const Case cases[]{
+        {"empty migrations", [](Config& c) { c.migrations.clear(); }},
+        {"zero backlog", [](Config& c) { c.task_backlog_max_size = 0; }},
+        {"short diagnostics interval", [](Config& c) { c.task_diagnostics_interval = 29; }},
+        {"missing harvester type", [](Config& c) { c.harvesters.push_back({"", "app", {}}); }},
+        {"missing harvester name",
+         [](Config& c) { c.harvesters.push_back({"FileHarvester", "", {}}); }},
+        {"invalid pool size", [](Config& c) { c.db_pool_size = "0"; }},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        auto cfg = valid;
+        c.invalidate(cfg);
+        EXPECT_THROW(cfg.validate(), std::runtime_error);
+    }
 }
 
-TEST(ConfigTest, MissingMigrationsThrows) {
-    auto path = write_temp_config("host: 127.0.0.1\n");
-    EXPECT_THROW(Config::from_file(path), std::exception);
+TEST_F(ConfigTest, LoadsNestedHarvesterAndMigrationDefinitions) {
+    const auto cfg = Load(R"yaml(harvesters:
+  - type: FileHarvester
+    name: app-logs
+    config: {path: /var/log/app.log}
+  - type: loglite.harvesters.FileHarvester
+    name: sys-logs
+    config: {path: /var/log/sys.log}
+)yaml");
+    ASSERT_EQ(cfg.harvesters.size(), 2u);
+    EXPECT_EQ(cfg.harvesters[0].type, "FileHarvester");
+    EXPECT_EQ(cfg.harvesters[0].name, "app-logs");
+    EXPECT_EQ(cfg.harvesters[0].config.at("path"), "/var/log/app.log");
+    EXPECT_EQ(cfg.harvesters[1].type, "loglite.harvesters.FileHarvester");
+    EXPECT_EQ(cfg.harvesters[1].name, "sys-logs");
+    EXPECT_EQ(cfg.harvesters[1].config.at("path"), "/var/log/sys.log");
 }
 
-TEST(UtilsTest, ParseSizeToBytes) {
-    EXPECT_EQ(parse_size_to_bytes("1KB"), 1024LL);
-    EXPECT_EQ(parse_size_to_bytes("1MB"), 1024LL * 1024);
-    EXPECT_EQ(parse_size_to_bytes("1GB"), 1024LL * 1024 * 1024);
-    EXPECT_EQ(parse_size_to_bytes("2TB"), 2LL * 1024 * 1024 * 1024 * 1024);
-    EXPECT_EQ(parse_size_to_bytes("500MB"), 500LL * 1024 * 1024);
+TEST_F(ConfigTest, EnvironmentScalarOverridesTakePrecedenceOverYaml) {
+    const auto custom_dir = directory_.path() / "override";
+    const ScopedEnvironment overrides{
+        {"LOGLITE_host", "0.0.0.0"},
+        {"LOGLITE_port", "12345"},
+        {"LOGLITE_sse_limit", "500"},
+        {"LOGLITE_allow_origin", "https://example.com"},
+        {"LOGLITE_sqlite_dir", custom_dir.c_str()},
+        {"LOGLITE_task_diagnostics_interval", "30"},
+        {"LOGLITE_DB_POOL_SIZE", "6"},
+    };
+    const auto cfg = Load();
+    EXPECT_EQ(cfg.host, "0.0.0.0");
+    EXPECT_EQ(cfg.port, 12345);
+    EXPECT_EQ(cfg.sse_limit, 500);
+    EXPECT_EQ(cfg.allow_origin, "https://example.com");
+    EXPECT_EQ(cfg.sqlite_dir, custom_dir);
+    EXPECT_EQ(cfg.db_path, custom_dir / "logs.db");
+    EXPECT_EQ(cfg.task_diagnostics_interval, 30);
+    EXPECT_EQ(cfg.db_pool_size, "6");
+    EXPECT_EQ(cfg.resolve_pool_size(), 6u);
 }
 
-TEST(UtilsTest, ParseSizeInvalidThrows) {
-    EXPECT_THROW(parse_size_to_bytes("bad"), std::exception);
-    EXPECT_THROW(parse_size_to_bytes(""), std::exception);
+TEST_F(ConfigTest, EnvironmentBooleansAcceptDocumentedAliases) {
+    for (const auto* raw : {"true", "1", "yes", "TRUE", "YeS", "false"}) {
+        SCOPED_TRACE(raw);
+        const ScopedEnvironment override{{"LOGLITE_debug", raw}};
+        EXPECT_EQ(Load().debug, std::string_view{raw} != "false");
+    }
 }

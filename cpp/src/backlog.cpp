@@ -41,6 +41,25 @@ std::vector<nlohmann::json> Backlog::Flush() {
     return out;
 }
 
+void Backlog::Restore(std::vector<nlohmann::json> entries) {
+    size_t dropped = 0;
+    {
+        std::lock_guard lk(mtx_);
+        // Failed entries precede anything added while the database was busy.
+        for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+            queue_.push_front(std::move(*it));
+        }
+        while (queue_.size() > max_size_) {
+            queue_.pop_front();
+            ++dropped;
+        }
+        is_full_.store(queue_.size() >= max_size_ * 0.95, std::memory_order_release);
+    }
+    if (dropped) {
+        metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop, 0, dropped);
+    }
+}
+
 bool Backlog::IsFull() const noexcept { return is_full_.load(std::memory_order_acquire); }
 
 size_t Backlog::Size() const {

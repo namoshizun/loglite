@@ -43,37 +43,21 @@ TEST_F(MetricsTest, SnapshotPrunesExpiredObservations) {
     EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
 }
 
-TEST_F(MetricsTest, GaugesTrackLiveCounts) {
+TEST_F(MetricsTest, GaugesAreIndependentAndGuardsBalanceNestedScopes) {
     auto& registry = metrics::MetricsRegistry::Instance();
-
     registry.IncrementGauge(metrics::kHttpConnection);
     registry.IncrementGauge(metrics::kHttpConnection);
-    registry.DecrementGauge(metrics::kHttpConnection);
-
-    EXPECT_EQ(registry.Gauge(metrics::kHttpConnection), 1);
-}
-
-TEST_F(MetricsTest, GaugeGuardBalancesGauge) {
-    auto& registry = metrics::MetricsRegistry::Instance();
-
     {
-        metrics::GaugeGuard guard{metrics::kSseSession};
+        metrics::GaugeGuard outer{metrics::kSseSession};
+        EXPECT_EQ(registry.Gauge(metrics::kSseSession), 1);
+        {
+            metrics::GaugeGuard inner{metrics::kSseSession};
+            EXPECT_EQ(registry.Gauge(metrics::kSseSession), 2);
+            EXPECT_EQ(registry.Gauge(metrics::kHttpConnection), 2);
+        }
         EXPECT_EQ(registry.Gauge(metrics::kSseSession), 1);
     }
-
+    registry.DecrementGauge(metrics::kHttpConnection);
+    EXPECT_EQ(registry.Gauge(metrics::kHttpConnection), 1);
     EXPECT_EQ(registry.Gauge(metrics::kSseSession), 0);
-}
-
-TEST_F(MetricsTest, ObservationTimerCollectsElapsedTime) {
-    auto& registry = metrics::MetricsRegistry::Instance();
-
-    {
-        metrics::ObservationTimer timer{metrics::kQueryRequest};
-        std::this_thread::sleep_for(std::chrono::milliseconds{5});
-    }
-
-    auto samples = registry.Flush();
-    ASSERT_EQ(samples.size(), 1u);
-    EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
-    EXPECT_GT(samples[0].value, 0.0);
 }

@@ -20,8 +20,8 @@ using namespace std::chrono_literals;
 //
 // Runs as an infinite Asio coroutine.  Every task_backlog_flush_interval seconds
 // (or when Backlog signals the high watermark via IsFull()), it:
-//   1. Drains the backlog.
-//   2. Dispatches to the write strand to INSERT into SQLite.
+//   1. Dispatches to the write strand to drain the backlog and INSERT into SQLite.
+//   2. Restores the drained batch if the transaction fails.
 //   3. Reads max_log_id and notifies SSE subscribers.
 
 inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
@@ -47,18 +47,17 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
             co_return;
         }
 
-        auto logs = ctx.backlog.Flush();
-        if (logs.empty()) continue;
-
-        log::DEBUG("Flushing {} log(s) from backlog", logs.size());
+        if (ctx.backlog.Size() == 0) continue;
 
         auto [count, max_id, elapsed] =
-            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
+            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&ctx](WriterDatabase& db) {
                 Timer t;
-                int c = db.Insert(logs);
+                int c = ctx.backlog.Flush([&db](const auto& logs) { return db.Insert(logs); });
                 int64_t m = db.GetMaxLogId();
                 return std::make_tuple(c, m, t.elapsed_ms());
             });
+
+        if (count == 0) continue;
 
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);
         ctx.notifier.Notify(max_id);

@@ -2,7 +2,11 @@
 
 ### 1.3.3
 
-- fix: `AsyncUseConnection` runs database reads on the reader pool and writes on the write strand, keeping SQL off the HTTP thread while returning results and exceptions to the caller's executor.
+- fix: `AsyncUseConnection` did not properly delegate db operation work to db worker threads.
+- fix: stop all ingestion sources before the final shutdown flush so harvester partial lines are persisted.
+- fix: restore backlog batches after failed writes and abort the transaction on SQLite insert errors.
+- fix: propagate fatal server task and migration errors so the CLI exits with a failure status.
+- fix: report SQLite read errors instead of returning successful empty or partial query results.
 
 ### 1.3.2
 

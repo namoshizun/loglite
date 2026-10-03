@@ -191,6 +191,25 @@ void load_root_config(Config& cfg, const StringMap& env, const YAML::Node& yaml)
 
 }  // namespace
 
+void Config::validate() const {
+    for (const auto& h : harvesters) {
+        if (h.type.empty() || h.name.empty()) {
+            throw std::runtime_error(
+                "each 'harvesters' entry must include non-empty 'type' and 'name'");
+        }
+    }
+    if (migrations.empty()) {
+        throw std::runtime_error("'migrations' list must not be empty");
+    }
+    if (task_diagnostics_interval < 30) {
+        throw std::runtime_error("'task_diagnostics_interval' must be at least 30 seconds");
+    }
+    if (task_backlog_max_size < 1) {
+        throw std::runtime_error("'task_backlog_max_size' must be at least 1");
+    }
+    (void)resolve_pool_size();
+}
+
 unsigned Config::resolve_pool_size() const {
     const std::string_view raw = db_pool_size;
     const std::string_view t = strip_spaces(raw);
@@ -226,14 +245,6 @@ Config Config::from_file(const std::filesystem::path& path) {
 
     load_root_config(cfg, env, yaml);
 
-    // Run validation
-    for (const auto& h : cfg.harvesters) {
-        if (h.type.empty() || h.name.empty()) {
-            throw std::runtime_error(
-                "each 'harvesters' entry must include non-empty 'type' and 'name'");
-        }
-    }
-
     if (!yaml["migrations"] || !yaml["migrations"].IsSequence()) {
         throw std::runtime_error("'migrations' is required in config");
     }
@@ -242,17 +253,11 @@ Config Config::from_file(const std::filesystem::path& path) {
             throw std::runtime_error("each migration must have a 'version' key");
         }
     }
-    if (cfg.migrations.empty()) {
-        throw std::runtime_error("'migrations' list must not be empty");
-    }
-    if (cfg.task_diagnostics_interval < 30) {
-        throw std::runtime_error("'task_diagnostics_interval' must be at least 30 seconds");
-    }
 
-    // Post init
+    cfg.validate();
+
     cfg.vacuum_max_size_bytes = parse_size_to_bytes(cfg.vacuum_max_size);
     cfg.vacuum_target_size_bytes = parse_size_to_bytes(cfg.vacuum_target_size);
-    (void)cfg.resolve_pool_size();
     std::filesystem::create_directories(cfg.sqlite_dir);
     cfg.db_path = cfg.sqlite_dir / "logs.db";
 

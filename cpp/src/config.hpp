@@ -68,6 +68,10 @@ struct Config {
     // ── Factory ───────────────────────────────────────────────────────────────
     static Config from_file(const std::filesystem::path& path);
 
+    // Field invariants. Throws std::runtime_error on the first violation.
+    // YAML-only shape checks (e.g. required keys) stay in from_file.
+    void validate() const;
+
     [[nodiscard]] unsigned resolve_pool_size() const;
 };
 

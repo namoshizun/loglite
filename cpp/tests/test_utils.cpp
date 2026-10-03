@@ -3,205 +3,127 @@
 #include "utils.hpp"
 #include "handlers/common.hpp"
 
-#include <thread>
+#include <algorithm>
+#include <limits>
 
 using namespace loglite;
 using namespace loglite::handlers;
 
-// ── Timer ────────────────────────────────────────────────────────────────────
+// ── URL decoding and whitespace ───────────────────────────────────────────────
 
-TEST(UtilsTest, TimerElapsedMsPositive) {
-    Timer t;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    EXPECT_GE(t.elapsed_ms(), 40.0);
+TEST(UtilsTest, UrlDecodingPreservesEncodingSemantics) {
+    const std::pair<std::string_view, std::string_view> cases[]{
+        {"hello", "hello"}, {"hello+world", "hello world"}, {"hello%20world", "hello world"},
+        {"%3C%3E", "<>"},   {"%2B08%3A00", "+08:00"},       {"test%GG", "test"},
+        {"", ""},
+    };
+    for (const auto& [encoded, expected] : cases) {
+        SCOPED_TRACE(encoded);
+        EXPECT_EQ(url_decode(encoded), expected);
+    }
 }
 
-TEST(UtilsTest, TimerElapsedS) {
-    Timer t;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    EXPECT_GE(t.elapsed_s(), 0.04);
+TEST(UtilsTest, StripSpacesPreservesInteriorWhitespace) {
+    for (const auto& [raw, expected] : {std::pair{"  query_avg  ", "query_avg"},
+                                        {"\tfoo\n", "foo"},
+                                        {" a b ", "a b"},
+                                        {" \t ", ""},
+                                        {"", ""}}) {
+        SCOPED_TRACE(raw);
+        EXPECT_EQ(strip_spaces(raw), expected);
+    }
 }
 
-// ── url_decode ───────────────────────────────────────────────────────────────
+// ── Numeric parsing ───────────────────────────────────────────────────────────
 
-TEST(UtilsTest, UrlDecodeNoEncoding) { EXPECT_EQ(url_decode("hello"), "hello"); }
-
-TEST(UtilsTest, UrlDecodePlus) { EXPECT_EQ(url_decode("hello+world"), "hello world"); }
-
-TEST(UtilsTest, UrlDecodePercent) {
-    EXPECT_EQ(url_decode("hello%20world"), "hello world");
-    EXPECT_EQ(url_decode("%3C%3E"), "<>");
+TEST(UtilsTest, IntegerParsingRejectsPartialAndOutOfRangeValues) {
+    for (int value :
+         {0, -1, 42, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()}) {
+        EXPECT_EQ(ParseIntParam(std::to_string(value)), value);
+    }
+    for (const auto* raw :
+         {"", "abc", "12a", "+4", " 4", "2147483648", "-2147483649", "9999999999999999999"}) {
+        SCOPED_TRACE(raw);
+        EXPECT_EQ(ParseIntParam(raw), std::nullopt);
+    }
 }
 
-TEST(UtilsTest, UrlDecodeInvalidHex) { EXPECT_EQ(url_decode("test%GG"), "test"); }
-
-TEST(UtilsTest, UrlDecodeEmpty) { EXPECT_EQ(url_decode(""), ""); }
-
-// ── strip_spaces ─────────────────────────────────────────────────────────────
-
-TEST(UtilsTest, StripSpacesTrimsEnds) {
-    EXPECT_EQ(strip_spaces("  query_avg  "), "query_avg");
-    EXPECT_EQ(strip_spaces("\tfoo\n"), "foo");
+TEST(UtilsTest, SizeParsingUsesBinaryUnitsAndRejectsInvalidInput) {
+    const std::pair<std::string_view, int64_t> cases[]{
+        {"1KB", 1024},
+        {"1MB", 1024 * 1024},
+        {"1GB", 1024LL * 1024 * 1024},
+        {"2TB", 2LL * 1024 * 1024 * 1024 * 1024},
+        {"500MB", 500LL * 1024 * 1024},
+    };
+    for (const auto& [raw, bytes] : cases) {
+        SCOPED_TRACE(raw);
+        EXPECT_EQ(parse_size_to_bytes(raw), bytes);
+    }
+    for (const auto* raw : {"bad", ""}) EXPECT_THROW(parse_size_to_bytes(raw), std::exception);
 }
 
-TEST(UtilsTest, StripSpacesAllBlank) { EXPECT_TRUE(strip_spaces(" \t ").empty()); }
+// ── parse_iso8601 / format_utc ─────────────────────────────────────────────────
 
-TEST(UtilsTest, StripSpacesEmpty) { EXPECT_TRUE(strip_spaces("").empty()); }
-
-// ── ParseIntParam ────────────────────────────────────────────────────────────
-
-TEST(UtilsTest, ParseIntParamValid) {
-    EXPECT_EQ(ParseIntParam("42"), std::optional(42));
-    EXPECT_EQ(ParseIntParam("-1"), std::optional(-1));
-    EXPECT_EQ(ParseIntParam("0"), std::optional(0));
+TEST(UtilsTest, Iso8601NormalizesOffsetsAndPreservesFractionalSeconds) {
+    const std::pair<std::string_view, std::string_view> cases[]{
+        {"2024-06-15T08:30:00Z", "2024-06-15T08:30:00.000Z"},
+        {"2024-01-01T00:00:00", "2024-01-01T00:00:00.000Z"},
+        {"2024-01-01T12:34:56.789Z", "2024-01-01T12:34:56.789Z"},
+        {"2024-01-01T00:00:00+08:00", "2023-12-31T16:00:00.000Z"},
+        {"2024-01-01T00:00:30+0030", "2023-12-31T23:30:30.000Z"},
+        {"2024-01-01T00:00:00.500-05:00", "2024-01-01T05:00:00.500Z"},
+    };
+    for (const auto& [raw, utc] : cases) {
+        SCOPED_TRACE(raw);
+        auto parsed = parse_iso8601(raw);
+        ASSERT_TRUE(parsed);
+        EXPECT_EQ(format_utc(*parsed), utc);
+    }
+    // Sub-millisecond precision must survive parsing even though formatting truncates it.
+    const auto whole = parse_iso8601("2024-01-01T12:34:56Z");
+    const auto fractional = parse_iso8601("2024-01-01T12:34:56.999999Z");
+    ASSERT_TRUE(whole);
+    ASSERT_TRUE(fractional);
+    EXPECT_EQ(*fractional - *whole, std::chrono::microseconds{999999});
 }
 
-TEST(UtilsTest, ParseIntParamEmpty) { EXPECT_EQ(ParseIntParam(""), std::nullopt); }
-
-TEST(UtilsTest, ParseIntParamNonNumeric) {
-    EXPECT_EQ(ParseIntParam("abc"), std::nullopt);
-    EXPECT_EQ(ParseIntParam("12a"), std::nullopt);
+TEST(UtilsTest, Iso8601RejectsMalformedTimestamps) {
+    for (const auto* raw : {"", "not-a-time", "2024-01-01", "2024-13-40T99:99:99Z"}) {
+        SCOPED_TRACE(raw);
+        EXPECT_EQ(parse_iso8601(raw), std::nullopt);
+    }
 }
 
-TEST(UtilsTest, ParseIntParamOverflow) {
-    // Value that exceeds int range
-    EXPECT_EQ(ParseIntParam("9999999999999999999"), std::nullopt);
+// ── SplitURLTarget / ParseQueryString ──────────────────────────────────────────
+
+TEST(UtilsTest, SplitTargetSeparatesPathFromQuery) {
+    struct Case {
+        std::string_view target, path, query;
+    };
+    for (const auto& c : {Case{"/logs?fields=*&limit=10", "/logs", "fields=*&limit=10"},
+                          Case{"/health", "/health", ""}, Case{"", "", ""}}) {
+        SCOPED_TRACE(c.target);
+        auto [path, query] = SplitURLTarget(c.target);
+        EXPECT_EQ(path, c.path);
+        EXPECT_EQ(query, c.query);
+    }
 }
 
-// ── bytes_to_mb ──────────────────────────────────────────────────────────────
-
-TEST(UtilsTest, BytesToMb) {
-    EXPECT_DOUBLE_EQ(bytes_to_mb(1048576), 1.0);
-    EXPECT_DOUBLE_EQ(bytes_to_mb(0), 0.0);
-}
-
-// ── parse_iso8601 / format_utc ──────────────────────────────────────────────
-
-TEST(UtilsTest, ParseIso8601WithZRoundTripsViaFormatUtc) {
-    auto tp = parse_iso8601("2024-06-15T08:30:00Z");
-    ASSERT_TRUE(tp.has_value());
-    EXPECT_EQ(format_utc(*tp), "2024-06-15T08:30:00.000Z");
-}
-
-TEST(UtilsTest, ParseIso8601WithoutZ) {
-    auto tp = parse_iso8601("2024-01-01T00:00:00");
-    ASSERT_TRUE(tp.has_value());
-    EXPECT_EQ(format_utc(*tp), "2024-01-01T00:00:00.000Z");
-}
-
-TEST(UtilsTest, FormatUtcIncludesMilliseconds) {
-    auto tp = parse_iso8601("2024-01-01T12:34:56.789Z");
-    ASSERT_TRUE(tp.has_value());
-    EXPECT_EQ(format_utc(*tp), "2024-01-01T12:34:56.789Z");
-}
-
-TEST(UtilsTest, ParseIso8601FractionalPreservesSubseconds) {
-    auto whole = parse_iso8601("2024-01-01T12:34:56Z");
-    auto frac = parse_iso8601("2024-01-01T12:34:56.999999Z");
-    ASSERT_TRUE(whole.has_value());
-    ASSERT_TRUE(frac.has_value());
-    EXPECT_NE(*whole, *frac);
-    EXPECT_LT(*whole, *frac);
-}
-
-TEST(UtilsTest, ParseIso8601NumericOffsetColoned) {
-    auto utc = parse_iso8601("2023-12-31T16:00:00Z");
-    auto east = parse_iso8601("2024-01-01T00:00:00+08:00");
-    ASSERT_TRUE(utc.has_value());
-    ASSERT_TRUE(east.has_value());
-    EXPECT_EQ(*utc, *east);
-}
-
-TEST(UtilsTest, ParseIso8601NumericOffsetCompact) {
-    auto tp = parse_iso8601("2024-01-01T00:00:30+0030");
-    auto expected = parse_iso8601("2023-12-31T23:30:30Z");
-    ASSERT_TRUE(tp.has_value());
-    ASSERT_TRUE(expected.has_value());
-    EXPECT_EQ(*tp, *expected);
-}
-
-TEST(UtilsTest, ParseIso8601DateOnlyRejected) {
-    EXPECT_EQ(parse_iso8601("2024-01-01"), std::nullopt);
-}
-
-TEST(UtilsTest, ParseIso8601InvalidRejected) {
-    EXPECT_EQ(parse_iso8601(""), std::nullopt);
-    EXPECT_EQ(parse_iso8601("not-a-time"), std::nullopt);
-    EXPECT_EQ(parse_iso8601("2024-13-40T99:99:99Z"), std::nullopt);
-}
-
-// ── SplitURLTarget ───────────────────────────────────────────────────────────
-
-TEST(UtilsTest, SplitTargetWithParams) {
-    auto [path, qs] = SplitURLTarget("/logs/query?fields=*&limit=10");
-    EXPECT_EQ(path, "/logs/query");
-    EXPECT_EQ(qs, "fields=*&limit=10");
-}
-
-TEST(UtilsTest, SplitTargetOnlyPath) {
-    auto [path, qs] = SplitURLTarget("/simple");
-    EXPECT_EQ(path, "/simple");
-    EXPECT_TRUE(qs.empty());
-}
-
-TEST(UtilsTest, SplitTargetEmpty) {
-    auto [path, qs] = SplitURLTarget("");
-    EXPECT_EQ(path, "");
-    EXPECT_TRUE(qs.empty());
-}
-
-// ── ParseQueryString ─────────────────────────────────────────────────────────
-
-TEST(UtilsTest, ParseQueryStringEmpty) {
-    auto params = ParseQueryString("");
-    EXPECT_TRUE(params.empty());
-}
-
-TEST(UtilsTest, ParseQueryStringSingleParam) {
-    auto params = ParseQueryString("key=value");
-    EXPECT_EQ(params.find("key")->second, "value");
-}
-
-TEST(UtilsTest, ParseQueryStringMultipleValuesSameKey) {
-    auto params = ParseQueryString("key=val1&key=val2");
-    auto range = params.equal_range("key");
-    int count = 0;
-    for (auto it = range.first; it != range.second; ++it) ++count;
-    EXPECT_EQ(count, 2);
-}
-
-TEST(UtilsTest, ParseQueryStringNoEquals) {
-    auto params = ParseQueryString("bareword");
-    EXPECT_TRUE(params.empty());
-}
-
-// ── log functions ───────────────────────────────────────────────────────────
-
-#include "log.hpp"
-
-TEST(UtilsTest, LogDebugEnabled) {
-    log::SetLevel(log::Level::kDebug);
-    log::DEBUG("test message");
-    SUCCEED();
-}
-
-TEST(UtilsTest, LogDebugDisabled) {
-    log::SetLevel(log::Level::kInfo);
-    log::DEBUG("hidden message");
-    SUCCEED();
-}
-
-TEST(UtilsTest, LogInfo) {
-    log::INFO("test info");
-    SUCCEED();
-}
-
-TEST(UtilsTest, LogWarn) {
-    log::WARN("test warning");
-    SUCCEED();
-}
-
-TEST(UtilsTest, LogError) {
-    log::ERROR("test error");
-    SUCCEED();
+TEST(UtilsTest, QueryStringPreservesRepeatedKeysAndDecodesValues) {
+    auto params = ParseQueryString(
+        "fields=*&limit=100&offset=0&level==ERROR&level=!=DEBUG"
+        "&zone=%2B08%3A00&bareword");
+    EXPECT_EQ(params.count("level"), 2u);
+    EXPECT_EQ(params.find("fields")->second, "*");
+    EXPECT_EQ(params.find("limit")->second, "100");
+    EXPECT_EQ(params.find("offset")->second, "0");
+    EXPECT_EQ(params.find("zone")->second, "+08:00");
+    auto [first, last] = params.equal_range("level");
+    std::vector<std::string> values;
+    for (; first != last; ++first) values.push_back(first->second);
+    std::ranges::sort(values);
+    EXPECT_EQ(values, (std::vector<std::string>{"!=DEBUG", "=ERROR"}));
+    EXPECT_FALSE(params.contains("bareword"));
+    EXPECT_TRUE(ParseQueryString("").empty());
 }

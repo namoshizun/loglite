@@ -87,4 +87,9 @@ LookupTable ColumnDictionary::GetLookUp() const {
     return lookup_;
 }
 
+void ColumnDictionary::Reload(LookupTable lookup) {
+    std::unique_lock lock(mtx_);
+    lookup_ = std::move(lookup);
+}
+
 }  // namespace loglite

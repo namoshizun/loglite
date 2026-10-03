@@ -42,6 +42,9 @@ struct Statement {
     Statement(Statement&& o) noexcept : raw(std::exchange(o.raw, nullptr)) {}
     operator sqlite3_stmt*() const noexcept { return raw; }
 
+    // Return SQLITE_ROW or SQLITE_DONE; every other result is a database error.
+    int Step();
+
     Statement(const Statement&) = delete;
     Statement& operator=(const Statement&) = delete;
 };

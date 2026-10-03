@@ -4,7 +4,9 @@
 #include <atomic>
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -33,11 +35,27 @@ class Backlog {
     // Move all pending entries out of the backlog in one critical section.
     std::vector<nlohmann::json> Flush();
 
+    // Lend the batch read-only to persistence; restore it on failure.
+    // The callback must commit before returning.
+    template <typename F>
+    int Flush(F&& persist) {
+        auto entries = Flush();
+        if (entries.empty()) return 0;
+        try {
+            return std::invoke(std::forward<F>(persist), std::as_const(entries));
+        } catch (...) {
+            Restore(std::move(entries));
+            throw;
+        }
+    }
+
     bool IsFull() const noexcept;
 
     size_t Size() const;
 
    private:
+    void Restore(std::vector<nlohmann::json> entries);
+
     mutable std::mutex mtx_;
     std::deque<nlohmann::json> queue_;
     size_t max_size_;

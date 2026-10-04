@@ -1,21 +1,20 @@
 #include <gtest/gtest.h>
 
-#include "test_support.hpp"
-#include "reader_database.hpp"
-#include "writer_database.hpp"
-#include "tasks/vacuum.hpp"
+#include "log_store_test_support.hpp"
+#include "utils.hpp"
 
 #include <fmt/format.h>
 
 using namespace loglite;
 
-class VacuumTest : public test::DatabaseFixture {
+class VacuumTest : public test::LogStoreFixture {
    protected:
     void SetUp() override {
         cfg_.vacuum_max_size_bytes = parse_size_to_bytes("1TB");
         cfg_.vacuum_target_size_bytes = parse_size_to_bytes("800GB");
         cfg_.sqlite_params["auto_vacuum"] = "INCREMENTAL";
-        DatabaseFixture::SetUp();
+        cfg_.vacuum_max_days = 36500;
+        LogStoreFixture::SetUp();
     }
 
     void insert_logs(int count) {
@@ -33,7 +32,8 @@ class VacuumTest : public test::DatabaseFixture {
 
 TEST_F(VacuumTest, RetentionDeletesExpiredRowsAndPreservesFreshOnes) {
     cfg_.vacuum_max_days = 1;
-    EXPECT_EQ(tasks::detail::remove_stale_logs(*db_, cfg_, 0), 0);
+    db_->Maintain();
+    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
     const auto now = std::chrono::system_clock::now();
     ASSERT_EQ(db_->Insert({
                   {{"timestamp", format_utc(now - std::chrono::hours{72})},
@@ -44,23 +44,23 @@ TEST_F(VacuumTest, RetentionDeletesExpiredRowsAndPreservesFreshOnes) {
                    {"level", "INFO"}},
               }),
               2);
-    EXPECT_EQ(tasks::detail::remove_stale_logs(*db_, cfg_, 0), 1);
-    EXPECT_EQ(reader_->Query({"message"}, {}, 10, 0).results,
+    db_->Maintain();
+    EXPECT_EQ(Query({"message"}, {}, 10, 0).results,
               (std::vector<nlohmann::json>{{{"message", "fresh"}}}));
 }
 
 TEST_F(VacuumTest, RemoveExcessiveLogsOverLimit) {
     insert_logs(20);
-    EXPECT_EQ(tasks::detail::remove_excessive_logs(*db_, cfg_, 0), 0);
+    db_->Maintain();
+    EXPECT_EQ(db_->EstimateLogRowCount(), 20);
 
     // Force deletion of oldest 50% of logs.
     cfg_.vacuum_max_size_bytes = 1;
     cfg_.vacuum_target_size_bytes = db_->GetSizeBytes() / 2;
 
-    int removed = tasks::detail::remove_excessive_logs(*db_, cfg_, 0);
-    EXPECT_EQ(removed, 10);
+    db_->Maintain();
 
-    auto result = reader_->Query({"id"}, {}, 100, 0);
+    auto result = Query({"id"}, {}, 100, 0);
     EXPECT_EQ(result.total, 10);
 
     // Verify remaining IDs are exactly 11 to 20 (continuous, no Swiss-cheese holes).
@@ -73,7 +73,9 @@ TEST_F(VacuumTest, RemoveExcessiveLogsOverLimit) {
 }
 
 TEST_F(VacuumTest, IncrementalVacuumReclaimsFreePagesWithoutDeletingLiveRows) {
-    EXPECT_EQ(tasks::detail::incremental_vacuum_pass(*db_, 1), 0);
+    cfg_.task_vacuum_max_size = 1;
+    db_->Maintain();
+    EXPECT_EQ(test::ScalarFile(cfg_.db_path, "PRAGMA freelist_count"), 0);
     std::vector<nlohmann::json> logs;
     // Large rows force real free pages; deleting a few tiny rows may free none.
     for (int i = 0; i < 100; ++i) {
@@ -82,12 +84,13 @@ TEST_F(VacuumTest, IncrementalVacuumReclaimsFreePagesWithoutDeletingLiveRows) {
                         {"level", "INFO"}});
     }
     ASSERT_EQ(db_->Insert(logs), 100);
-    ASSERT_EQ(db_->DeleteLogs({{"id", "<=", 50}}), 50);
-    const auto before = std::stoll(db_->GetPragma("freelist_count"));
+    test::ExecuteFile(cfg_.db_path, "DELETE FROM TestLog WHERE id <= 50");
+    const auto before = test::ScalarFile(cfg_.db_path, "PRAGMA freelist_count");
     ASSERT_GT(before, 0);
-    const auto remaining = tasks::detail::incremental_vacuum_pass(*db_, 1);
+    db_->Maintain();
+    const auto remaining = test::ScalarFile(cfg_.db_path, "PRAGMA freelist_count");
     EXPECT_LT(remaining, before);
-    const auto result = reader_->Query({"id"}, {}, 100, 0);
+    const auto result = Query({"id"}, {}, 100, 0);
     ASSERT_EQ(result.results.size(), 50u);
     for (int i = 0; i < 50; ++i) EXPECT_EQ(result.results[i]["id"], 100 - i);
 }

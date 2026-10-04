@@ -77,7 +77,7 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
     try {
         auto result = co_await ctx.db_read.AsyncUseConnection(
             ctx.reader_executor,
-            [&](ReaderDatabase& r) { return r.Query(fields, filters, limit, offset); });
+            [&](LogReader& r) { return r.Query(fields, filters, limit, offset); });
         co_return MakeOKResp(result.ToJSON(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::ERROR("Query error: {}", e.what());

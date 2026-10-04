@@ -119,7 +119,7 @@ Full configuration reference, HTTP API, harvester plugin guide, and recipes:
 - [x] Native C++ core
 - [x] `/stats` endpoint for DB and background-task metrics
 - [x] Built-in web UI for browsing logs
-- [ ] Time-based partitioning (one SQLite file per day or month)
+- [x] Time-based partitioning (one SQLite file per hour, day, week, or month)
 
 ## License
 

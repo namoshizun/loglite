@@ -49,6 +49,23 @@ class Backlog {
         }
     }
 
+    // Lend the batch mutably: persistence may reorder it, then acknowledges the
+    // committed prefix of that order. A failure restores only the uncommitted rest.
+    template <typename F>
+    int FlushCommitted(F&& persist) {
+        auto entries = Flush();
+        if (entries.empty()) return 0;
+        size_t committed = 0;
+        const auto acknowledge = [&committed](size_t prefix) { committed = prefix; };
+        try {
+            return std::invoke(std::forward<F>(persist), entries, acknowledge);
+        } catch (...) {
+            entries.erase(entries.begin(), entries.begin() + committed);
+            Restore(std::move(entries));
+            throw;
+        }
+    }
+
     bool IsFull() const noexcept;
 
     size_t Size() const;

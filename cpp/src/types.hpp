@@ -3,8 +3,12 @@
 
 #include <boost/describe.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -47,13 +51,31 @@ struct CompressionConfig {
     std::vector<std::string> columns;
 };
 
+// ── Partitioning ──────────────────────────────────────────────────────────────
+
+enum class PartitionInterval { kNone, kHourly, kDaily, kWeekly, kMonthly };
+
+// Config spelling, indexed by PartitionInterval.
+inline constexpr std::array<std::string_view, 5> kPartitionIntervalNames{"none", "hourly", "daily",
+                                                                         "weekly", "monthly"};
+
+constexpr std::string_view ToString(PartitionInterval interval) {
+    return kPartitionIntervalNames[static_cast<size_t>(interval)];
+}
+
+constexpr std::optional<PartitionInterval> ParsePartitionInterval(std::string_view name) {
+    const auto it = std::ranges::find(kPartitionIntervalNames, name);
+    if (it == kPartitionIntervalNames.end()) return std::nullopt;
+    return static_cast<PartitionInterval>(it - kPartitionIntervalNames.begin());
+}
+
 // ── Query result ──────────────────────────────────────────────────────────────
 
 // Hard cap on GET /logs `limit` (and a bound for result-set preallocation).
 inline constexpr int kMaxQueryLimit = 10'000;
 
 struct PaginatedQueryResult {
-    int total{};
+    int64_t total{};
     int offset{};
     int limit{};
     std::vector<nlohmann::json> results;
@@ -66,6 +88,12 @@ struct PaginatedQueryResult {
         obj["results"] = std::move(results);
         return obj;
     }
+};
+
+// Rows with IDs in (since, until], ascending; last_id is the cursor for the next page.
+struct LogIdQueryResult {
+    int64_t last_id{};
+    std::vector<nlohmann::json> results;
 };
 
 // ── Internal stats rows ───────────────────────────────────────────────────────

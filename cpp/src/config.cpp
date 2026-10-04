@@ -57,7 +57,7 @@ using vector_element_t = typename vector_element<T>::type;
 template <class T>
 inline constexpr bool is_string_parseable_v =
     std::is_same_v<T, std::string> || std::is_same_v<T, bool> || std::is_integral_v<T> ||
-    std::is_same_v<T, std::filesystem::path>;
+    std::is_same_v<T, std::filesystem::path> || std::is_same_v<T, PartitionInterval>;
 
 // ── String → T  (for LOGLITE_* env vars) ───────────────────────────────────
 
@@ -73,6 +73,10 @@ T from_string(const std::string& s) {
         return static_cast<T>(std::stoll(s));
     } else if constexpr (std::is_same_v<T, std::filesystem::path>) {
         return std::filesystem::path(s);
+    } else if constexpr (std::is_same_v<T, PartitionInterval>) {
+        if (const auto interval = ParsePartitionInterval(s)) return *interval;
+        throw std::runtime_error(
+            "'partition_interval' must be none, hourly, daily, weekly, or monthly");
     } else {
         static_assert(always_false_v<T>, "extend from_string<T> for this type");
     }
@@ -121,6 +125,8 @@ T from_yaml(const YAML::Node& node) {
         return node.as<bool>();
     } else if constexpr (std::is_same_v<T, std::filesystem::path>) {
         return std::filesystem::path(node.as<std::string>());
+    } else if constexpr (std::is_same_v<T, PartitionInterval>) {
+        return from_string<T>(node.as<std::string>());
     } else if constexpr (std::is_integral_v<T>) {
         return static_cast<T>(node.as<int64_t>());
     } else if constexpr (std::is_same_v<T, StringMap>) {
@@ -192,6 +198,14 @@ void load_root_config(Config& cfg, const StringMap& env, const YAML::Node& yaml)
 }  // namespace
 
 void Config::validate() const {
+    if (partition_interval != PartitionInterval::kNone && compression.enabled &&
+        std::ranges::any_of(compression.columns, [&](const auto& column) {
+            return column == "id" || column == log_timestamp_field;
+        })) {
+        throw std::runtime_error(
+            "Time partitioning requires uncompressed id and log_timestamp_field; remove "
+            "these columns from compression.columns.");
+    }
     for (const auto& h : harvesters) {
         if (h.type.empty() || h.name.empty()) {
             throw std::runtime_error(

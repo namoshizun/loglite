@@ -132,16 +132,15 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
         auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
         window_since = window_until;
 
-        int pruned =
-            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
-                db.InsertActivityStats(row);
-                db.InsertDatabaseStats({
-                    row.until,
-                    db.EstimateLogRowCount(),
-                    db.GetSizeBytes(),
-                });
-                return db.DeleteStatsBefore(cutoff);
+        int pruned = co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](LogStore& db) {
+            db.InsertActivityStats(row);
+            db.InsertDatabaseStats({
+                row.until,
+                db.EstimateLogRowCount(),
+                db.GetSizeBytes(),
             });
+            return db.DeleteStatsBefore(cutoff);
+        });
 
         log::INFO(
             "[query]: count={} avg={}ms max={}ms | "

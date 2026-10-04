@@ -100,7 +100,8 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
                       # each SQLite connection holds a distinct cache memory.
 
    # ── Database ─────────────────────────────────────────────
-   sqlite_dir: ./db       # Directory holding the SQLite db file
+   sqlite_dir: ./db       # Directory holding the SQLite files
+   partition_interval: none  # none (default), hourly, daily, weekly, or monthly
    auto_rollout: false    # Apply pending migrations on startup
 
    sqlite_params:         # Any valid SQLite PRAGMA key/value pairs
@@ -157,6 +158,94 @@ See `configs/ <https://github.com/namoshizun/loglite/tree/main/configs>`_ in
 the repo for runnable examples (``basic.yaml``, ``enable-compression.yaml``,
 ``file-harvester.yaml``).
 
+Time-based partitioning
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``partition_interval`` to ``hourly``, ``daily``, ``weekly``, or ``monthly``
+to store each time range in its own SQLite file under ``sqlite_dir``.
+The default, ``none``, keeps the single ``logs.db`` file.
+
+.. code-block:: yaml
+
+   sqlite_dir: ./db
+   partition_interval: daily
+
+Ranges follow the UTC calendar: hours begin on the hour, days at midnight,
+weeks on Monday at midnight, and months on the first day at midnight.
+Each range includes its start and excludes its end. The setting accepts the
+exact lowercase values above and can be overridden with the
+``LOGLITE_PARTITION_INTERVAL`` environment variable.
+
+Files are named after the start of their range, for example:
+
+- ``hourly``: ``logs-hourly-2026-05-05T12.db``
+- ``daily``: ``logs-daily-2026-05-05.db``
+- ``weekly``: ``logs-weekly-2026-05-04.db`` (Monday)
+- ``monthly``: ``logs-monthly-2026-05.db``
+
+.. warning::
+
+   Partitioning (1.4.0) is not backwards compatible with an existing database
+   that holds logs. If ``logs.db`` in ``sqlite_dir`` already contains logs,
+   the server and the ``rollout``/``rollback`` commands refuse to start.
+   Enable partitioning on a fresh ``sqlite_dir``.
+
+New logs are routed by ``log_timestamp_field``. Each stored timestamp is
+rewritten to canonical UTC with millisecond precision
+(``YYYY-MM-DDTHH:MM:SS.mmmZ``); sub-millisecond digits are truncated.
+Timestamps accept full ISO-8601 date-times, including fractional seconds and
+UTC offsets; omitted offsets mean UTC. Missing, non-string, or unparseable
+timestamps are replaced with the time the backlog is flushed. Other schema
+requirements still apply. Late logs go into their original time range.
+
+Every file holds only timestamps inside its own range, so queries read the
+files newest first and stop once the page is full; whole files before the
+requested ``offset`` are skipped without being opened. Results are ordered by
+timestamp descending and then ID descending. Filters on the timestamp field
+are normalized the same way as stored values (``2024-01-02T08:00:00+08:00``
+matches ``2024-01-02T00:00:00.000Z``) and skip files outside the filtered range.
+
+Log IDs remain unique and increasing across files and server restarts; gaps
+are possible. A flush assigns IDs file by file in range order. The live
+stream uses the same order as ``GET /logs``: timestamp descending, then ID
+descending, at most ``sse_limit`` rows per event.
+
+Partitioning requires ``id INTEGER PRIMARY KEY`` in the log table. When
+compression is enabled, keep ``id`` and ``log_timestamp_field`` out of
+``compression.columns``; other columns can use dictionary compression.
+LogLite owns log IDs when partitioning is enabled: migrations and log-table
+triggers must not insert log rows or change IDs.
+
+With partitioning, ``logs.db`` is a control database: it holds migration
+versions, ID reservations, statistics, and an empty log table that serves as
+the schema template. Use a fresh ``sqlite_dir`` to change the interval or
+return to ``none``, even if no logs have been written yet.
+The control database uses ``synchronous=FULL`` to make ID reservations durable;
+range files honor the configured SQLite settings.
+
+Migration commands apply to every database file. New partitions inherit the
+migrations already applied to ``logs.db``. A flush spanning several files
+commits each file separately; a later failure can leave earlier files
+committed, and retries retain only the uncommitted entries.
+
+Run migrations while the server is stopped. Files commit independently,
+with ``logs.db`` updated last. If a command is interrupted, correct the
+reported failure and rerun that command to finish the remaining files before
+restarting the server. Keep ``logs.db`` with its partition files when moving
+or restoring the directory: its ID reservations preserve uniqueness even
+after retention has deleted historical rows.
+
+Retention limits apply to all log files together and work on whole files.
+Age-based cleanup deletes files whose range ended before the cutoff and
+removes expired rows only from the file containing the cutoff. Size-based
+cleanup deletes the oldest files while the excess is at least their size,
+then removes the oldest IDs from the next file. Files are deleted only while
+no query is reading them; otherwise the next vacuum pass retries. With
+``auto_vacuum: FULL``, only files that lost rows are vacuumed. Empty partition
+files are removed.
+
+Connections wait up to 5 seconds for SQLite locks unless ``busy_timeout`` is
+set in ``sqlite_params``.
 
 Command Line Interface
 ----------------------
@@ -382,7 +471,7 @@ Response:
 
 Included settings:
 
-- ``log_table_name``, ``log_timestamp_field``
+- ``log_table_name``, ``log_timestamp_field``, ``partition_interval``
 - ``sqlite_params`` (object of PRAGMA key/value pairs)
 - ``auto_rollout``
 - ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``,

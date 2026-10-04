@@ -92,6 +92,7 @@ TEST_F(ConfigTest, LoadsYamlDefaultsAndDerivedPaths) {
     EXPECT_EQ(cfg.db_pool_size, "2");
     EXPECT_EQ(cfg.resolve_pool_size(), 2u);
     EXPECT_EQ(cfg.db_path, directory_.path() / "logs.db");
+    EXPECT_EQ(cfg.partition_interval, PartitionInterval::kNone);
     EXPECT_TRUE(std::filesystem::exists(cfg.sqlite_dir));
     EXPECT_EQ(cfg.vacuum_max_size_bytes, parse_size_to_bytes(cfg.vacuum_max_size));
     EXPECT_EQ(cfg.vacuum_target_size_bytes, parse_size_to_bytes(cfg.vacuum_target_size));
@@ -109,6 +110,53 @@ TEST_F(ConfigTest, PoolSizeParsingRejectsInvalidValues) {
         cfg.db_pool_size = raw;
         EXPECT_THROW((void)cfg.resolve_pool_size(), std::runtime_error);
         EXPECT_THROW(Load(fmt::format("db_pool_size: '{}'\n", raw)), std::runtime_error);
+    }
+}
+
+TEST_F(ConfigTest, PartitionIntervalAcceptsOnlySupportedValues) {
+    for (const auto* interval : {"none", "hourly", "daily", "weekly", "monthly"}) {
+        SCOPED_TRACE(interval);
+        const auto cfg = Load(fmt::format("partition_interval: {}\n", interval));
+        EXPECT_EQ(ToString(cfg.partition_interval), interval);
+        EXPECT_NO_THROW(cfg.validate());
+    }
+    for (const auto* interval : {"", "yearly", "day", "DAILY", " daily "}) {
+        SCOPED_TRACE(interval);
+        EXPECT_THROW(Load(fmt::format("partition_interval: '{}'\n", interval)), std::runtime_error);
+    }
+}
+
+TEST_F(ConfigTest, PartitionIntervalEnvironmentOverridesYamlAndIsValidated) {
+    for (const auto* interval : {"hourly", "daily", "weekly", "monthly", "none"}) {
+        SCOPED_TRACE(interval);
+        const ScopedEnvironment override{{"LOGLITE_PARTITION_INTERVAL", interval}};
+        EXPECT_EQ(ToString(Load("partition_interval: daily\n").partition_interval), interval);
+    }
+    const ScopedEnvironment override{{"LOGLITE_PARTITION_INTERVAL", "yearly"}};
+    EXPECT_THROW(Load("partition_interval: daily\n"), std::runtime_error);
+}
+
+TEST_F(ConfigTest, PartitioningRequiresUncompressedTimestampAndId) {
+    auto cfg = test::MakeConfig(directory_.path());
+    cfg.partition_interval = PartitionInterval::kDaily;
+    cfg.log_timestamp_field = "event_time";
+    cfg.compression = {true, {"service", "level"}};
+    EXPECT_NO_THROW(cfg.validate());
+    for (const auto* column : {"id", "event_time"}) {
+        SCOPED_TRACE(column);
+        cfg.compression.columns = {column};
+        EXPECT_THROW(cfg.validate(), std::runtime_error);
+        EXPECT_THROW(Load(fmt::format("partition_interval: daily\n"
+                                      "log_timestamp_field: event_time\n"
+                                      "compression: {{enabled: true, columns: [{}]}}\n",
+                                      column)),
+                     std::runtime_error);
+        auto unpartitioned = cfg;
+        unpartitioned.partition_interval = PartitionInterval::kNone;
+        EXPECT_NO_THROW(unpartitioned.validate());
+        auto uncompressed = cfg;
+        uncompressed.compression.enabled = false;
+        EXPECT_NO_THROW(uncompressed.validate());
     }
 }
 

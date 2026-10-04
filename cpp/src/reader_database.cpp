@@ -9,21 +9,34 @@
 
 namespace loglite {
 
+namespace {
+
+std::string JoinFields(const std::vector<std::string>& fields) {
+    std::string joined;
+    for (const auto& field : fields) {
+        if (!joined.empty()) joined += ',';
+        joined += field;
+    }
+    return joined;
+}
+
+}  // namespace
+
 ReaderDatabase::ReaderDatabase(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
     : Database(cfg, std::move(catalog)) {}
 
-void ReaderDatabase::Open() {
-    auto path = cfg_.db_path.string();
+void ReaderDatabase::Open() { Open(cfg_.db_path); }
+
+void ReaderDatabase::Open(const std::filesystem::path& path) {
     ensure_ok(
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
     apply_params(AccessMode::READ);
-    log::DEBUG("Opened reader SQLite connection: {}", path);
+    log::DEBUG("Opened reader SQLite connection: {}", path.string());
 }
 
-PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,
-                                           const std::vector<QueryFilter>& filters, int limit,
-                                           int offset) const {
+std::vector<std::string> ReaderDatabase::ResolveFields(
+    const std::vector<std::string>& fields) const {
     std::vector<std::string> effective_fields;
     if (fields.size() == 1 && fields[0] == "*") {
         for (const auto& ci : catalog_->log_column_info) effective_fields.push_back(ci.name);
@@ -31,56 +44,91 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
         effective_fields.assign(fields.begin(), fields.end());
         for (const auto& f : effective_fields) validate_field(f);
     }
+    return effective_fields;
+}
 
+nlohmann::json ReaderDatabase::DecodeRow(sqlite3_stmt* stmt,
+                                         const std::vector<std::string>& fields) const {
+    auto row = nlohmann::json::object();
+    for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
+        const auto& field = fields[column];
+        auto value = column_to_json(stmt, column);
+        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
+            value = catalog_->col_dict->GetValue(field, value.get<int>());
+        row[field] = std::move(value);
+    }
+    return row;
+}
+
+int64_t ReaderDatabase::CountLogs(const std::vector<QueryFilter>& filters) const {
     auto [where, params] = build_where_clause(filters);
+    Statement count{db_,
+                    fmt::format("SELECT COUNT(*) FROM {} WHERE {}", cfg_.log_table_name, where)};
+    for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(count, i + 1, params[i]);
+    return count.Step() == SQLITE_ROW ? sqlite3_column_int64(count, 0) : 0;
+}
 
-    // Get the total row number count (use quick estimate if no filters are applied).
-    int total = 0;
-    if (filters.empty()) {
-        total = static_cast<int>(EstimateLogRowCount());
-    } else {
-        auto count_sql =
-            fmt::format("SELECT COUNT(id) FROM {} WHERE {}", cfg_.log_table_name, where);
-        Statement count_stmt{db_, count_sql};
-        for (int i = 0; i < static_cast<int>(params.size()); ++i)
-            bind_param(count_stmt, i + 1, params[i]);
-        if (count_stmt.Step() == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
+PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& fields,
+                                           const std::vector<QueryFilter>& filters, int limit,
+                                           int offset) const {
+    const auto resolved = ResolveFields(fields);
+    // Use a quick estimate of the total when no filters are applied.
+    const int64_t total = filters.empty() ? EstimateLogRowCount() : CountLogs(filters);
+    PaginatedQueryResult result{total, offset, limit, {}};
+    if (total == 0) return result;
+    for (auto& row : ReadLogs(resolved, filters, LogOrder::kNewestFirst, limit, offset))
+        result.results.push_back(std::move(row.values));
+    return result;
+}
+
+std::vector<ReaderDatabase::LogRow> ReaderDatabase::ReadLogs(
+    const std::vector<std::string>& fields, const std::vector<QueryFilter>& filters, LogOrder order,
+    int limit, int offset) const {
+    auto [where, params] = build_where_clause(filters);
+    const auto ordering = order == LogOrder::kIdAscending
+                              ? std::string{"id ASC"}
+                              : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
+    Statement stmt{db_, fmt::format("SELECT {}, id FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
+                                    JoinFields(fields), cfg_.log_table_name, where, ordering)};
+    int parameter = 1;
+    for (const auto& value : params) bind_param(stmt, parameter++, value);
+    bind_param(stmt, parameter++, limit);
+    bind_param(stmt, parameter, offset);
+
+    // Cap the reservation so a huge `limit` cannot OOM before any row is read;
+    // the vector grows if the result set is larger.
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
+    const auto id_column = static_cast<int>(fields.size());
+    while (stmt.Step() == SQLITE_ROW)
+        rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
+    return rows;
+}
+
+void ReaderDatabase::LoadReadDictionary() {
+    if (catalog_->compressed_columns.empty()) return;
+    LookupTable lookup;
+    Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
+    while (stmt.Step() == SQLITE_ROW) {
+        auto column = column_to_json(stmt, 0).get<std::string>();
+        const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        auto text = value ? std::string{value, static_cast<size_t>(sqlite3_column_bytes(stmt, 1))}
+                          : std::string{};
+        lookup[column][std::move(text)] = sqlite3_column_int(stmt, 2);
     }
-    if (total == 0) return {total, offset, limit, {}};
+    catalog_->col_dict = std::make_shared<ColumnDictionary>(std::move(lookup), nullptr);
+}
 
-    // Execute the main query.
-    std::string field_list;
-    for (size_t i = 0; i < effective_fields.size(); ++i) {
-        if (i) field_list += ",";
-        field_list += effective_fields[i];
-    }
-    auto select_sql = fmt::format("SELECT {} FROM {} WHERE {} ORDER BY {} DESC LIMIT ? OFFSET ?",
-                                  field_list, cfg_.log_table_name, where, cfg_.log_timestamp_field);
-
-    Statement sel{db_, select_sql};
-    int pi = 1;
-    for (const auto& p : params) bind_param(sel, pi++, p);
-    bind_param(sel, pi++, nlohmann::json(limit));
-    bind_param(sel, pi++, nlohmann::json(offset));
-
-    // Build JSON results. Cap the reservation so a huge `limit` cannot OOM before
-    // any row is read; the vector grows if the result set is larger.
-    std::vector<nlohmann::json> results;
-    results.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
-    while (sel.Step() == SQLITE_ROW) {
-        nlohmann::json row;
-        for (int c = 0; c < static_cast<int>(effective_fields.size()); ++c) {
-            const auto& fname = effective_fields[c];
-            auto val = column_to_json(sel, c);
-            if (catalog_->compressed_columns.contains(fname) && val.is_number_integer()) {
-                val = catalog_->col_dict->GetValue(fname, val.get<int>());
-            }
-            row[fname] = std::move(val);
-        }
-        results.push_back(std::move(row));
-    }
-
-    return {total, offset, limit, std::move(results)};
+std::unique_ptr<ReaderDatabase> ReaderDatabase::OpenFile(const std::filesystem::path& path) const {
+    auto local_catalog = std::make_shared<DatabaseCatalog>(cfg_);
+    local_catalog->log_column_info = catalog_->log_column_info;
+    auto reader = std::make_unique<ReaderDatabase>(cfg_, std::move(local_catalog));
+    reader->Open(path);
+    // Dictionary, count and rows use the same snapshot. Closing this short-lived
+    // reader ends the read transaction, including on exceptions.
+    reader->exec_sql("BEGIN");
+    reader->LoadReadDictionary();
+    return reader;
 }
 
 StatsQueryResult ReaderDatabase::QueryActivityStats(std::string_view since, std::string_view until,

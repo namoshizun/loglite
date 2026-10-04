@@ -70,12 +70,12 @@ asio::awaitable<http::response<http::string_body>> HandleStats(const http::reque
     // ── Execute queries ───────────────────────────────────────────────────────
     try {
         auto activities =
-            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](ReaderDatabase& r) {
+            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](LogReader& r) {
                 return r.QueryActivityStats(since_str, until_str, split_fields(activity_fields_str),
                                             ordering);
             });
         auto database =
-            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](ReaderDatabase& r) {
+            co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor, [&](LogReader& r) {
                 return r.QueryDatabaseStats(since_str, until_str, split_fields(database_fields_str),
                                             ordering);
             });

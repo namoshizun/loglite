@@ -4,8 +4,8 @@
 #include "backlog.hpp"
 #include "config.hpp"
 #include "notifier.hpp"
-#include "reader_database.hpp"
-#include "writer_database.hpp"
+#include "log_reader.hpp"
+#include "log_store.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -23,8 +23,8 @@ namespace loglite {
 
 struct ServerContext {
     Config& config;
-    WriterDatabase& db_write;
-    ReadDatabasePool& db_read;
+    LogStore& db_write;
+    LogReaderPool& db_read;
     Backlog& backlog;
     LogNotifier& notifier;
 
@@ -35,7 +35,7 @@ struct ServerContext {
     std::atomic<bool> stopping{false};
     std::vector<std::weak_ptr<asio::steady_timer>> shutdown_timers;
 
-    ServerContext(Config& config_in, WriterDatabase& db_write_in, ReadDatabasePool& db_read_in,
+    ServerContext(Config& config_in, LogStore& db_write_in, LogReaderPool& db_read_in,
                   Backlog& backlog_in, LogNotifier& notifier_in,
                   asio::strand<asio::thread_pool::executor_type> write_strand_in,
                   asio::thread_pool::executor_type reader_executor_in,
@@ -64,6 +64,18 @@ struct ServerContext {
 
     [[nodiscard]] bool StopRequested() const noexcept {
         return stopping.load(std::memory_order_acquire);
+    }
+
+    // Call on the write strand. Notify committed IDs even if a later file fails;
+    // FlushCommitted restores only the uncommitted suffix of the batch.
+    int FlushBacklog() {
+        struct NotifyCommitted {
+            ServerContext& ctx;
+            ~NotifyCommitted() { ctx.notifier.Notify(ctx.db_write.GetCommittedLogId()); }
+        } notify{*this};
+        return backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
+            return db_write.Insert(entries, acknowledge);
+        });
     }
 };
 

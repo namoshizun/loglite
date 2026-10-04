@@ -15,6 +15,9 @@ using namespace loglite;
 
 class DatabaseTest : public test::DatabaseFixture {
    protected:
+    // Lock errors must surface immediately rather than after the default busy wait.
+    DatabaseTest() { cfg_.sqlite_params["busy_timeout"] = "0"; }
+
     auto OpenPeer() {
         sqlite3* raw = nullptr;
         const int rc = sqlite3_open(cfg_.db_path.c_str(), &raw);

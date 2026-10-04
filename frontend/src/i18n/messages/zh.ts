@@ -128,6 +128,8 @@ export const zh: Record<MessageKey, string> = {
   'settingsDesc.vacuum_max_size': '数据清理: 触发清理的存储体积上限（MB）',
   'settingsDesc.vacuum_target_size': '数据清理: 清理到此目标体积（MB）',
   'settingsDesc.db_pool_size': '数据库连接池大小',
+  'settingsDesc.partition_interval':
+    'SQLite 文件分区范围：none（不分区）、hourly（小时）、daily（天）、weekly（周）或 monthly（月）。按 UTC 划分，周一为每周起点。',
   'settingsDesc.compression_enabled': '是否启用字典压缩',
   'settingsDesc.harvester_types': '启用的日期采集器',
   'test.send': '发送测试日志',

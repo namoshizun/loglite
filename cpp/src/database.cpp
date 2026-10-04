@@ -77,6 +77,10 @@ void Database::set_pragma(std::string_view name, std::string_view value) {
 void Database::apply_params(AccessMode mode) {
     constexpr auto kWriterOnlyPragmas =
         std::to_array<std::string_view>({"auto_vacuum", "journal_mode", "synchronous"});
+    // Partition connections are short-lived, so WAL recovery and close-time
+    // checkpoints routinely lock a file briefly. A configured busy_timeout wins.
+    constexpr int kDefaultBusyTimeoutMs = 5000;
+    sqlite3_busy_timeout(db_, kDefaultBusyTimeoutMs);
 
     for (const auto& [k, v] : cfg_.sqlite_params) {
         if (mode == AccessMode::READ && range_contains(kWriterOnlyPragmas, k)) {
@@ -210,6 +214,11 @@ double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
 
 const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return catalog_->log_column_info; }
 
+int64_t Database::CountLogRows() const {
+    Statement count{db_, fmt::format("SELECT COUNT(*) FROM {}", cfg_.log_table_name)};
+    return count.Step() == SQLITE_ROW ? sqlite3_column_int64(count, 0) : 0;
+}
+
 int64_t Database::EstimateLogRowCount() const {
     auto sql =
         fmt::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
@@ -234,15 +243,20 @@ void Database::validate_field(std::string_view name) const {
 
 static constexpr std::string_view kAllowedOps[] = {"=", "!=", ">", ">=", "<", "<=", "~="};
 
-Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter>& filters) const {
-    std::string sql_parts;
-    std::vector<nlohmann::json> params;
-
+void Database::ValidateFilters(const std::vector<QueryFilter>& filters) const {
     for (const auto& ft : filters) {
         validate_field(ft.field);
         if (!range_contains(kAllowedOps, ft.op))
             throw std::runtime_error(fmt::format("Unknown query operator: '{}'", ft.op));
+    }
+}
 
+Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter>& filters) const {
+    ValidateFilters(filters);
+    std::string sql_parts;
+    std::vector<nlohmann::json> params;
+
+    for (const auto& ft : filters) {
         if (!sql_parts.empty()) sql_parts += " AND ";
 
         if (catalog_->compressed_columns.contains(ft.field)) {

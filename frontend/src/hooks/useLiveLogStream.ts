@@ -29,6 +29,7 @@ export function useLiveLogStream(isPaused: boolean, maxLogs = 500) {
       try {
         const incoming = JSON.parse(event.data) as LiveLogRecord[];
         if (incoming?.length > 0) {
+          // SSE matches GET /logs: newest first. The console appends toward the bottom.
           const ascending = [...incoming].reverse();
           bufferRef.current = [...bufferRef.current, ...ascending].slice(-maxLogs);
           setLogs([...bufferRef.current]);

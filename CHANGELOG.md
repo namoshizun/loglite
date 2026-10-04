@@ -1,5 +1,14 @@
 ## Changelog
 
+### 1.3.3
+
+- fix: `AsyncUseConnection` did not properly delegate db operation work to db worker threads.
+- fix: stop all ingestion sources before the final shutdown flush so harvester partial lines are persisted.
+- fix: restore backlog batches after failed writes and abort the transaction on SQLite insert errors.
+- fix: propagate fatal server task and migration errors so the CLI exits with a failure status.
+- fix: report SQLite read errors instead of returning successful empty or partial query results.
+- fix: cap `GET /logs` `limit` at 10,000 rows and reject nonpositive backlog capacity.
+
 ### 1.3.2
 
 - fix: compressed-column `~=` is a one-way substring match (`LIKE '%value%'`), not bidirectional.

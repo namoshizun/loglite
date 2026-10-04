@@ -43,3 +43,5 @@ The generated release container uses `scratch` and contains only `/usr/local/bin
 ./run-tests.sh           # Build and run GoogleTest suite
 ./run-tests.sh --cov     # Same, plus gcov/lcov coverage summary (requires `lcov`)
 ```
+
+See the [test suite guide](tests/README.md) for contract coverage, shared fixtures, and focused test runs.

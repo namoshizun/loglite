@@ -6,6 +6,8 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <cstdint>
+#include <exception>
+#include <list>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -24,11 +26,15 @@ class Server {
 
    private:
     asio::awaitable<void> AcceptLoop(asio::ip::tcp::acceptor& acceptor);
-    asio::awaitable<void> HandleConnection(beast::tcp_stream stream);
+    asio::awaitable<void> HandleConnection(beast::tcp_stream& stream);
+    void OnTaskCompleted(std::exception_ptr error);
 
     ServerContext& ctx_;
     asio::thread_pool pool_;
     asio::ip::tcp::acceptor acceptor_;
+    std::list<beast::tcp_stream> connections_;
+    size_t pending_tasks_{0};
+    std::exception_ptr failure_;
 };
 
 }  // namespace loglite

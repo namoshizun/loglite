@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <ranges>
 #include <stdexcept>
@@ -43,7 +44,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
         Statement count_stmt{db_, count_sql};
         for (int i = 0; i < static_cast<int>(params.size()); ++i)
             bind_param(count_stmt, i + 1, params[i]);
-        if (sqlite3_step(count_stmt) == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
+        if (count_stmt.Step() == SQLITE_ROW) total = sqlite3_column_int(count_stmt, 0);
     }
     if (total == 0) return {total, offset, limit, {}};
 
@@ -62,10 +63,11 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     bind_param(sel, pi++, nlohmann::json(limit));
     bind_param(sel, pi++, nlohmann::json(offset));
 
-    // Build JSON results.
+    // Build JSON results. Cap the reservation so a huge `limit` cannot OOM before
+    // any row is read; the vector grows if the result set is larger.
     std::vector<nlohmann::json> results;
-    results.reserve(static_cast<size_t>(limit));
-    while (sqlite3_step(sel) == SQLITE_ROW) {
+    results.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
+    while (sel.Step() == SQLITE_ROW) {
         nlohmann::json row;
         for (int c = 0; c < static_cast<int>(effective_fields.size()); ++c) {
             const auto& fname = effective_fields[c];
@@ -111,7 +113,7 @@ StatsQueryResult ReaderDatabase::QueryActivityStats(std::string_view since, std:
 
     StatsQueryResult result;
     result.fields = resolved;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (stmt.Step() == SQLITE_ROW) {
         std::vector<nlohmann::json> row;
         row.reserve(resolved.size());
         for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
@@ -153,7 +155,7 @@ StatsQueryResult ReaderDatabase::QueryDatabaseStats(std::string_view since, std:
 
     StatsQueryResult result;
     result.fields = resolved;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (stmt.Step() == SQLITE_ROW) {
         std::vector<nlohmann::json> row;
         row.reserve(resolved.size());
         for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {

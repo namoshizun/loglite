@@ -33,7 +33,7 @@ struct ServerContext {
     std::chrono::steady_clock::time_point server_started_at;
 
     std::atomic<bool> stopping{false};
-    std::vector<std::shared_ptr<asio::steady_timer>> shutdown_timers;
+    std::vector<std::weak_ptr<asio::steady_timer>> shutdown_timers;
 
     ServerContext(Config& config_in, WriterDatabase& db_write_in, ReadDatabasePool& db_read_in,
                   Backlog& backlog_in, LogNotifier& notifier_in,
@@ -51,13 +51,14 @@ struct ServerContext {
           server_started_at(server_started_at_in) {}
 
     void RegisterShutdownTimer(const std::shared_ptr<asio::steady_timer>& timer) {
+        std::erase_if(shutdown_timers, [](const auto& timer) { return timer.expired(); });
         shutdown_timers.push_back(timer);
     }
 
     void RequestStop() {
         stopping.store(true, std::memory_order_release);
-        for (const auto& timer : shutdown_timers) {
-            timer->cancel();
+        for (const auto& weak : shutdown_timers) {
+            if (auto timer = weak.lock()) timer->cancel();
         }
     }
 

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "config.hpp"
+#include "test_support.hpp"
 #include "writer_database.hpp"
 #include "context.hpp"
 #include "metrics.hpp"
@@ -10,12 +10,10 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 
-#include <filesystem>
 #include <fmt/format.h>
-#include <fstream>
+#include <future>
 #include <thread>
 
-namespace fs = std::filesystem;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 namespace beast = boost::beast;
@@ -92,40 +90,18 @@ static std::vector<http::response<http::string_body>> http_req_keep_alive(
 
 class ServerTest : public ::testing::Test {
    protected:
-    static void SetUpTestSuite() {}  // one-time setup if needed
-
     void SetUp() override {
         metrics::MetricsRegistry::Instance().Reset();
 
-        tmp_ = fs::temp_directory_path() / "loglite_server_test";
-        fs::remove_all(tmp_);
-        fs::create_directories(tmp_);
-
-        cfg_.sqlite_dir = tmp_;
-        cfg_.db_path = tmp_ / "logs.db";
-        cfg_.log_table_name = "TestLog";
-        cfg_.log_timestamp_field = "timestamp";
-        cfg_.auto_rollout = true;
-        cfg_.compression = {false, {}};
         cfg_.host = "127.0.0.1";
-        cfg_.port = 17788;
-        cfg_.allow_origin = "*";
         cfg_.task_diagnostics_interval = 3600;
         cfg_.task_backlog_flush_interval = 3600;
         cfg_.task_vacuum_interval = 3600;
-
-        Migration m;
-        m.version = 1;
-        m.rollout = {
-            "CREATE TABLE IF NOT EXISTS TestLog ("
-            "  id        INTEGER PRIMARY KEY,"
-            "  timestamp TEXT    NOT NULL,"
-            "  message   TEXT    NOT NULL,"
-            "  level     TEXT    NOT NULL,"
-            "  service   TEXT"
-            ")"};
-        m.rollback = {"DROP TABLE IF EXISTS TestLog"};
-        cfg_.migrations.push_back(m);
+        {
+            asio::io_context io;
+            tcp::acceptor port_picker{io, {tcp::v4(), 0}};
+            cfg_.port = port_picker.local_endpoint().port();
+        }
 
         db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
@@ -146,9 +122,31 @@ class ServerTest : public ::testing::Test {
 
         server_ = std::make_unique<Server>(*ctx_);
 
-        server_thread_ = std::thread{[this]() { server_->Run(); }};
+        server_finished_ = finished_.get_future();
+        server_thread_ = std::thread{[this]() {
+            try {
+                server_->Run();
+            } catch (...) {
+                server_error_ = std::current_exception();
+            }
+            finished_.set_value();
+        }};
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        ASSERT_TRUE(test::WaitUntil(
+            [&] {
+                if (server_finished_.wait_for(std::chrono::seconds{0}) == std::future_status::ready)
+                    return true;
+                try {
+                    return http_req(cfg_.host, cfg_.port, http::verb::get, "/health").result() ==
+                           http::status::ok;
+                } catch (const boost::system::system_error&) {
+                    return false;
+                }
+            },
+            std::chrono::seconds{5}))
+            << "Server did not become ready";
+        ASSERT_NE(server_finished_.wait_for(std::chrono::seconds{0}), std::future_status::ready)
+            << "Server exited during startup";
     }
 
     void TearDown() override {
@@ -158,6 +156,7 @@ class ServerTest : public ::testing::Test {
         if (server_thread_.joinable()) {
             server_thread_.join();
         }
+        EXPECT_EQ(server_error_, nullptr);
         server_.reset();
 
         // Destroy context first — strand destructor posts cleanup to the
@@ -181,11 +180,10 @@ class ServerTest : public ::testing::Test {
 
         db_->Close();
         db_.reset();
-        fs::remove_all(tmp_);
     }
 
-    fs::path tmp_;
-    Config cfg_;
+    test::TempDirectory directory_;
+    Config cfg_{test::MakeConfig(directory_.path())};
     std::unique_ptr<WriterDatabase> db_;
     std::unique_ptr<ReadDatabasePool> db_read_;
     std::unique_ptr<Backlog> backlog_;
@@ -195,40 +193,41 @@ class ServerTest : public ::testing::Test {
     std::unique_ptr<asio::thread_pool> reader_pool_;
     std::unique_ptr<Server> server_;
     std::thread server_thread_;
+    std::promise<void> finished_;
+    std::future<void> server_finished_;
+    std::exception_ptr server_error_;
 };
 
-// ── Health endpoint ─────────────────────────────────────────────────────────
-
-TEST_F(ServerTest, HealthReturnsOk) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/health");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "ok");
-}
-
-TEST_F(ServerTest, SettingsReturnsOk) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/settings");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    ASSERT_TRUE(body.contains("settings"));
-    EXPECT_TRUE(body["settings"].is_array());
-    EXPECT_GE(body["settings"].size(), 10u);
-}
-
-TEST_F(ServerTest, VersionReturnsOk) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/version");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_FALSE(body["version"].get<std::string>().empty());
+TEST_F(ServerTest, RoutesEndpointsAndRejectsUnknownRoutesAndMethods) {
+    struct Case {
+        http::verb method;
+        const char* target;
+        http::status status;
+        const char* key;
+    };
+    const Case cases[]{
+        {http::verb::get, "/health", http::status::ok, "status"},
+        {http::verb::get, "/settings", http::status::ok, "settings"},
+        {http::verb::get, "/version", http::status::ok, "version"},
+        {http::verb::get, "/schema", http::status::ok, "columns"},
+        {http::verb::get, "/logs?limit=10&offset=0", http::status::bad_request, "error"},
+        {http::verb::get, "/nonexistent", http::status::not_found, "error"},
+        {http::verb::post, "/health", http::status::not_found, "error"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.target);
+        auto res = http_req(cfg_.host, cfg_.port, c.method, c.target);
+        EXPECT_EQ(res.result(), c.status);
+        auto body = nlohmann::json::parse(res.body());
+        EXPECT_TRUE(body.contains(c.key));
+        if (c.status == http::status::not_found) EXPECT_EQ(body["error"], "not found");
+    }
 }
 
 // ── CORS preflight ──────────────────────────────────────────────────────────
 
 TEST_F(ServerTest, OptionsReturnsNoContentWithCorsHeaders) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::options, "/logs");
+    auto res = http_req("127.0.0.1", cfg_.port, http::verb::options, "/logs");
     EXPECT_EQ(res.result(), http::status::no_content);
     EXPECT_EQ(res[http::field::access_control_allow_origin], "*");
     EXPECT_TRUE(res[http::field::access_control_allow_methods].contains("GET"));
@@ -236,44 +235,22 @@ TEST_F(ServerTest, OptionsReturnsNoContentWithCorsHeaders) {
 
 // ── Insert ──────────────────────────────────────────────────────────────────
 
-TEST_F(ServerTest, InsertSingleLog) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs",
-                        R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})",
-                        "application/json");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "accepted");
-}
-
-TEST_F(ServerTest, InsertTwoLogsOnKeepAliveConnection) {
+TEST_F(ServerTest, KeepAliveRequestsEnqueueEachPayloadExactlyOnce) {
     const std::string payload =
         R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
-    auto responses = http_req_keep_alive("127.0.0.1", 17788, http::verb::post, "/logs", payload,
+    auto responses = http_req_keep_alive(cfg_.host, cfg_.port, http::verb::post, "/logs", payload,
                                          "application/json", 2);
     ASSERT_EQ(responses.size(), 2u);
     for (const auto& res : responses) {
         EXPECT_EQ(res.result(), http::status::ok);
-        auto body = nlohmann::json::parse(res.body());
-        EXPECT_EQ(body["status"], "accepted");
+        EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "accepted");
     }
+    EXPECT_EQ(backlog_->Flush(), (std::vector<nlohmann::json>(2, nlohmann::json::parse(payload))));
 }
 
-TEST_F(ServerTest, InsertArrayOfLogs) {
-    auto payload = R"([
-        {"timestamp":"2024-01-01T00:00:00Z","message":"a","level":"INFO"},
-        {"timestamp":"2024-01-01T00:00:01Z","message":"b","level":"ERROR"}
-    ])";
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", payload, "application/json");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "accepted");
-}
-
-TEST_F(ServerTest, ShutdownFlushesPendingBacklog) {
+TEST_F(ServerTest, ShutdownLeavesBufferedLogsForFinalFlushAfterProducersStop) {
     auto res =
-        http_req("127.0.0.1", 17788, http::verb::post, "/logs",
+        http_req("127.0.0.1", cfg_.port, http::verb::post, "/logs",
                  R"({"timestamp":"2024-01-01T00:00:00Z","message":"shutdown","level":"INFO"})",
                  "application/json");
     EXPECT_EQ(res.result(), http::status::ok);
@@ -284,377 +261,133 @@ TEST_F(ServerTest, ShutdownFlushesPendingBacklog) {
     server_->Stop();
     server_thread_.join();
 
-    // The final drain must persist the buffered entry before shutdown completes.
-    EXPECT_EQ(db_->EstimateLogRowCount(), 1);
-    EXPECT_EQ(db_->GetMaxLogId(), 1);
+    // RunServer owns the final flush: harvesters may still enqueue during Stop().
+    EXPECT_EQ(backlog_->Size(), 1u);
+    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
 }
 
-TEST_F(ServerTest, InsertInvalidJson) {
-    auto res =
-        http_req("127.0.0.1", 17788, http::verb::post, "/logs", "not json", "application/json");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
+TEST_F(ServerTest, FatalBackgroundFailureIsRethrownAndRestoresBatch) {
+    db_->ApplyMigration(2, {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog "
+                            "BEGIN SELECT RAISE(ABORT, 'injected background failure'); END"});
+    for (int i = 0; i < 190; ++i) {
+        backlog_->Add(
+            {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "failure"}, {"level", "INFO"}});
+    }
+    EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
+    server_->Stop();
+    server_thread_.join();
+    ASSERT_NE(server_error_, nullptr);
+    EXPECT_THROW(std::rethrow_exception(server_error_), std::runtime_error);
+    server_error_ = nullptr;  // the failure is expected in this test
+    EXPECT_EQ(backlog_->Size(), 190u);
+    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
 }
 
-TEST_F(ServerTest, InsertNonJsonObject) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/logs", "42", "application/json");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
+TEST_F(ServerTest, ShutdownWaitsForInFlightDatabaseWork) {
+    std::promise<void> entered;
+    auto entered_future = entered.get_future();
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    asio::post(ctx_->write_strand, [&] {
+        entered.set_value();
+        gate.wait();
+    });
+    EXPECT_EQ(entered_future.wait_for(std::chrono::seconds{2}), std::future_status::ready);
+    // Fill to the watermark so the flush task queues behind the blocked writer.
+    for (int i = 0; i < 190; ++i) {
+        backlog_->Add(
+            {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "pending"}, {"level", "INFO"}});
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    server_->Stop();
+    const auto before_release = server_finished_.wait_for(std::chrono::milliseconds{100});
+    release.set_value();
+    EXPECT_EQ(before_release, std::future_status::timeout);
+    EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
+    server_thread_.join();
+    EXPECT_EQ(db_->EstimateLogRowCount(), 190);
 }
 
 // ── Query ───────────────────────────────────────────────────────────────────
 
-TEST_F(ServerTest, QueryEmptyDbReturnsEmpty) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
+TEST_F(ServerTest, QueryRoutingPreservesEncodedFiltersProjectionAndPagination) {
+    ASSERT_EQ(
+        db_->Insert({
+            {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "ERROR A"}},
+            {{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}},
+            {{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "ERROR A"}},
+        }),
+        3);
+    auto res = http_req(cfg_.host, cfg_.port, http::verb::get,
+                        "/logs?fields=message&limit=1&offset=1&level==ERROR%20A");
     EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 0);
-    EXPECT_TRUE(body["results"].empty());
-}
-
-TEST_F(ServerTest, QueryMissingFieldsReturns400) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?limit=10&offset=0");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, QueryWithDataReturnsResults) {
-    // Insert via DB directly
-    nlohmann::json log1{
-        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    nlohmann::json log2{
-        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}};
-    db_->Insert({log1, log2});
-
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
+    const auto body = nlohmann::json::parse(res.body());
     EXPECT_EQ(body["total"], 2);
-    EXPECT_EQ(body["results"].size(), 2u);
-}
-
-TEST_F(ServerTest, QueryWithFilter) {
-    nlohmann::json log1{
-        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "a"}, {"level", "DEBUG"}};
-    nlohmann::json log2{
-        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "b"}, {"level", "ERROR"}};
-    db_->Insert({log1, log2});
-
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=*&limit=10&offset=0&level==ERROR");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 1);
-    EXPECT_EQ(body["results"][0]["level"], "ERROR");
-}
-
-TEST_F(ServerTest, QueryPagination) {
-    std::vector<nlohmann::json> logs;
-    for (int i = 0; i < 5; ++i) {
-        logs.push_back({
-            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}Z", i)},
-            {"message", fmt::format("msg{}", i)},
-            {"level", "INFO"},
-        });
-    }
-    db_->Insert(logs);
-
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=2&offset=0");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 5);
-    EXPECT_EQ(body["results"].size(), 2u);
-}
-
-TEST_F(ServerTest, QueryWithSpecificFields) {
-    nlohmann::json log1{
-        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    db_->Insert({log1});
-
-    auto res = http_req("127.0.0.1", 17788, http::verb::get,
-                        "/logs?fields=message,level&limit=10&offset=0");
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    ASSERT_EQ(body["results"].size(), 1u);
-    EXPECT_TRUE(body["results"][0].contains("message"));
-    EXPECT_TRUE(body["results"][0].contains("level"));
-}
-
-TEST_F(ServerTest, QueryNonNumericLimit) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=abc&offset=0");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, QueryNonNumericOffset) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=xxx");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-// ── 404 ─────────────────────────────────────────────────────────────────────
-
-TEST_F(ServerTest, UnknownRouteReturns404) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/nonexistent");
-    EXPECT_EQ(static_cast<int>(res.result()), 404);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["error"], "not found");
-}
-
-TEST_F(ServerTest, PostToHealthReturns404) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::post, "/health");
-    EXPECT_EQ(static_cast<int>(res.result()), 404);
+    EXPECT_EQ(body["results"], nlohmann::json::array({{{"message", "first"}}}));
 }
 
 // ── Stats endpoint ──────────────────────────────────────────────────────────
 
-TEST_F(ServerTest, StatsRequiresAllParams) {
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, "/stats");
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, StatsWithValidParamsReturnsOk) {
-    auto url = fmt::format(
-        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body.contains("activities"));
-    EXPECT_TRUE(body.contains("database"));
-    EXPECT_TRUE(body["activities"].contains("fields"));
-    EXPECT_TRUE(body["activities"].contains("data"));
-    EXPECT_TRUE(body["database"].contains("fields"));
-    EXPECT_TRUE(body["database"].contains("data"));
-    EXPECT_TRUE(body.contains("uptime"));
-    EXPECT_GE(body["uptime"].get<int64_t>(), 0);
-}
-
-TEST_F(ServerTest, StatsWithPopulatedData) {
+TEST_F(ServerTest, StatsRoutingReturnsPersistedValues) {
     // Insert some stats data directly.
-    ActivityStatsRow activity;
-    activity.since = "2024-01-01T00:00:00Z";
-    activity.until = "2024-01-01T00:01:00Z";
-    activity.query_count = 10;
-    activity.query_avg = 5;
-    db_->InsertActivityStats(activity);
-    db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
-
-    auto url = fmt::format(
+    ASSERT_TRUE(db_->InsertActivityStats({.since = "2024-01-01T00:00:00Z",
+                                          .until = "2024-01-01T00:01:00Z",
+                                          .query_count = 10,
+                                          .query_avg = 5}));
+    ASSERT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
+    auto res = http_req(
+        cfg_.host, cfg_.port, http::verb::get,
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
         "&activity_stats_fields=query_count,query_avg&database_stats_fields=rows_count,db_size"
         "&ordering=asc");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
     EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["activities"]["fields"].size(), 2u);
-    EXPECT_EQ(body["activities"]["fields"][0], "query_count");
-    EXPECT_EQ(body["activities"]["fields"][1], "query_avg");
-    EXPECT_EQ(body["activities"]["data"].size(), 1u);
-    EXPECT_EQ(body["database"]["fields"].size(), 2u);
-    EXPECT_EQ(body["database"]["fields"][0], "rows_count");
-    EXPECT_EQ(body["database"]["fields"][1], "db_size");
-    EXPECT_EQ(body["database"]["data"].size(), 1u);
+    const auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["activities"]["fields"], (std::vector<std::string>{"query_count", "query_avg"}));
+    EXPECT_EQ(body["activities"]["data"], nlohmann::json::array({{10, 5}}));
+    EXPECT_EQ(body["database"]["fields"], (std::vector<std::string>{"rows_count", "db_size"}));
+    EXPECT_EQ(body["database"]["data"], nlohmann::json::array({{100, 4096}}));
 }
 
-TEST_F(ServerTest, StatsWindowExceedsOneDay) {
-    auto url = fmt::format(
-        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-03T00:00:00Z"
-        "&activity_stats_fields=*&database_stats_fields=*");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, StatsUntilBeforeSince) {
-    auto url = fmt::format(
-        "/stats?since=2024-01-02T00:00:00Z&until=2024-01-01T00:00:00Z"
-        "&activity_stats_fields=*&database_stats_fields=*");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, StatsInvalidOrdering) {
-    auto url = fmt::format(
-        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=sideways");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, StatsInvalidTimestamp) {
-    auto url = fmt::format(
-        "/stats?since=notatime&until=2024-01-01T01:00:00Z"
-        "&activity_stats_fields=*&database_stats_fields=*");
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(ServerTest, StatsAcceptsFractionalIso8601) {
-    auto url =
-        "/stats?since=2024-01-01T00:00:00.000Z&until=2024-01-01T01:00:00.999Z"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body.contains("activities"));
-    EXPECT_TRUE(body.contains("database"));
-    EXPECT_TRUE(body["activities"].contains("fields"));
-    EXPECT_TRUE(body["activities"].contains("data"));
-    EXPECT_TRUE(body["database"].contains("fields"));
-    EXPECT_TRUE(body["database"].contains("data"));
-}
-
-TEST_F(ServerTest, StatsAcceptsColonTimezoneOffsetsEncodedPlus) {
-    // '+' must be %2B in query values — url_decode maps '+' to space.
-    auto url =
-        "/stats?since=2024-06-15T08:30:00%2B08:00&until=2024-06-15T09:30:00%2B08:00"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body.contains("activities"));
-    EXPECT_TRUE(body.contains("database"));
-}
-
-TEST_F(ServerTest, StatsAcceptsCompactTimezoneOffsetsEncodedPlus) {
-    auto url =
-        "/stats?since=2024-06-15T08:30:00%2B0830&until=2024-06-15T09:30:00%2B0830"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=desc";
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body.contains("activities"));
-    EXPECT_TRUE(body.contains("database"));
-}
-
-TEST_F(ServerTest, StatsAcceptsFractionalSecondsWithNegativeOffset) {
-    auto url =
-        "/stats?since=2024-06-14T19:30:00.500-05:00&until=2024-06-14T20:30:00.250-05:00"
-        "&activity_stats_fields=*&database_stats_fields=*&ordering=asc";
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body.contains("activities"));
-    EXPECT_TRUE(body.contains("database"));
-}
-
-TEST_F(ServerTest, StatsTrimsCommaSeparatedFieldNames) {
-    ActivityStatsRow activity;
-    activity.since = "2024-01-01T00:00:00Z";
-    activity.until = "2024-01-01T00:01:00Z";
-    activity.query_count = 10;
-    activity.query_avg = 5;
-    db_->InsertActivityStats(activity);
-    db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096});
-
-    // Spaces after commas (and outer padding) via %20 — raw spaces in target break HTTP parsing.
-    auto url =
-        "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
-        "&activity_stats_fields=query_count%2C%20query_avg"
-        "&database_stats_fields=%20rows_count%20%2C%20db_size%20&ordering=asc";
-    auto res = http_req("127.0.0.1", 17788, http::verb::get, url);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["activities"]["fields"][0], "query_count");
-    EXPECT_EQ(body["activities"]["fields"][1], "query_avg");
-    EXPECT_EQ(body["database"]["fields"][0], "rows_count");
-    EXPECT_EQ(body["database"]["fields"][1], "db_size");
-}
-
-// ── Multiple connections ────────────────────────────────────────────────────
-
-TEST_F(ServerTest, MultipleRequestsSequentially) {
-    // Health
-    auto res1 = http_req("127.0.0.1", 17788, http::verb::get, "/health");
-    EXPECT_EQ(res1.result(), http::status::ok);
-
-    // Insert
-    auto res2 = http_req("127.0.0.1", 17788, http::verb::post, "/logs",
-                         R"({"timestamp":"2024-01-01T00:00:00Z","message":"multi","level":"INFO"})",
-                         "application/json");
-    EXPECT_EQ(res2.result(), http::status::ok);
-
-    // Query (data was inserted via backlog, need to flush)
-    // Insert directly for the test
-    db_->Insert(
-        {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "direct"}, {"level", "INFO"}}});
-
-    auto res3 = http_req("127.0.0.1", 17788, http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    EXPECT_EQ(res3.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res3.body());
-    EXPECT_GE(body["total"], 1);
-}
-
-// ── SSE headers ────────────────────────────────────────────────────────────
-
-TEST_F(ServerTest, SSEReturnsChunkedResponse) {
-    asio::io_context ioc;
-    tcp::socket socket{ioc};
-    tcp::resolver resolver{ioc};
-    auto endpoints = resolver.resolve("127.0.0.1", "17788");
-    asio::connect(socket, endpoints);
-
-    http::request<http::string_body> req{http::verb::get, "/logs/sse?fields=*", 11};
-    req.set(http::field::host, "127.0.0.1");
-    http::write(socket, req);
-
-    // Read just the response header
-    beast::flat_buffer buf;
-    http::response_parser<http::empty_body> parser;
-    http::read_header(socket, buf, parser);
-
-    auto res = parser.get();
-    EXPECT_EQ(res.result(), http::status::ok);
-    EXPECT_EQ(res[http::field::content_type], "text/event-stream");
-    EXPECT_EQ(res[http::field::cache_control], "no-cache");
-    EXPECT_EQ(res.chunked(), true);
-
-    beast::error_code ec;
-    socket.shutdown(tcp::socket::shutdown_both, ec);
-}
-
-TEST_F(ServerTest, SSEWithFieldsParam) {
-    asio::io_context ioc;
-    tcp::socket socket{ioc};
-    tcp::resolver resolver{ioc};
-    auto endpoints = resolver.resolve("127.0.0.1", "17788");
-    asio::connect(socket, endpoints);
-
-    http::request<http::string_body> req{http::verb::get, "/logs/sse?fields=message,level", 11};
-    req.set(http::field::host, "127.0.0.1");
-    http::write(socket, req);
-
-    beast::flat_buffer buf;
-    http::response_parser<http::empty_body> parser;
-    http::read_header(socket, buf, parser);
-
-    auto res = parser.get();
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    beast::error_code ec;
-    socket.shutdown(tcp::socket::shutdown_both, ec);
+TEST_F(ServerTest, ShutdownCancelsIdleSSESubscriptions) {
+    asio::io_context io;
+    std::vector<tcp::socket> sockets;
+    for (const auto* fields : {"*", "message,level"}) {
+        sockets.emplace_back(io);
+        auto& socket = sockets.back();
+        socket.connect({asio::ip::make_address(cfg_.host), cfg_.port});
+        http::request<http::empty_body> req{http::verb::get,
+                                            fmt::format("/logs/sse?fields={}", fields), 11};
+        req.set(http::field::host, cfg_.host);
+        http::write(socket, req);
+        // Read just the response header; the subscription then waits without new logs.
+        beast::flat_buffer buffer;
+        http::response_parser<http::empty_body> parser;
+        http::read_header(socket, buffer, parser);
+        const auto& res = parser.get();
+        EXPECT_EQ(res.result(), http::status::ok);
+        EXPECT_EQ(res[http::field::content_type], "text/event-stream");
+        EXPECT_EQ(res[http::field::cache_control], "no-cache");
+        EXPECT_TRUE(res.chunked());
+    }
+    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 2; }));
+    server_->Stop();
+    EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
+    server_thread_.join();
+    EXPECT_EQ(notifier_->SubscriberCount(), 0u);
+    EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
+    EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kHttpConnection), 0);
 }
 
 // ── Handle connection error ─────────────────────────────────────────────────
 
-TEST_F(ServerTest, ImmediateDisconnectIsHandled) {
-    asio::io_context ioc;
-    tcp::socket socket{ioc};
-    tcp::resolver resolver{ioc};
-    auto endpoints = resolver.resolve("127.0.0.1", "17788");
-    asio::connect(socket, endpoints);
-
-    // Disconnect immediately without sending anything
+TEST_F(ServerTest, DisconnectBeforeRequestLeavesServerResponsiveAndBalancesConnections) {
+    asio::io_context io;
+    tcp::socket socket{io};
+    socket.connect({asio::ip::make_address(cfg_.host), cfg_.port});
+    // Disconnect immediately without sending anything.
     socket.close();
-    // No crash expected — server handles this gracefully
-    SUCCEED();
+    EXPECT_EQ(http_req(cfg_.host, cfg_.port, http::verb::get, "/health").result(),
+              http::status::ok);
+    EXPECT_TRUE(test::WaitUntil(
+        [] { return metrics::MetricsRegistry::Instance().Gauge(metrics::kHttpConnection) == 0; }));
 }

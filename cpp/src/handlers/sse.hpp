@@ -25,7 +25,7 @@ using namespace std::chrono_literals;
 
 // ── SSE handler ────────────────────────────────────────────────────────────────
 //
-// Long-running coroutine that owns the TCP stream.  It:
+// Long-running coroutine using the connection's TCP stream. It:
 //   1. Sends HTTP 200 headers with Transfer-Encoding: chunked.
 //   2. Registers a subscription timer with LogNotifier.
 //   3. Arms the timer to expire after sse_debounce_ms.
@@ -34,7 +34,7 @@ using namespace std::chrono_literals;
 //   4. Queries DB for id > pushed_id AND id <= current_id and sends SSE chunk.
 //   5. On write error (client disconnect), returns.
 
-inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
+inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
                                        http::request<http::string_body> req, ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
     auto& cfg = ctx.config;
@@ -73,6 +73,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
 
     // ── Subscribe ─────────────────────────────────────────────────────────────
     auto sub = ctx.notifier.Subscribe(ex);
+    ctx.RegisterShutdownTimer(sub->timer);
     auto unsub = std::unique_ptr<LogNotifier, std::function<void(LogNotifier*)>>(
         &ctx.notifier, [&sub](LogNotifier* n) { n->Unsubscribe(sub); });
 
@@ -85,10 +86,11 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream stream,
               ctx.notifier.SubscriberCount());
 
     // ── Event loop ────────────────────────────────────────────────────────────
-    while (true) {
+    while (!ctx.StopRequested()) {
         // Arm the subscription timer.  notify() cancels it early when new logs arrive.
         sub->timer->expires_after(debounce);
         co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
+        if (ctx.StopRequested()) break;
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
 

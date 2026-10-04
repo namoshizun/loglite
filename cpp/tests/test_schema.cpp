@@ -4,30 +4,29 @@
 
 using namespace loglite::handlers;
 
-TEST(SchemaKindTest, IntegerTypes) {
-    EXPECT_EQ(NormalizeColumnKind("INTEGER", false), "integer");
-    EXPECT_EQ(NormalizeColumnKind("int", false), "integer");
-}
-
-TEST(SchemaKindTest, NumberTypes) {
-    EXPECT_EQ(NormalizeColumnKind("REAL", false), "number");
-    EXPECT_EQ(NormalizeColumnKind("FLOAT", false), "number");
-    EXPECT_EQ(NormalizeColumnKind("NUMERIC(10,2)", false), "number");
-}
-
-TEST(SchemaKindTest, TextAndDatetime) {
-    EXPECT_EQ(NormalizeColumnKind("TEXT", false), "text");
-    EXPECT_EQ(NormalizeColumnKind("VARCHAR(64)", false), "text");
-    EXPECT_EQ(NormalizeColumnKind("DATETIME", false), "datetime");
-    EXPECT_EQ(NormalizeColumnKind("JSON", false), "json");
-    EXPECT_EQ(NormalizeColumnKind("BLOB", false), "blob");
-    EXPECT_EQ(NormalizeColumnKind("BOOLEAN", false), "boolean");
-}
-
-TEST(SchemaKindTest, CompressedOverridesInteger) {
-    EXPECT_EQ(NormalizeColumnKind("INTEGER", true), "text");
-}
-
-TEST(SchemaKindTest, UnknownTypeDefaultsToText) {
-    EXPECT_EQ(NormalizeColumnKind("WEIRD", false), "text");
+TEST(SchemaKindTest, NormalizesTypeAliasesAndCompressedStorage) {
+    struct Case {
+        const char* type;
+        bool compressed;
+        const char* kind;
+    };
+    const Case cases[]{
+        {"INTEGER", false, "integer"},
+        {"int", false, "integer"},
+        {"REAL", false, "number"},
+        {"FLOAT", false, "number"},
+        {"NUMERIC(10,2)", false, "number"},
+        {"TEXT", false, "text"},
+        {"VARCHAR(64)", false, "text"},
+        {"DATETIME", false, "datetime"},
+        {"JSON", false, "json"},
+        {"BLOB", false, "blob"},
+        {"BOOLEAN", false, "boolean"},
+        {"INTEGER", true, "text"},
+        {"WEIRD", false, "text"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.type);
+        EXPECT_EQ(NormalizeColumnKind(c.type, c.compressed), c.kind);
+    }
 }

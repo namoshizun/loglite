@@ -49,6 +49,9 @@ struct CompressionConfig {
 
 // ── Query result ──────────────────────────────────────────────────────────────
 
+// Hard cap on GET /logs `limit` (and a bound for result-set preallocation).
+inline constexpr int kMaxQueryLimit = 10'000;
+
 struct PaginatedQueryResult {
     int total{};
     int offset{};

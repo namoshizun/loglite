@@ -1,11 +1,16 @@
 #include "backlog.hpp"
 #include "metrics.hpp"
 
+#include <stdexcept>
 #include <utility>
 
 namespace loglite {
 
-Backlog::Backlog(size_t max_size) : max_size_(max_size) {}
+Backlog::Backlog(size_t max_size) : max_size_(max_size) {
+    if (max_size_ == 0) {
+        throw std::invalid_argument("Backlog capacity must be at least 1");
+    }
+}
 
 void Backlog::Add(nlohmann::json log) {
     bool dropped = false;
@@ -34,6 +39,25 @@ std::vector<nlohmann::json> Backlog::Flush() {
                                     std::make_move_iterator(queue_.end()));
     queue_.clear();
     return out;
+}
+
+void Backlog::Restore(std::vector<nlohmann::json> entries) {
+    size_t dropped = 0;
+    {
+        std::lock_guard lk(mtx_);
+        // Failed entries precede anything added while the database was busy.
+        for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+            queue_.push_front(std::move(*it));
+        }
+        while (queue_.size() > max_size_) {
+            queue_.pop_front();
+            ++dropped;
+        }
+        is_full_.store(queue_.size() >= max_size_ * 0.95, std::memory_order_release);
+    }
+    if (dropped) {
+        metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop, 0, dropped);
+    }
 }
 
 bool Backlog::IsFull() const noexcept { return is_full_.load(std::memory_order_acquire); }

@@ -10,9 +10,10 @@
 #include "migrations.hpp"
 #include "server.hpp"
 
-#include <atomic>
 #include <chrono>
+#include <exception>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace loglite {
@@ -22,9 +23,22 @@ using namespace std::chrono_literals;
 namespace {
 
 // Module-level state set during RunServer so PushToBacklog / StopServer work.
-// Protected by the guarantee that only one server runs per process.
+// Access and teardown are synchronized; only one server runs per process.
 Backlog* g_backlog{nullptr};
 Server* g_server{nullptr};
+
+void FlushPendingBacklog(ServerContext& ctx) {
+    // Queue behind in-flight work and keep all access to the writer on its strand.
+    const int count = asio::co_spawn(
+                          ctx.write_strand,
+                          [&ctx]() -> asio::awaitable<int> {
+                              co_return ctx.backlog.Flush(
+                                  [&ctx](const auto& logs) { return ctx.db_write.Insert(logs); });
+                          },
+                          asio::use_future)
+                          .get();
+    log::INFO("[Termination] flushed {} pending log(s)", count);
+}
 
 std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const Config& cfg,
                                                                           Backlog& backlog) {
@@ -75,37 +89,43 @@ void RunServer(const std::filesystem::path& config_path) {
                       db_read_pool.get_executor(),
                       server_started_at};
 
-    g_backlog = &backlog;
-
     // Start harvesters
     auto native = BuildNativeHarvesters(cfg, backlog);
-    for (const auto& harvester : native) {
-        harvester->Start();
-    }
-
-    // Run server
     Server server{ctx};
+    g_backlog = &backlog;
     g_server = &server;
 
-    log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
-    server.Run();
-
-    // Teardown
-    ctx.RequestStop();
-    g_server = nullptr;
-    g_backlog = nullptr;
-
-    for (const auto& harvester : native) {
-        harvester->Stop();
+    std::exception_ptr failure;
+    try {
+        for (const auto& harvester : native) harvester->Start();
+        log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
+        server.Run();
+    } catch (...) {
+        failure = std::current_exception();
     }
 
-    db_write_pool.stop();
-    db_read_pool.stop();
+    // Teardown
+    g_server = nullptr;
+    g_backlog = nullptr;
+    for (const auto& harvester : native) harvester->Stop();
+
+    // All producers have stopped, including harvesters that emit a partial line in Stop().
+    try {
+        FlushPendingBacklog(ctx);
+    } catch (const std::exception& e) {
+        log::ERROR("[Termination] backlog flush failed: {}", e.what());
+        if (!failure) {
+            failure = std::current_exception();
+        }
+    }
     db_write_pool.join();
     db_read_pool.join();
 
     db_read.Close();
     db_write.Close();
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
 }
 
 void StopServer() {

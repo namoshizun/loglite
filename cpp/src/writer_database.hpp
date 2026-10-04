@@ -7,6 +7,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -49,18 +50,17 @@ class WriterDatabase final : public Database {
     template <std::invocable<WriterDatabase&> F>
     asio::awaitable<std::invoke_result_t<F, WriterDatabase&>> AsyncUseConnection(
         asio::any_io_executor write_strand_ex, F&& f) {
-        auto caller_ex = co_await asio::this_coro::executor;
-        co_await asio::post(write_strand_ex, asio::use_awaitable);
-        if constexpr (std::is_void_v<std::invoke_result_t<F, WriterDatabase&>>) {
-            std::invoke(std::forward<F>(f), *this);
-            co_await asio::post(caller_ex, asio::use_awaitable);
-            co_return;
-        } else {
-            auto result = std::invoke(std::forward<F>(f), *this);
-            co_await asio::post(caller_ex, asio::use_awaitable);
-            co_return result;
-        }
+        using Result = std::invoke_result_t<F, WriterDatabase&>;
+        return asio::co_spawn(
+            std::move(write_strand_ex),
+            [this, f = std::forward<F>(f)]() mutable -> asio::awaitable<Result> {
+                co_return std::invoke(std::move(f), *this);
+            },
+            asio::use_awaitable);
     }
+
+   private:
+    void LoadColumnDictionary();
 };
 
 }  // namespace loglite

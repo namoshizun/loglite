@@ -1,113 +1,64 @@
 #include <gtest/gtest.h>
 
-#include "config.hpp"
+#include "test_support.hpp"
 #include "reader_database.hpp"
 #include "writer_database.hpp"
 #include "metrics.hpp"
 #include "tasks/diagnostics.hpp"
 
-#include <filesystem>
 #include <limits>
 
-namespace fs = std::filesystem;
 using namespace loglite;
 
-class DiagnosticsTest : public ::testing::Test {
+class DiagnosticsMetricsTest : public ::testing::Test {
+   protected:
+    void SetUp() override { metrics::MetricsRegistry::Instance().Reset(std::chrono::seconds{60}); }
+    void TearDown() override { metrics::MetricsRegistry::Instance().Reset(); }
+};
+
+class DiagnosticsTest : public test::DatabaseFixture {
    protected:
     void SetUp() override {
         metrics::MetricsRegistry::Instance().Reset(std::chrono::seconds{60});
-        tmp_ = fs::temp_directory_path() / "loglite_diag_test";
-        fs::remove_all(tmp_);
-        fs::create_directories(tmp_);
+        DatabaseFixture::SetUp();
     }
-
     void TearDown() override {
+        DatabaseFixture::TearDown();
         metrics::MetricsRegistry::Instance().Reset();
-        reader_.reset();
-        if (db_) db_.reset();
-        fs::remove_all(tmp_);
     }
-
-    void init_db() {
-        cfg_.sqlite_dir = tmp_;
-        cfg_.db_path = tmp_ / "logs.db";
-        cfg_.log_table_name = "TestLog";
-        cfg_.log_timestamp_field = "timestamp";
-        cfg_.auto_rollout = true;
-        cfg_.compression = {false, {}};
-        cfg_.stats_retention_hours = 24;
-
-        Migration m;
-        m.version = 1;
-        m.rollout = {
-            "CREATE TABLE IF NOT EXISTS TestLog ("
-            "  id        INTEGER PRIMARY KEY,"
-            "  timestamp TEXT    NOT NULL,"
-            "  message   TEXT    NOT NULL,"
-            "  level     TEXT    NOT NULL"
-            ")"};
-        m.rollback = {"DROP TABLE IF EXISTS TestLog"};
-        cfg_.migrations.push_back(m);
-
-        db_ = std::make_unique<WriterDatabase>(cfg_);
-        db_->Open();
-        db_->Initialize();
-        reader_ = std::make_unique<ReaderDatabase>(cfg_, db_->catalog());
-        reader_->Open();
-    }
-
-    fs::path tmp_;
-    Config cfg_;
-    std::unique_ptr<WriterDatabase> db_;
-    std::unique_ptr<ReaderDatabase> reader_;
 };
 
 // ── round_stat ──────────────────────────────────────────────────────────────
 
-TEST_F(DiagnosticsTest, RoundStatPositive) {
-    EXPECT_EQ(tasks::detail::round_stat(3.2), 3);
-    EXPECT_EQ(tasks::detail::round_stat(3.7), 4);
-    EXPECT_EQ(tasks::detail::round_stat(3.5), 4);
+TEST(DiagnosticsSummaryTest, RoundingUsesNearestIntegerWithTiesAwayFromZero) {
+    const std::pair<double, int64_t> cases[]{{3.2, 3},   {3.7, 4},   {3.5, 4}, {-3.2, -3},
+                                             {-3.7, -4}, {-3.5, -4}, {0.0, 0}};
+    for (const auto& [value, expected] : cases) {
+        SCOPED_TRACE(value);
+        EXPECT_EQ(tasks::detail::round_stat(value), expected);
+    }
 }
-
-TEST_F(DiagnosticsTest, RoundStatNegative) {
-    EXPECT_EQ(tasks::detail::round_stat(-3.2), -3);
-    EXPECT_EQ(tasks::detail::round_stat(-3.7), -4);
-    EXPECT_EQ(tasks::detail::round_stat(-3.5), -4);
-}
-
-TEST_F(DiagnosticsTest, RoundStatZero) { EXPECT_EQ(tasks::detail::round_stat(0.0), 0); }
 
 // ── summarize_observations ──────────────────────────────────────────────────
 
-TEST_F(DiagnosticsTest, SummarizeSingleMetric) {
-    std::vector<metrics::Observation> samples{
-        {std::chrono::steady_clock::now(), metrics::kQueryRequest, 10.0, 1},
-        {std::chrono::steady_clock::now(), metrics::kQueryRequest, 20.0, 1},
-        {std::chrono::steady_clock::now(), metrics::kQueryRequest, 30.0, 1},
+TEST(DiagnosticsSummaryTest, EmptyAndUnmatchedObservationsProduceZeroSummaries) {
+    const std::vector<metrics::Observation> cases[]{
+        {},
+        {{std::chrono::steady_clock::now(), metrics::kIngestRequest, 100.0, 1}},
     };
-
-    auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
-    EXPECT_EQ(q.sample_count, 3);
-    EXPECT_EQ(q.item_count, 3);
-    EXPECT_DOUBLE_EQ(q.value_total, 60.0);
-    EXPECT_DOUBLE_EQ(q.min, 10.0);
-    EXPECT_DOUBLE_EQ(q.max, 30.0);
-    EXPECT_DOUBLE_EQ(q.avg, 20.0);
+    for (const auto& samples : cases) {
+        SCOPED_TRACE(samples.size());
+        auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
+        EXPECT_EQ(q.sample_count, 0);
+        EXPECT_EQ(q.item_count, 0);
+        EXPECT_DOUBLE_EQ(q.value_total, 0.0);
+        EXPECT_DOUBLE_EQ(q.min, 0.0);
+        EXPECT_DOUBLE_EQ(q.max, 0.0);
+        EXPECT_DOUBLE_EQ(q.avg, 0.0);
+    }
 }
 
-TEST_F(DiagnosticsTest, SummarizeEmptySamples) {
-    std::vector<metrics::Observation> samples;
-    auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
-    EXPECT_EQ(q.sample_count, 0);
-    EXPECT_EQ(q.item_count, 0);
-    EXPECT_DOUBLE_EQ(q.value_total, 0.0);
-    EXPECT_DOUBLE_EQ(q.min, 0.0);
-    EXPECT_DOUBLE_EQ(q.max, 0.0);
-    EXPECT_DOUBLE_EQ(q.avg, 0.0);
-}
-
-TEST_F(DiagnosticsTest, SummarizeMultipleMetrics) {
+TEST(DiagnosticsSummaryTest, SummarizeMultipleMetrics) {
     std::vector<metrics::Observation> samples{
         {std::chrono::steady_clock::now(), metrics::kQueryRequest, 5.0, 1},
         {std::chrono::steady_clock::now(), metrics::kIngestRequest, 100.0, 1},
@@ -115,6 +66,9 @@ TEST_F(DiagnosticsTest, SummarizeMultipleMetrics) {
         {std::chrono::steady_clock::now(), metrics::kIngestRequest, 200.0, 1},
         {std::chrono::steady_clock::now(), metrics::kBacklogDrop, 0.0, 5},
         {std::chrono::steady_clock::now(), metrics::kInsertBatch, 2.5, 20},
+        {std::chrono::steady_clock::now(), metrics::kInsertBatch, 5.5, 30},
+        // Only requested names contribute; this sample must be ignored.
+        {std::chrono::steady_clock::now(), "unrequested", 9999.0, 17},
     };
 
     auto [q, ingest, drops, inserts] = tasks::detail::summarize_observations(
@@ -122,6 +76,8 @@ TEST_F(DiagnosticsTest, SummarizeMultipleMetrics) {
         metrics::kInsertBatch);
 
     EXPECT_EQ(q.sample_count, 2);
+    EXPECT_EQ(q.item_count, 2);
+    EXPECT_DOUBLE_EQ(q.value_total, 20.0);
     EXPECT_DOUBLE_EQ(q.min, 5.0);
     EXPECT_DOUBLE_EQ(q.max, 15.0);
     EXPECT_DOUBLE_EQ(q.avg, 10.0);
@@ -134,53 +90,33 @@ TEST_F(DiagnosticsTest, SummarizeMultipleMetrics) {
     EXPECT_EQ(drops.sample_count, 1);
     EXPECT_EQ(drops.item_count, 5);
 
-    EXPECT_EQ(inserts.sample_count, 1);
-    EXPECT_EQ(inserts.item_count, 20);
-    EXPECT_DOUBLE_EQ(inserts.value_total, 2.5);
-}
-
-TEST_F(DiagnosticsTest, SummarizeIgnoresUnrequestedMetrics) {
-    // Only query and ingest are requested; drops should be ignored.
-    std::vector<metrics::Observation> samples{
-        {std::chrono::steady_clock::now(), metrics::kQueryRequest, 10.0, 1},
-        {std::chrono::steady_clock::now(), metrics::kBacklogDrop, 0.0, 3},
-        {std::chrono::steady_clock::now(), metrics::kIngestRequest, 50.0, 1},
-    };
-
-    auto [q, ingest] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest,
-                                                             metrics::kIngestRequest);
-
-    EXPECT_EQ(q.sample_count, 1);
-    EXPECT_EQ(ingest.sample_count, 1);
-}
-
-TEST_F(DiagnosticsTest, SummarizeItemCountAccumulation) {
-    std::vector<metrics::Observation> samples{
-        {std::chrono::steady_clock::now(), metrics::kInsertBatch, 15.0, 10},
-        {std::chrono::steady_clock::now(), metrics::kInsertBatch, 25.0, 30},
-    };
-
-    auto [inserts] = tasks::detail::summarize_observations(samples, metrics::kInsertBatch);
     EXPECT_EQ(inserts.sample_count, 2);
-    EXPECT_EQ(inserts.item_count, 40);  // 10 + 30
-    EXPECT_DOUBLE_EQ(inserts.value_total, 40.0);
-    EXPECT_DOUBLE_EQ(inserts.avg, 20.0);
+    EXPECT_EQ(inserts.item_count, 50);  // 20 + 30, distinct from the number of observations
+    EXPECT_DOUBLE_EQ(inserts.value_total, 8.0);
+    EXPECT_DOUBLE_EQ(inserts.min, 2.5);
+    EXPECT_DOUBLE_EQ(inserts.max, 5.5);
+    EXPECT_DOUBLE_EQ(inserts.avg, 4.0);
 }
 
-TEST_F(DiagnosticsTest, SummarizeSingleSampleSetsMinMaxEqual) {
-    std::vector<metrics::Observation> samples{
-        {std::chrono::steady_clock::now(), metrics::kQueryRequest, 42.0, 1},
-    };
-
-    auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
-    EXPECT_DOUBLE_EQ(q.min, 42.0);
-    EXPECT_DOUBLE_EQ(q.max, 42.0);
-    EXPECT_DOUBLE_EQ(q.avg, 42.0);
+TEST(DiagnosticsSummaryTest, SingleSamplesSetMinMaxAndAverageToTheirOwnValue) {
+    for (double value : {42.0, -42.0, 0.0}) {
+        SCOPED_TRACE(value);
+        const std::vector<metrics::Observation> samples{
+            {std::chrono::steady_clock::now(), metrics::kQueryRequest, value, 1},
+        };
+        auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
+        EXPECT_EQ(q.sample_count, 1);
+        EXPECT_EQ(q.item_count, 1);
+        EXPECT_DOUBLE_EQ(q.value_total, value);
+        EXPECT_DOUBLE_EQ(q.min, value);
+        EXPECT_DOUBLE_EQ(q.max, value);
+        EXPECT_DOUBLE_EQ(q.avg, value);
+    }
 }
 
 // ── build_activity_stats ────────────────────────────────────────────────────
 
-TEST_F(DiagnosticsTest, BuildActivityStatsFromRealMetrics) {
+TEST_F(DiagnosticsMetricsTest, BuildActivityStatsFromRealMetrics) {
     auto& registry = metrics::MetricsRegistry::Instance();
 
     registry.Collect(metrics::kQueryRequest, 5.0);
@@ -222,7 +158,7 @@ TEST_F(DiagnosticsTest, BuildActivityStatsFromRealMetrics) {
     EXPECT_EQ(row.http_conn_count, 1);
 }
 
-TEST_F(DiagnosticsTest, BuildActivityStatsEmptySamples) {
+TEST_F(DiagnosticsMetricsTest, BuildActivityStatsEmptySamples) {
     auto& registry = metrics::MetricsRegistry::Instance();
 
     registry.IncrementGauge(metrics::kSseSession);
@@ -245,47 +181,7 @@ TEST_F(DiagnosticsTest, BuildActivityStatsEmptySamples) {
 
 // ── Persistence: InsertActivityStats, InsertDatabaseStats, DeleteStatsBefore ─
 
-TEST_F(DiagnosticsTest, InsertAndQueryActivityStats) {
-    init_db();
-
-    ActivityStatsRow row;
-    row.since = "2024-01-01T00:00:00Z";
-    row.until = "2024-01-01T00:01:00Z";
-    row.query_count = 100;
-    row.query_min = 1;
-    row.query_max = 50;
-    row.query_avg = 10;
-    row.ingest_count = 30;
-    row.ingest_size_min = 128;
-    row.ingest_size_max = 4096;
-    row.ingest_size_avg = 1024;
-    row.ingest_drop_count = 2;
-    row.insert_batch_count = 5;
-    row.insert_total_count = 500;
-    row.insert_total_cost = 250;
-    row.sse_session_count = 3;
-    row.http_conn_count = 1;
-
-    EXPECT_TRUE(db_->InsertActivityStats(row));
-}
-
-TEST_F(DiagnosticsTest, InsertDatabaseStats) {
-    init_db();
-
-    DatabaseStatsRow row{"2024-01-01T00:01:00Z", 1000, 4096};
-    EXPECT_TRUE(db_->InsertDatabaseStats(row));
-}
-
-TEST_F(DiagnosticsTest, InsertDatabaseStatsMultiple) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 500, 2048}));
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:02:00Z", 600, 3072}));
-}
-
 TEST_F(DiagnosticsTest, DeleteStatsBeforePrunes) {
-    init_db();
-
     ActivityStatsRow old_row;
     old_row.since = "2024-01-01T00:00:00Z";
     old_row.until = "2024-01-01T00:01:00Z";
@@ -301,59 +197,56 @@ TEST_F(DiagnosticsTest, DeleteStatsBeforePrunes) {
     EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 10, 4096}));
     EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-02T00:01:00Z", 20, 8192}));
 
+    // Equal timestamps survive the cutoff; only strictly older rows are pruned.
+    EXPECT_EQ(db_->DeleteStatsBefore("2024-01-01T00:01:00Z"), 0);
     int removed = db_->DeleteStatsBefore("2024-01-02T00:00:00Z");
     EXPECT_EQ(removed, 2);
+    EXPECT_EQ(
+        reader_->QueryActivityStats(old_row.since, new_row.until, {"query_count"}, "asc").data,
+        (std::vector<std::vector<nlohmann::json>>{{2}}));
+    EXPECT_EQ(reader_->QueryDatabaseStats(old_row.since, new_row.until, {"rows_count"}, "asc").data,
+              (std::vector<std::vector<nlohmann::json>>{{20}}));
 
     removed = db_->DeleteStatsBefore("2024-01-03T00:00:00Z");
     EXPECT_EQ(removed, 2);
 }
 
-TEST_F(DiagnosticsTest, DeleteStatsFutureCutoffRemovesAll) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 1}));
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 10, 4096}));
-
-    int removed = db_->DeleteStatsBefore("2099-01-01T00:00:00Z");
-    EXPECT_EQ(removed, 2);
-}
-
-TEST_F(DiagnosticsTest, InsertActivityStatsAllFields) {
-    init_db();
-
-    ActivityStatsRow row;
-    row.since = "2024-06-01T00:00:00Z";
-    row.until = "2024-06-01T00:01:00Z";
-    row.query_count = 42;
-    row.query_min = 2;
-    row.query_max = 98;
-    row.query_avg = 25;
-    row.ingest_count = 100;
-    row.ingest_size_min = 64;
-    row.ingest_size_max = 8192;
-    row.ingest_size_avg = 2048;
-    row.ingest_drop_count = 5;
-    row.insert_batch_count = 10;
-    row.insert_total_count = 1000;
-    row.insert_total_cost = 500;
-    row.sse_session_count = 7;
-    row.http_conn_count = 3;
-
-    EXPECT_TRUE(db_->InsertActivityStats(row));
-}
-
-TEST_F(DiagnosticsTest, InsertDatabaseStatsNegativeValues) {
-    init_db();
-
-    // SQLite INTEGER columns accept negative values.
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:00:00Z", -1, -1}));
+TEST_F(DiagnosticsTest, ActivityStatsRoundTripEveryPersistedField) {
+    const ActivityStatsRow row{
+        .since = "2024-06-01T00:00:00Z",
+        .until = "2024-06-01T00:01:00Z",
+        .query_count = 42,
+        .query_min = 2,
+        .query_max = 98,
+        .query_avg = 25,
+        .ingest_count = 100,
+        .ingest_size_min = 64,
+        .ingest_size_max = 8192,
+        .ingest_size_avg = 2048,
+        .ingest_drop_count = 5,
+        .insert_batch_count = 10,
+        .insert_total_count = 1000,
+        .insert_total_cost = 500,
+        .sse_session_count = 7,
+        .http_conn_count = 3,
+    };
+    ASSERT_TRUE(db_->InsertActivityStats(row));
+    auto result = reader_->QueryActivityStats(row.since, row.until, {"*"}, "desc");
+    EXPECT_EQ(result.fields,
+              (std::vector<std::string>{
+                  "id", "since", "until", "query_count", "query_min", "query_max", "query_avg",
+                  "ingest_count", "ingest_size_min", "ingest_size_max", "ingest_size_avg",
+                  "ingest_drop_count", "insert_batch_count", "insert_total_count",
+                  "insert_total_cost", "sse_session_count", "http_conn_count"}));
+    EXPECT_EQ(
+        result.data,
+        (std::vector<std::vector<nlohmann::json>>{{1, row.since, row.until, 42, 2, 98, 25, 100, 64,
+                                                   8192, 2048, 5, 10, 1000, 500, 7, 3}}));
 }
 
 // ── End-to-end: metrics → stats row → persistence ──────────────────────────
 
 TEST_F(DiagnosticsTest, EndToEndMetricsToPersistence) {
-    init_db();
-
     auto& registry = metrics::MetricsRegistry::Instance();
 
     registry.Collect(metrics::kQueryRequest, 12.0);
@@ -368,31 +261,23 @@ TEST_F(DiagnosticsTest, EndToEndMetricsToPersistence) {
                                                    samples);
 
     EXPECT_TRUE(db_->InsertActivityStats(row));
-    EXPECT_TRUE(
-        db_->InsertDatabaseStats({row.until, db_->EstimateLogRowCount(), db_->GetSizeBytes()}));
+    const auto sampled_size = db_->GetSizeBytes();
+    EXPECT_TRUE(db_->InsertDatabaseStats({row.until, db_->EstimateLogRowCount(), sampled_size}));
 
-    // Verify stats are not deleted by a cutoff in ages ago.
-    int removed = db_->DeleteStatsBefore("2024-01-01T00:00:00Z");
-    EXPECT_EQ(removed, 0);
-
-    // Future cutoff removes them.
-    removed = db_->DeleteStatsBefore("2099-01-01T00:00:00Z");
-    EXPECT_EQ(removed, 2);
+    const auto persisted = reader_->QueryActivityStats(
+        row.since, row.until,
+        {"query_count", "ingest_count", "ingest_size_avg", "insert_total_count",
+         "insert_total_cost", "sse_session_count"},
+        "asc");
+    EXPECT_EQ(persisted.data, (std::vector<std::vector<nlohmann::json>>{{1, 2, 384, 15, 5, 2}}));
+    const auto database =
+        reader_->QueryDatabaseStats(row.since, row.until, {"rows_count", "db_size"}, "asc");
+    EXPECT_EQ(database.data, (std::vector<std::vector<nlohmann::json>>{{0, sampled_size}}));
 }
 
-TEST_F(DiagnosticsTest, ObservationSummaryDefaultValues) {
-    tasks::detail::ObservationSummary s;
-    EXPECT_EQ(s.sample_count, 0);
-    EXPECT_EQ(s.item_count, 0);
-    EXPECT_DOUBLE_EQ(s.value_total, 0.0);
-    EXPECT_DOUBLE_EQ(s.min, 0.0);
-    EXPECT_DOUBLE_EQ(s.max, 0.0);
-    EXPECT_DOUBLE_EQ(s.avg, 0.0);
-}
+// ── Extreme values must not break min/max initialization ──────────────────
 
-// ── Single observation covers an edge-case: min and max are each other ─────
-
-TEST_F(DiagnosticsTest, SummarizeObservationMinMaxWithFloatExtremes) {
+TEST(DiagnosticsSummaryTest, SummarizeObservationMinMaxWithFloatExtremes) {
     auto now = std::chrono::steady_clock::now();
     std::vector<metrics::Observation> samples{
         {now, metrics::kQueryRequest, std::numeric_limits<double>::max(), 1},
@@ -405,143 +290,59 @@ TEST_F(DiagnosticsTest, SummarizeObservationMinMaxWithFloatExtremes) {
     EXPECT_EQ(q.sample_count, 2);
 }
 
-// ── No observations for a requested name yields zeroed summary ─────────────
-
-TEST_F(DiagnosticsTest, SummarizeNoMatchingObservations) {
-    std::vector<metrics::Observation> samples{
-        {std::chrono::steady_clock::now(), metrics::kIngestRequest, 100.0, 1},
-    };
-
-    auto [q] = tasks::detail::summarize_observations(samples, metrics::kQueryRequest);
-    EXPECT_EQ(q.sample_count, 0);
-    EXPECT_DOUBLE_EQ(q.min, 0.0);
-    EXPECT_DOUBLE_EQ(q.max, 0.0);
-    EXPECT_DOUBLE_EQ(q.avg, 0.0);
-}
-
 // ── Stats query methods ────────────────────────────────────────────────────
 
-TEST_F(DiagnosticsTest, QueryActivityStatsAllFields) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 10, 1, 5,
-                                          3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", 20, 2, 8,
-                                          5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-
-    auto result =
-        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
-    EXPECT_EQ(result.data.size(), 2u);
-    EXPECT_EQ(result.fields[0], "id");
-    EXPECT_EQ(result.fields[1], "since");
-    EXPECT_EQ(result.fields[2], "until");
-    EXPECT_EQ(result.fields[3], "query_count");
-}
-
-TEST_F(DiagnosticsTest, QueryActivityStatsSpecificFields) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 42, 2, 10,
-                                          6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-
-    auto result = reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z",
-                                              {"query_count", "query_avg"}, "desc");
-    ASSERT_EQ(result.data.size(), 1u);
-    EXPECT_EQ(result.fields.size(), 2u);
-    EXPECT_EQ(result.fields[0], "query_count");
-    EXPECT_EQ(result.fields[1], "query_avg");
-    EXPECT_EQ(result.data[0][0].get<int64_t>(), 42);
-    EXPECT_EQ(result.data[0][1].get<int64_t>(), 6);
-}
-
-TEST_F(DiagnosticsTest, QueryActivityStatsUnknownFieldThrows) {
-    init_db();
+TEST_F(DiagnosticsTest, StatsQueriesRejectUnknownFields) {
     EXPECT_THROW(reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
                                              {"no_such_field"}, "desc"),
                  std::runtime_error);
-}
-
-TEST_F(DiagnosticsTest, QueryActivityStatsTimeWindow) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 1, 0, 0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-02T00:00:00Z", "2024-01-02T00:01:00Z", 2, 0, 0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-
-    // Only in range
-    auto result =
-        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T23:59:59Z", {"*"}, "desc");
-    EXPECT_EQ(result.data.size(), 1u);
-
-    // Empty range
-    result =
-        reader_->QueryActivityStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
-    EXPECT_TRUE(result.data.empty());
-}
-
-TEST_F(DiagnosticsTest, QueryActivityStatsOrdering) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", 1, 0, 0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-    EXPECT_TRUE(db_->InsertActivityStats({"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", 2, 0, 0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
-
-    auto desc =
-        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "desc");
-    ASSERT_EQ(desc.data.size(), 2u);
-    constexpr int kUntilCol = 2;  // id, since, until, ...
-    EXPECT_EQ(desc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
-    EXPECT_EQ(desc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
-
-    auto asc =
-        reader_->QueryActivityStats("2024-01-01T00:00:00Z", "2024-01-01T00:02:00Z", {"*"}, "asc");
-    ASSERT_EQ(asc.data.size(), 2u);
-    EXPECT_EQ(asc.data[0][kUntilCol].get<std::string>(), "2024-01-01T00:01:00Z");
-    EXPECT_EQ(asc.data[1][kUntilCol].get<std::string>(), "2024-01-01T00:02:00Z");
-}
-
-TEST_F(DiagnosticsTest, QueryDatabaseStatsAllFields) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:00:00Z", 100, 4096}));
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 200, 8192}));
-
-    auto result =
-        reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", {"*"}, "desc");
-    EXPECT_EQ(result.fields[0], "id");
-    EXPECT_EQ(result.fields[1], "timestamp");
-    EXPECT_EQ(result.fields[2], "rows_count");
-    EXPECT_EQ(result.fields[3], "db_size");
-    EXPECT_GE(result.data.size(), 1u);
-}
-
-TEST_F(DiagnosticsTest, QueryDatabaseStatsSpecificFields) {
-    init_db();
-
-    EXPECT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:00:00Z", 100, 4096}));
-
-    auto result = reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
-                                              {"rows_count", "db_size"}, "desc");
-    ASSERT_EQ(result.data.size(), 1u);
-    EXPECT_EQ(result.fields.size(), 2u);
-    EXPECT_EQ(result.data[0][0].get<int64_t>(), 100);
-    EXPECT_EQ(result.data[0][1].get<int64_t>(), 4096);
-}
-
-TEST_F(DiagnosticsTest, QueryDatabaseStatsUnknownFieldThrows) {
-    init_db();
     EXPECT_THROW(reader_->QueryDatabaseStats("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z",
                                              {"bad_column"}, "desc"),
                  std::runtime_error);
 }
 
-TEST_F(DiagnosticsTest, QueryDatabaseStatsEmptyResult) {
-    init_db();
+TEST_F(DiagnosticsTest, StatsWindowsIncludeBoundariesAndPreserveOrdering) {
+    const std::vector<std::string> timestamps{"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z",
+                                              "2024-01-02T00:01:00Z"};
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(db_->InsertActivityStats(
+            {.since = "2024-01-01T00:00:00Z", .until = timestamps[i], .query_count = i + 1}));
+        ASSERT_TRUE(db_->InsertDatabaseStats({timestamps[i], i + 1, 4096}));
+    }
+    struct Case {
+        const char* since;
+        const char* until;
+        const char* ordering;
+        std::vector<std::vector<nlohmann::json>> data;
+    };
+    const Case cases[]{
+        {"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", "asc", {{1}, {2}}},
+        {"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", "desc", {{2}, {1}}},
+        {"2024-01-01T00:01:00Z", "2024-01-01T00:01:00Z", "asc", {{1}}},
+        {"2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", "desc", {}},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(std::string{c.since} + c.ordering);
+        const auto activity =
+            reader_->QueryActivityStats(c.since, c.until, {"query_count"}, c.ordering);
+        EXPECT_EQ(activity.fields, (std::vector<std::string>{"query_count"}));
+        EXPECT_EQ(activity.data, c.data);
+        const auto database =
+            reader_->QueryDatabaseStats(c.since, c.until, {"rows_count"}, c.ordering);
+        EXPECT_EQ(database.fields, (std::vector<std::string>{"rows_count"}));
+        EXPECT_EQ(database.data, c.data);
+    }
+}
 
-    auto result =
-        reader_->QueryDatabaseStats("2025-01-01T00:00:00Z", "2025-01-01T01:00:00Z", {"*"}, "desc");
-    EXPECT_TRUE(result.data.empty());
-    EXPECT_FALSE(result.fields.empty());
+TEST_F(DiagnosticsTest, DatabaseStatsRoundTripWildcardAndProjectedFields) {
+    const DatabaseStatsRow row{"2024-01-01T00:00:00Z", 100, 4096};
+    ASSERT_TRUE(db_->InsertDatabaseStats(row));
+    const auto all =
+        reader_->QueryDatabaseStats(row.timestamp, "2024-01-01T00:01:00Z", {"*"}, "desc");
+    EXPECT_EQ(all.fields, (std::vector<std::string>{"id", "timestamp", "rows_count", "db_size"}));
+    EXPECT_EQ(all.data, (std::vector<std::vector<nlohmann::json>>{{1, row.timestamp, 100, 4096}}));
+    const auto projected = reader_->QueryDatabaseStats(row.timestamp, "2024-01-01T00:01:00Z",
+                                                       {"db_size", "rows_count"}, "desc");
+    EXPECT_EQ(projected.fields, (std::vector<std::string>{"db_size", "rows_count"}));
+    EXPECT_EQ(projected.data, (std::vector<std::vector<nlohmann::json>>{{4096, 100}}));
 }

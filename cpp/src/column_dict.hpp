@@ -45,6 +45,9 @@ class ColumnDictionary {
     // Returns a snapshot copy of the lookup table (thread-safe).
     LookupTable GetLookUp() const;
 
+    // Replace cached values with the committed dictionary after a transaction rollback.
+    void Reload(LookupTable lookup);
+
    private:
     mutable std::shared_mutex mtx_;
     LookupTable lookup_;

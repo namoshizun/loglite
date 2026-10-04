@@ -2,6 +2,7 @@ host: 0.0.0.0
 port: 7788
 debug: true
 allow_origin: "*"
+db_pool_size: 2        # DB read concurrency; positive integer or "auto"
 
 # ── Database ─────────────────────────────────────────────
 sqlite_dir: ./db       # Directory holding the SQLite db file
@@ -30,9 +31,9 @@ vacuum_max_size: 200MB     # Trigger vacuum when db exceeds this
 vacuum_target_size: 170MB  # Trim oldest rows until db is under this
 
 # ── Background tasks ──────────────────────────────────────
-task_diagnostics_interval: 60   # Seconds between stats collections
+task_diagnostics_interval: 60   # Seconds between stats collections (>= 30)
 task_backlog_flush_interval: 5  # Seconds between backlog flush passes
-task_backlog_max_size: 200      # Max backlog entries before force-flush
+task_backlog_max_size: 200      # Max backlog entries before force-flush at 95% capacity
 task_vacuum_interval: 120       # Seconds between incremental vacuum pass
 task_vacuum_max_size: 5        # MB budget per incremental vacuum pass
 stats_retention_hours: 24       # Hours to keep stats data before pruning
@@ -55,7 +56,11 @@ migrations:
             timestamp DATETIME NOT NULL,
             message TEXT NOT NULL,
             level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
-            service TEXT NOT NULL,
+            service INTEGER NOT NULL,
+            filename INTEGER,
+            path INTEGER,
+            function INTEGER,
+            process_name INTEGER,
             extra JSON
         );
       - CREATE INDEX IF NOT EXISTS idx_timestamp ON Log(timestamp);

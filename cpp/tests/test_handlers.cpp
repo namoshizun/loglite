@@ -8,7 +8,8 @@
 #include "version.hpp"
 #include "handlers/insert.hpp"
 #include "handlers/query.hpp"
-#include "config.hpp"
+#include "test_support.hpp"
+#include "handlers/stats.hpp"
 #include "writer_database.hpp"
 #include "context.hpp"
 #include "backlog.hpp"
@@ -17,16 +18,14 @@
 #include "utils.hpp"
 
 #include <boost/asio.hpp>
-#include <filesystem>
 #include <future>
 
-namespace fs = std::filesystem;
 namespace asio = boost::asio;
 namespace http = boost::beast::http;
 using namespace loglite;
 
 template <typename T>
-static T sync_await(asio::awaitable<T> coro) {
+static T SyncAwait(asio::awaitable<T> coro) {
     asio::io_context ioc;
     auto fut = asio::co_spawn(ioc, std::move(coro), asio::use_future);
     ioc.run();
@@ -37,33 +36,6 @@ class HandlersTest : public ::testing::Test {
    protected:
     void SetUp() override {
         metrics::MetricsRegistry::Instance().Reset();
-
-        tmp_ = fs::temp_directory_path() / "loglite_handlers_test";
-        fs::remove_all(tmp_);
-        fs::create_directories(tmp_);
-
-        cfg_.sqlite_dir = tmp_;
-        cfg_.db_path = tmp_ / "logs.db";
-        cfg_.log_table_name = "TestLog";
-        cfg_.log_timestamp_field = "timestamp";
-        cfg_.auto_rollout = true;
-        cfg_.compression = {false, {}};
-        cfg_.host = "127.0.0.1";
-        cfg_.port = 7788;
-        cfg_.allow_origin = "*";
-
-        Migration m;
-        m.version = 1;
-        m.rollout = {
-            "CREATE TABLE IF NOT EXISTS TestLog ("
-            "  id        INTEGER PRIMARY KEY,"
-            "  timestamp TEXT    NOT NULL,"
-            "  message   TEXT    NOT NULL,"
-            "  level     TEXT    NOT NULL,"
-            "  service   TEXT"
-            ")"};
-        m.rollback = {"DROP TABLE IF EXISTS TestLog"};
-        cfg_.migrations.push_back(m);
 
         db_ = std::make_unique<WriterDatabase>(cfg_);
         db_->Open();
@@ -91,11 +63,11 @@ class HandlersTest : public ::testing::Test {
         db_ops_pool_.reset();
         db_->Close();
         db_.reset();
-        fs::remove_all(tmp_);
+        metrics::MetricsRegistry::Instance().Reset();
     }
 
-    http::request<http::string_body> make_req(http::verb method, std::string target,
-                                              std::string body = "") {
+    http::request<http::string_body> MakeRequest(http::verb method, std::string target,
+                                                 std::string body = "") {
         http::request<http::string_body> req{method, target, 11};
         req.set(http::field::host, "127.0.0.1");
         if (!body.empty()) {
@@ -105,8 +77,8 @@ class HandlersTest : public ::testing::Test {
         return req;
     }
 
-    fs::path tmp_;
-    Config cfg_;
+    test::TempDirectory directory_;
+    Config cfg_{test::MakeConfig(directory_.path())};
     std::unique_ptr<WriterDatabase> db_;
     std::unique_ptr<ReadDatabasePool> db_read_;
     std::unique_ptr<Backlog> backlog_;
@@ -118,19 +90,12 @@ class HandlersTest : public ::testing::Test {
 
 // ── Health handler ──────────────────────────────────────────────────────────
 
-TEST_F(HandlersTest, HealthReturnsOk) {
-    auto req = make_req(http::verb::get, "/health");
-    auto res = sync_await(handlers::HandleHealth(req, *ctx_));
+TEST_F(HandlersTest, HealthReturnsStatusAndCorsHeaders) {
+    auto req = MakeRequest(http::verb::get, "/health");
+    auto res = SyncAwait(handlers::HandleHealth(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "ok");
-}
-
-TEST_F(HandlersTest, HealthContainsCorsHeaders) {
-    auto req = make_req(http::verb::get, "/health");
-    auto res = sync_await(handlers::HandleHealth(req, *ctx_));
-    EXPECT_EQ(res[http::field::access_control_allow_origin], "*");
+    EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "ok");
+    EXPECT_EQ(res[http::field::access_control_allow_origin], cfg_.allow_origin);
 }
 
 TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
@@ -143,8 +108,8 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
         .config = {},
     });
 
-    auto req = make_req(http::verb::get, "/settings");
-    auto res = sync_await(handlers::HandleSettings(req, *ctx_));
+    auto req = MakeRequest(http::verb::get, "/settings");
+    auto res = SyncAwait(handlers::HandleSettings(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -180,8 +145,8 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
 }
 
 TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
-    auto req = make_req(http::verb::get, "/schema");
-    auto res = sync_await(handlers::HandleSchema(req, *ctx_));
+    auto req = MakeRequest(http::verb::get, "/schema");
+    auto res = SyncAwait(handlers::HandleSchema(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -213,8 +178,8 @@ TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
 }
 
 TEST_F(HandlersTest, VersionReturnsProjectVersion) {
-    auto req = make_req(http::verb::get, "/version");
-    auto res = sync_await(handlers::HandleVersion(req, *ctx_));
+    auto req = MakeRequest(http::verb::get, "/version");
+    auto res = SyncAwait(handlers::HandleVersion(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -223,183 +188,126 @@ TEST_F(HandlersTest, VersionReturnsProjectVersion) {
 
 // ── Insert handler ──────────────────────────────────────────────────────────
 
-TEST_F(HandlersTest, InsertSingleObject) {
-    auto req = make_req(http::verb::post, "/logs",
-                        R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})");
-    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "accepted");
-    EXPECT_EQ(backlog_->Size(), 1u);
+TEST_F(HandlersTest, IngestionPreservesObjectAndArrayPayloadsAndRecordsRequestSize) {
+    const std::vector<nlohmann::json> logs{
+        {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}},
+        {{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}},
+    };
+    for (bool array : {false, true}) {
+        SCOPED_TRACE(array ? "array" : "object");
+        const auto payload = array ? nlohmann::json(logs) : logs[0];
+        auto req = MakeRequest(http::verb::post, "/logs", payload.dump());
+        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::ok);
+        EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "accepted");
+        EXPECT_EQ(backlog_->Flush(), array ? logs : std::vector<nlohmann::json>{logs[0]});
+        const auto samples = metrics::MetricsRegistry::Instance().Flush();
+        ASSERT_EQ(samples.size(), 1u);
+        EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
+        EXPECT_DOUBLE_EQ(samples[0].value, req.body().size());
+    }
 }
 
-TEST_F(HandlersTest, InsertRecordsPayloadSizeMetric) {
-    std::string body = R"({"timestamp":"2024-01-01T00:00:00Z","message":"hello","level":"INFO"})";
-    auto req = make_req(http::verb::post, "/logs", body);
-    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto samples = metrics::MetricsRegistry::Instance().Flush();
-    ASSERT_EQ(samples.size(), 1u);
-    EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
-    EXPECT_DOUBLE_EQ(samples[0].value, static_cast<double>(body.size()));
-}
-
-TEST_F(HandlersTest, InsertArray) {
-    auto req = make_req(
-        http::verb::post, "/logs",
-        R"([{"timestamp":"2024-01-01T00:00:00Z","message":"a","level":"INFO"},{"timestamp":"2024-01-01T00:00:01Z","message":"b","level":"ERROR"}])");
-    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["status"], "accepted");
-    EXPECT_EQ(backlog_->Size(), 2u);
-}
-
-TEST_F(HandlersTest, InsertInvalidJson) {
-    auto req = make_req(http::verb::post, "/logs", "not json");
-    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_TRUE(body["error"].get<std::string>().find("Invalid JSON") != std::string::npos);
-}
-
-TEST_F(HandlersTest, InsertWrongType) {
-    auto req = make_req(http::verb::post, "/logs", "42");
-    auto res = sync_await(handlers::HandleInsert(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["error"], "Body must be a JSON object or array");
+TEST_F(HandlersTest, InvalidIngestionDoesNotEnqueueData) {
+    for (const auto* payload : {"not json", "42", "null", "true", "\"string\""}) {
+        SCOPED_TRACE(payload);
+        auto req = MakeRequest(http::verb::post, "/logs", payload);
+        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::bad_request);
+        const auto error = nlohmann::json::parse(res.body())["error"].get<std::string>();
+        if (std::string_view{payload} == "not json")
+            EXPECT_TRUE(error.starts_with("Invalid JSON"));
+        else
+            EXPECT_EQ(error, "Body must be a JSON object or array");
+        EXPECT_EQ(backlog_->Size(), 0u);
+    }
 }
 
 // ── Query handler ───────────────────────────────────────────────────────────
 
-TEST_F(HandlersTest, QueryMissingFieldsParam) {
-    auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QueryRecordsRequestMetricOnValidationFailure) {
-    auto req = make_req(http::verb::get, "/logs?limit=10&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-
-    auto samples = metrics::MetricsRegistry::Instance().Flush();
-    ASSERT_EQ(samples.size(), 1u);
-    EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
-    EXPECT_GE(samples[0].value, 0.0);
-}
-
-TEST_F(HandlersTest, QueryMissingLimitParam) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QueryMissingOffsetParam) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QueryWithEmptyDbReturnsEmpty) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 0);
-    EXPECT_TRUE(body["results"].empty());
-}
-
-TEST_F(HandlersTest, QueryReturnsInsertedLogs) {
-    // Insert logs into DB directly via backlog flush
-    nlohmann::json log1{
-        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    nlohmann::json log2{
-        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "world"}, {"level", "ERROR"}};
-    db_->Insert({log1, log2});
-
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 2);
-    EXPECT_EQ(body["results"].size(), 2u);
-}
-
-TEST_F(HandlersTest, QueryWithFilter) {
-    nlohmann::json log1{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "a"}, {"level", "INFO"}};
-    nlohmann::json log2{
-        {"timestamp", "2024-01-01T00:00:01Z"}, {"message", "b"}, {"level", "ERROR"}};
-    db_->Insert({log1, log2});
-
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&level==ERROR");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 1);
-    EXPECT_EQ(body["results"][0]["level"], "ERROR");
-}
-
-TEST_F(HandlersTest, QueryNonNumericLimit) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=abc&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QueryNonNumericOffset) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=abc");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QueryRejectsNonPositiveLimit) {
-    for (const char* qs : {"/logs?fields=*&limit=0&offset=0", "/logs?fields=*&limit=-1&offset=0"}) {
-        auto req = make_req(http::verb::get, qs);
-        auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-        EXPECT_EQ(static_cast<int>(res.result()), 400);
-        auto body = nlohmann::json::parse(res.body());
-        EXPECT_EQ(body["error"], "'limit' must be a positive integer");
+TEST_F(HandlersTest, QueryValidationRejectsInvalidRequestsAndRecordsMetrics) {
+    struct Case {
+        std::string target, error;
+    };
+    const Case cases[]{
+        {"/logs?limit=10&offset=0", "Required parameter 'fields' is missing"},
+        {"/logs?fields=*&offset=0", "Required parameter 'limit' is missing"},
+        {"/logs?fields=*&limit=10", "Required parameter 'offset' is missing"},
+        {"/logs?fields=*&limit=abc&offset=0", "Parameters 'limit' and 'offset' must be integers"},
+        {"/logs?fields=*&limit=0&offset=0", "'limit' must be a positive integer"},
+        {"/logs?fields=*&limit=-1&offset=0", "'limit' must be a positive integer"},
+        {"/logs?fields=*&limit=9999999999999999999&offset=0",
+         "Parameters 'limit' and 'offset' must be integers"},
+        {fmt::format("/logs?fields=*&limit={}&offset=0", kMaxQueryLimit + 1),
+         fmt::format("'limit' must not exceed {}", kMaxQueryLimit)},
+        {"/logs?fields=*&limit=2147483647&offset=0",
+         fmt::format("'limit' must not exceed {}", kMaxQueryLimit)},
+        {"/logs?fields=*&limit=10&offset=abc", "Parameters 'limit' and 'offset' must be integers"},
+        {"/logs?fields=*&limit=10&offset=-1", "'offset' must be a non-negative integer"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.target);
+        auto req = MakeRequest(http::verb::get, c.target);
+        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::bad_request);
+        EXPECT_EQ(nlohmann::json::parse(res.body())["error"], c.error);
+        const auto samples = metrics::MetricsRegistry::Instance().Flush();
+        ASSERT_EQ(samples.size(), 1u);
+        EXPECT_EQ(samples[0].name, metrics::kQueryRequest);
+        EXPECT_GE(samples[0].value, 0.0);
     }
 }
 
-TEST_F(HandlersTest, QueryRejectsNegativeOffset) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=-1");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(static_cast<int>(res.result()), 400);
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["error"], "'offset' must be a non-negative integer");
+TEST_F(HandlersTest, EmptyQueriesAcceptBothLimitBoundaries) {
+    for (int limit : {1, kMaxQueryLimit}) {
+        SCOPED_TRACE(limit);
+        auto req =
+            MakeRequest(http::verb::get, fmt::format("/logs?fields=*&limit={}&offset=0", limit));
+        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::ok);
+        const auto body = nlohmann::json::parse(res.body());
+        EXPECT_EQ(body["total"], 0);
+        EXPECT_TRUE(body["results"].empty());
+    }
+}
+
+TEST_F(HandlersTest, QueriesCombineFilteringProjectionAndPagination) {
+    ASSERT_EQ(db_->Insert({
+                  {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "ERROR"}},
+                  {{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}},
+                  {{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "ERROR"}},
+              }),
+              3);
+    struct Case {
+        const char* target;
+        int total;
+        nlohmann::json results;
+    };
+    const Case cases[]{
+        {"/logs?fields=message&limit=2&offset=0",
+         3,
+         {{{"message", "third"}}, {{"message", "second"}}}},
+        {"/logs?fields=message&limit=2&offset=2", 3, {{{"message", "first"}}}},
+        {"/logs?fields=message&limit=2&offset=3", 3, nlohmann::json::array()},
+        {"/logs?fields=message,level&limit=1&offset=1&level==ERROR",
+         2,
+         {{{"message", "first"}, {"level", "ERROR"}}}},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.target);
+        auto req = MakeRequest(http::verb::get, c.target);
+        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::ok);
+        const auto body = nlohmann::json::parse(res.body());
+        EXPECT_EQ(body["total"], c.total);
+        EXPECT_EQ(body["results"], c.results);
+    }
 }
 
 TEST_F(HandlersTest, QueryInvalidFilterExpression) {
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&bad_field=novalue");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
+    auto req = MakeRequest(http::verb::get, "/logs?fields=*&limit=10&offset=0&bad_field=novalue");
+    auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
-}
-
-TEST_F(HandlersTest, QuerySpecificFields) {
-    nlohmann::json log1{
-        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    db_->Insert({log1});
-
-    auto req = make_req(http::verb::get, "/logs?fields=message,level&limit=10&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 1);
-    ASSERT_EQ(body["results"].size(), 1u);
-    EXPECT_TRUE(body["results"][0].contains("message"));
-    EXPECT_TRUE(body["results"][0].contains("level"));
-    EXPECT_FALSE(body["results"][0].contains("timestamp"));
 }
 
 TEST_F(HandlersTest, QueryWithUnknownFieldInFilter) {
@@ -407,56 +315,98 @@ TEST_F(HandlersTest, QueryWithUnknownFieldInFilter) {
         {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
     db_->Insert({log1});
 
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=10&offset=0&nonexistent==val");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
+    auto req = MakeRequest(http::verb::get, "/logs?fields=*&limit=10&offset=0&nonexistent==val");
+    auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
     EXPECT_EQ(static_cast<int>(res.result()), 500);
 }
 
-TEST_F(HandlersTest, QueryPagination) {
-    std::vector<nlohmann::json> logs;
-    for (int i = 0; i < 5; ++i) {
-        logs.push_back({
-            {"timestamp", fmt::format("2024-01-01T00:00:{:02d}Z", i)},
-            {"message", fmt::format("msg{}", i)},
-            {"level", "INFO"},
-        });
+// ── Stats handler ─────────────────────────────────────────────────────────────
+
+TEST_F(HandlersTest, StatsRejectsMissingParametersAndInvalidTimeWindows) {
+    for (const auto* target :
+         {"/stats", "/stats?since=2024-01-01T00:00:00Z",
+          "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z",
+          "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z&activity_stats_fields=*"}) {
+        SCOPED_TRACE(target);
+        auto req = MakeRequest(http::verb::get, target);
+        EXPECT_EQ(SyncAwait(handlers::HandleStats(req, *ctx_)).result(), http::status::bad_request);
     }
-    db_->Insert(logs);
+    struct Case {
+        const char* since;
+        const char* until;
+        const char* ordering;
+        const char* error;
+    };
+    const Case cases[]{
+        {"2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z", "desc",
+         "Time window must not exceed 1 day"},
+        {"2024-01-02T00:00:00Z", "2024-01-01T00:00:00Z", "desc", "'until' must be after 'since'"},
+        {"2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", "desc", "'until' must be after 'since'"},
+        {"notatime", "2024-01-01T01:00:00Z", "desc",
+         "'since' and 'until' must be ISO-8601 timestamps"},
+        {"2024-01-01T00:00:00Z", "notatime", "desc",
+         "'since' and 'until' must be ISO-8601 timestamps"},
+        {"2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z", "sideways",
+         "Parameter 'ordering' must be 'asc' or 'desc'"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.error);
+        auto req = MakeRequest(http::verb::get,
+                               fmt::format("/stats?since={}&until={}&ordering={}&activity_stats_"
+                                           "fields=*&database_stats_fields=*",
+                                           c.since, c.until, c.ordering));
+        auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::bad_request);
+        EXPECT_EQ(nlohmann::json::parse(res.body())["error"], c.error);
+    }
+}
 
-    auto req = make_req(http::verb::get, "/logs?fields=*&limit=2&offset=0");
-    auto res = sync_await(handlers::HandleQuery(req, *ctx_));
+TEST_F(HandlersTest, StatsAcceptsFractionalSecondsOffsetsAndMaximumWindow) {
+    struct Case {
+        const char* since;
+        const char* until;
+    };
+    const Case cases[]{
+        {"2024-01-01T00:00:00.000Z", "2024-01-01T01:00:00.999Z"},
+        // '+' must be %2B in query values — url_decode maps '+' to space.
+        {"2024-06-15T08:30:00%2B08:00", "2024-06-15T09:30:00%2B08:00"},
+        {"2024-06-15T08:30:00%2B0830", "2024-06-15T09:30:00%2B0830"},
+        {"2024-06-14T19:30:00.500-05:00", "2024-06-14T20:30:00.250-05:00"},
+        {"2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.since);
+        auto req = MakeRequest(
+            http::verb::get,
+            fmt::format("/stats?since={}&until={}&activity_stats_fields=*&database_stats_fields=*",
+                        c.since, c.until));
+        auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::ok);
+        const auto body = nlohmann::json::parse(res.body());
+        EXPECT_TRUE(body["activities"]["data"].empty());
+        EXPECT_FALSE(body["activities"]["fields"].empty());
+        EXPECT_TRUE(body["database"]["data"].empty());
+        EXPECT_FALSE(body["database"]["fields"].empty());
+        EXPECT_GE(body["uptime"].get<int64_t>(), 0);
+    }
+}
+
+TEST_F(HandlersTest, StatsTrimsFieldListsAndReturnsPersistedValues) {
+    ASSERT_TRUE(db_->InsertActivityStats({.since = "2024-01-01T00:00:00Z",
+                                          .until = "2024-01-01T00:01:00Z",
+                                          .query_count = 10,
+                                          .query_avg = 5}));
+    ASSERT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
+    // Spaces after commas (and outer padding) via %20 — raw spaces in target break HTTP parsing.
+    auto req = MakeRequest(http::verb::get,
+                           "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+                           "&activity_stats_fields=query_count%2C%20query_avg"
+                           "&database_stats_fields=%20rows_count%20%2C%20db_size%20&ordering=asc");
+    auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
     EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["total"], 5);
-    EXPECT_EQ(body["results"].size(), 2u);
-}
-
-// ── Response helpers ────────────────────────────────────────────────────────
-
-TEST(ResponseHelperTest, MakeFailResp) {
-    http::request<http::string_body> req{http::verb::get, "/test", 11};
-    auto res = handlers::MakeFailResp(404, "not found", req);
-    EXPECT_EQ(static_cast<int>(res.result()), 404);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["error"], "not found");
-}
-
-TEST(ResponseHelperTest, MakeOKResp) {
-    http::request<http::string_body> req{http::verb::get, "/test", 11};
-    auto res = handlers::MakeOKResp({{"key", "value"}}, req);
-    EXPECT_EQ(res.result(), http::status::ok);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["key"], "value");
-}
-
-TEST(ResponseHelperTest, MakeNotAvailableResp) {
-    http::request<http::string_body> req{http::verb::get, "/test", 11};
-    auto res = handlers::MakeNotAvailableResp({{"msg", "busy"}}, req);
-    EXPECT_EQ(res.result(), http::status::service_unavailable);
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["msg"], "busy");
+    const auto body = nlohmann::json::parse(res.body());
+    EXPECT_EQ(body["activities"]["fields"], (std::vector<std::string>{"query_count", "query_avg"}));
+    EXPECT_EQ(body["activities"]["data"], nlohmann::json::array({{10, 5}}));
+    EXPECT_EQ(body["database"]["fields"], (std::vector<std::string>{"rows_count", "db_size"}));
+    EXPECT_EQ(body["database"]["data"], nlohmann::json::array({{100, 4096}}));
 }

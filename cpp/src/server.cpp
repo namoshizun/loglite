@@ -13,8 +13,8 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <array>
 #include <chrono>
-#include <future>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -40,26 +40,6 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
     }
 }
 
-void flush_pending_backlog(ServerContext& ctx) {
-    auto logs = ctx.backlog.Flush();
-    if (logs.empty()) return;
-
-    std::promise<int> done;
-    auto fut = done.get_future();
-
-    // Posted on the write strand so we queue behind any in-flight DB work rather
-    // than touching the connection from this thread.
-    asio::post(ctx.write_strand, [&ctx, logs = std::move(logs), done = std::move(done)]() mutable {
-        try {
-            done.set_value(ctx.db_write.Insert(logs));
-        } catch (...) {
-            done.set_exception(std::current_exception());
-        }
-    });
-    int count = fut.get();
-    log::INFO("[Termination] flushed {} pending log(s)", count);
-}
-
 }  // namespace
 
 Server::Server(ServerContext& ctx) : ctx_(ctx), pool_(1u), acceptor_(pool_) {}
@@ -69,11 +49,18 @@ void Server::Run() {
     auto ex = pool_.get_executor();
 
     // ── Bind TCP acceptor ─────────────────────────────────────────────────────
-    ip::tcp::endpoint endpoint{ip::make_address(cfg.host), cfg.port};
-    acceptor_.open(endpoint.protocol());
-    acceptor_.set_option(ip::tcp::acceptor::reuse_address{true});
-    acceptor_.bind(endpoint);
-    acceptor_.listen();
+    asio::co_spawn(
+        ex,
+        [this, &cfg]() -> asio::awaitable<void> {
+            ip::tcp::endpoint endpoint{ip::make_address(cfg.host), cfg.port};
+            acceptor_.open(endpoint.protocol());
+            acceptor_.set_option(ip::tcp::acceptor::reuse_address{true});
+            acceptor_.bind(endpoint);
+            acceptor_.listen();
+            co_return;
+        },
+        asio::use_future)
+        .get();
     log::INFO("Listening on {}:{}", cfg.host, cfg.port);
 
     // ── Signal handling ───────────────────────────────────────────────────────
@@ -85,65 +72,81 @@ void Server::Run() {
         }
     });
 
-    // ── Fatal error handler for background tasks ──────────────────────────────
-    auto on_task_error = [this](std::exception_ptr eptr) {
-        log_exception(eptr, "Background task crashed — shutting down:");
-        Stop();
-    };
-
     // ── Background tasks ──────────────────────────────────────────────────────
-    asio::co_spawn(ex, tasks::FlushBacklogTask(ctx_), on_task_error);
-    asio::co_spawn(ex, tasks::VacuumTask(ctx_), on_task_error);
-    asio::co_spawn(ex, tasks::DiagnosticsTask(ctx_), on_task_error);
+    std::array background_tasks{tasks::FlushBacklogTask(ctx_), tasks::VacuumTask(ctx_),
+                                tasks::DiagnosticsTask(ctx_)};
+    pending_tasks_ = background_tasks.size() + 1;  // plus the accept loop
+    for (auto& task : background_tasks) {
+        asio::co_spawn(ex, std::move(task),
+                       [this](std::exception_ptr eptr) { OnTaskCompleted(eptr); });
+    }
 
     // ── Accept loop ───────────────────────────────────────────────────────────
     //
-    // AcceptLoop is given its own completion handler that stops the pool once
-    // the coroutine exits.  This guarantees AcceptLoop always co_returns
-    // cleanly (processing the operation_aborted from acceptor_.close) before
-    // pool_.stop() is called, which in turn ensures the accepted socket's
-    // executor is still alive when the socket destructor runs — avoiding a
+    // Wait for the accept loop, background tasks, and connections to finish
+    // before stopping the pool. This keeps coroutine captures alive until their
+    // in-flight DB work completes and ensures accepted sockets are destroyed
+    // while their executor is still alive — avoiding a
     // use-after-free that manifests on x86/GCC when pool_.stop() is called
     // immediately 🤦.
     asio::co_spawn(ex, AcceptLoop(acceptor_), [this](std::exception_ptr eptr) {
-        log_exception(eptr, "AcceptLoop error:");
-        pool_.stop();
+        Stop();
+        OnTaskCompleted(eptr);
     });
 
-    pool_.join();  // blocks until AcceptLoop exits and calls pool_.stop()
-    flush_pending_backlog(ctx_);
+    if (ctx_.StopRequested()) Stop();
+    pool_.join();
+    if (failure_) std::rethrow_exception(failure_);
 }
 
 void Server::Stop() {
-    ctx_.RequestStop();
-    boost::system::error_code ec;
-    acceptor_.close(ec);
-    // Closing the acceptor will eventually call pool_.stop().
+    ctx_.stopping.store(true, std::memory_order_release);
+    asio::dispatch(pool_.get_executor(), [this] {
+        ctx_.RequestStop();
+        boost::system::error_code ec;
+        acceptor_.close(ec);
+        for (auto& stream : connections_) stream.socket().close(ec);
+    });
+}
+
+void Server::OnTaskCompleted(std::exception_ptr error) {
+    if (error) {
+        if (!failure_) failure_ = error;
+        log_exception(error, "Server task crashed — shutting down:");
+        Stop();
+    }
+    if (--pending_tasks_ == 0) pool_.stop();
 }
 
 asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
     while (true) {
         auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
         if (ec) {
-            if (ec != asio::error::operation_aborted) log::ERROR("accept error: {}", ec.message());
+            if (ec != asio::error::operation_aborted && !ctx_.StopRequested())
+                throw boost::system::system_error(ec);
             co_return;
         }
 
-        beast::tcp_stream stream{std::move(socket)};
+        auto connection = connections_.emplace(connections_.end(), std::move(socket));
+        ++pending_tasks_;
 
         auto ex = co_await asio::this_coro::executor;
-        asio::co_spawn(ex, HandleConnection(std::move(stream)),
-                       [](std::exception_ptr eptr) { log_exception(eptr, "Connection error:"); });
+        asio::co_spawn(ex, HandleConnection(*connection),
+                       [this, connection](std::exception_ptr eptr) {
+                           log_exception(eptr, "Connection error:");
+                           connections_.erase(connection);
+                           OnTaskCompleted(nullptr);
+                       });
     }
 }
 
-asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
+asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
     metrics::GaugeGuard http_connection{metrics::kHttpConnection};
 
     beast::flat_buffer buf;
     auto& cfg = ctx_.config;
 
-    for (;;) {
+    while (!ctx_.StopRequested()) {
         // Per-request idle timeout: re-arm each keep-alive iteration (not once at accept).
         stream.expires_after(kHttpIdleTimeout);
 
@@ -182,7 +185,7 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream stream) {
 
         // ── Route dispatch ────────────────────────────────────────────────────
         if (path == "/logs/sse" && method == http::verb::get) {
-            co_await handlers::HandleSSE(std::move(stream), std::move(req), ctx_);
+            co_await handlers::HandleSSE(stream, std::move(req), ctx_);
             co_return;
         }
 

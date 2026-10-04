@@ -10,6 +10,7 @@ namespace asio = boost::asio;
 #include <concepts>
 #include <condition_variable>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -57,11 +58,13 @@ class ReadDatabasePool {
     template <std::invocable<ReaderDatabase&> F>
     asio::awaitable<std::invoke_result_t<F, ReaderDatabase&>> AsyncUseConnection(
         asio::any_io_executor reader_ex, F&& f) {
-        auto caller_ex = co_await asio::this_coro::executor;
-        co_await asio::post(reader_ex, asio::use_awaitable);
-        auto result = UseConnection(std::forward<F>(f));
-        co_await asio::post(caller_ex, asio::use_awaitable);
-        co_return result;
+        using Result = std::invoke_result_t<F, ReaderDatabase&>;
+        return asio::co_spawn(
+            std::move(reader_ex),
+            [this, f = std::forward<F>(f)]() mutable -> asio::awaitable<Result> {
+                co_return UseConnection(std::move(f));
+            },
+            asio::use_awaitable);
     }
 
     void Close();

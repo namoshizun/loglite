@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "test_support.hpp"
+#include "utils.hpp"
 #include "backlog.hpp"
 #include "harvesters/file.hpp"
 
@@ -31,9 +33,7 @@ static bool wait_for(Backlog& bl, size_t n, std::chrono::milliseconds timeout = 
 class FileHarvesterTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        tmp_dir_ = fs::temp_directory_path() / "loglite_fh_test";
-        fs::remove_all(tmp_dir_);
-        fs::create_directories(tmp_dir_);
+        tmp_dir_ = directory_.path();
         log_file_ = tmp_dir_ / "app.log";
     }
 
@@ -42,7 +42,6 @@ class FileHarvesterTest : public ::testing::Test {
             harvester_->Stop();
             harvester_.reset();
         }
-        fs::remove_all(tmp_dir_);
     }
 
     // Append `line` (+ newline) to the tailed file, creating it if absent.
@@ -63,6 +62,7 @@ class FileHarvesterTest : public ::testing::Test {
         std::this_thread::sleep_for(300ms);
     }
 
+    test::TempDirectory directory_;
     fs::path tmp_dir_;
     fs::path log_file_;
     Backlog backlog_{1000};
@@ -89,18 +89,6 @@ TEST_F(FileHarvesterTest, IngestsNewLinesAppendedAfterStart) {
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "new-entry");
 }
 
-TEST_F(FileHarvesterTest, SkipsPreExistingContent) {
-    // tail -F semantics: content written before Start() must be ignored.
-    append(R"({"msg":"old","level":"INFO"})");
-    append(R"({"msg":"also-old","level":"DEBUG"})");
-
-    harvester_ = std::make_unique<FileHarvester>("test", log_file_, backlog_);
-    harvester_->Start();
-    std::this_thread::sleep_for(800ms);
-
-    EXPECT_EQ(backlog_.Size(), 0u) << "pre-existing content should not have been ingested";
-}
-
 TEST_F(FileHarvesterTest, SkipsNonJsonLines) {
     // Pre-populate and start so the harvester is past the existing content.
     append(R"({"msg":"pre-existing"})");
@@ -120,44 +108,22 @@ TEST_F(FileHarvesterTest, SkipsNonJsonLines) {
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "valid");
 }
 
-TEST_F(FileHarvesterTest, AddsTimestampWhenMissing) {
+TEST_F(FileHarvesterTest, BatchIngestionAddsMissingTimestampsAndPreservesExistingOnes) {
     create_file_and_start();
-
-    append(R"({"msg":"no-ts","level":"INFO"})");
-
-    ASSERT_TRUE(wait_for(backlog_, 1));
-
-    auto entries = backlog_.Flush();
-    ASSERT_EQ(entries.size(), 1u);
-    EXPECT_TRUE(entries[0].contains("timestamp")) << "timestamp field should have been injected";
-    const auto& ts = entries[0]["timestamp"].get<std::string>();
-    EXPECT_FALSE(ts.empty());
-    EXPECT_NE(ts.find('.'), std::string::npos) << "injected timestamp should include milliseconds";
-}
-
-TEST_F(FileHarvesterTest, PreservesExistingTimestamp) {
-    create_file_and_start();
-
-    append(R"({"msg":"with-ts","level":"INFO","timestamp":"2024-01-01T00:00:00Z"})");
-
-    ASSERT_TRUE(wait_for(backlog_, 1));
-
-    auto entries = backlog_.Flush();
-    ASSERT_EQ(entries.size(), 1u);
-    EXPECT_EQ(entries[0]["timestamp"].get<std::string>(), "2024-01-01T00:00:00Z");
-}
-
-TEST_F(FileHarvesterTest, IngestsMultipleLinesInOnePoll) {
-    create_file_and_start();
-
     // Write several lines at once so they land in a single poll iteration.
-    {
-        std::ofstream f{log_file_, std::ios::app};
-        for (int i = 0; i < 5; ++i) f << R"({"msg":"batch","id":)" << i << "}\n";
-    }
-
-    ASSERT_TRUE(wait_for(backlog_, 5));
-    EXPECT_EQ(backlog_.Flush().size(), 5u);
+    append(R"({"msg":"no-ts","level":"INFO"})");
+    append(R"({"msg":"with-ts","level":"INFO","timestamp":"2024-01-01T00:00:00Z"})");
+    ASSERT_TRUE(wait_for(backlog_, 2));
+    const auto entries = backlog_.Flush();
+    ASSERT_EQ(entries.size(), 2u);
+    EXPECT_EQ(entries[0]["msg"], "no-ts");
+    ASSERT_TRUE(entries[0].contains("timestamp"));
+    const auto timestamp = entries[0]["timestamp"].get<std::string>();
+    EXPECT_TRUE(parse_iso8601(timestamp).has_value());
+    EXPECT_NE(timestamp.find('.'), std::string::npos)
+        << "injected timestamp should include milliseconds";
+    EXPECT_EQ(entries[1]["msg"], "with-ts");
+    EXPECT_EQ(entries[1]["timestamp"], "2024-01-01T00:00:00Z");
 }
 
 TEST_F(FileHarvesterTest, DetectsTruncation) {
@@ -206,11 +172,6 @@ TEST_F(FileHarvesterTest, DetectsRotation) {
     auto entries = backlog_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "post-rotate");
-}
-
-TEST_F(FileHarvesterTest, NameReturnsConstructorValue) {
-    create_file_and_start();
-    EXPECT_EQ(harvester_->Name(), "test");
 }
 
 TEST_F(FileHarvesterTest, IngestsPartialWritesAcrossPolls) {

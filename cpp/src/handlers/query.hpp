@@ -39,6 +39,9 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
     if (limit < 1)
         co_return MakeFailResp(400, "'limit' must be a positive integer", req,
                                ctx.config.allow_origin);
+    if (limit > kMaxQueryLimit)
+        co_return MakeFailResp(400, fmt::format("'limit' must not exceed {}", kMaxQueryLimit), req,
+                               ctx.config.allow_origin);
     if (offset < 0)
         co_return MakeFailResp(400, "'offset' must be a non-negative integer", req,
                                ctx.config.allow_origin);

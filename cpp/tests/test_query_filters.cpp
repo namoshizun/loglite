@@ -1,93 +1,57 @@
 #include <gtest/gtest.h>
 
 #include "handlers/common.hpp"
-#include "column_dict.hpp"
 
 using namespace loglite;
 using namespace loglite::handlers;
 
 // ── Filter expression parsing ─────────────────────────────────────────────────
 
-TEST(FilterParseTest, EqualOperator) {
-    auto filters = ParseQueryFilters("level", "=ERROR");
-    ASSERT_EQ(filters.size(), 1u);
-    EXPECT_EQ(filters[0].field, "level");
-    EXPECT_EQ(filters[0].op, "=");
-    EXPECT_EQ(filters[0].value.get<std::string>(), "ERROR");
+TEST(FilterParseTest, OperatorsAreRecognizedWithoutLosingValues) {
+    for (const auto* op : {"=", "!=", ">", ">=", "<", "<=", "~="}) {
+        SCOPED_TRACE(op);
+        auto filters = ParseQueryFilters("level", std::string{op} + "ERROR");
+        ASSERT_EQ(filters.size(), 1u);
+        EXPECT_EQ(filters[0].field, "level");
+        EXPECT_EQ(filters[0].op, op);
+        EXPECT_EQ(filters[0].value, "ERROR");
+    }
+    EXPECT_TRUE(ParseQueryFilters("level", "").empty());
 }
 
-TEST(FilterParseTest, MultipleOperators) {
+TEST(FilterParseTest, MultipleOperatorsKeepTheirOwnValues) {
     auto filters = ParseQueryFilters("timestamp", ">=2024-01-01T00:00:00,<=2024-01-02T00:00:00");
     ASSERT_EQ(filters.size(), 2u);
+    EXPECT_EQ(filters[0].field, "timestamp");
     EXPECT_EQ(filters[0].op, ">=");
+    EXPECT_EQ(filters[0].value, "2024-01-01T00:00:00");
+    EXPECT_EQ(filters[1].field, "timestamp");
     EXPECT_EQ(filters[1].op, "<=");
+    EXPECT_EQ(filters[1].value, "2024-01-02T00:00:00");
 }
 
-TEST(FilterParseTest, SubstringOperator) {
-    auto filters = ParseQueryFilters("message", "~=timeout");
-    ASSERT_EQ(filters.size(), 1u);
-    EXPECT_EQ(filters[0].op, "~=");
-    EXPECT_EQ(filters[0].value.get<std::string>(), "timeout");
-}
+// ── Response helpers ──────────────────────────────────────────────────────────
 
-TEST(FilterParseTest, NotEqualOperator) {
-    auto filters = ParseQueryFilters("level", "!=DEBUG");
-    ASSERT_EQ(filters.size(), 1u);
-    EXPECT_EQ(filters[0].op, "!=");
-}
-
-TEST(FilterParseTest, EmptyExpressionReturnsEmpty) {
-    auto filters = ParseQueryFilters("level", "");
-    EXPECT_TRUE(filters.empty());
-}
-
-// ── Query-string parsing ──────────────────────────────────────────────────────
-
-TEST(QueryStringTest, BasicParsing) {
-    auto params = ParseQueryString("fields=*&limit=100&offset=0");
-    EXPECT_EQ(params.find("fields")->second, "*");
-    EXPECT_EQ(params.find("limit")->second, "100");
-    EXPECT_EQ(params.find("offset")->second, "0");
-}
-
-TEST(QueryStringTest, FilterParam) {
-    auto params = ParseQueryString("fields=*&limit=10&offset=0&level==ERROR");
-    auto it = params.find("level");
-    ASSERT_NE(it, params.end());
-    EXPECT_EQ(it->second, "=ERROR");
-}
-
-TEST(QueryStringTest, SplitTarget) {
-    auto [path, qs] = SplitURLTarget("/logs?fields=*&limit=10");
-    EXPECT_EQ(path, "/logs");
-    EXPECT_EQ(qs, "fields=*&limit=10");
-}
-
-TEST(QueryStringTest, SplitTargetNoQuery) {
-    auto [path, qs] = SplitURLTarget("/health");
-    EXPECT_EQ(path, "/health");
-    EXPECT_TRUE(qs.empty());
-}
-
-// ── Response helpers ────────────────────────────────────────────────────────
-
-#include "handlers/common.hpp"
-
-TEST(ResponseHelperTest, MakeJSONResponse) {
-    http::request<http::string_body> req{http::verb::get, "/test", 11};
-    auto res =
-        handlers::MakeJSONResponse(http::status::ok, {{"key", "val"}}, req, "https://example.com");
-    EXPECT_EQ(res.result(), http::status::ok);
-    EXPECT_EQ(res[http::field::content_type], "application/json");
-    EXPECT_EQ(res[http::field::access_control_allow_origin], "https://example.com");
-
-    auto body = nlohmann::json::parse(res.body());
-    EXPECT_EQ(body["key"], "val");
-}
-
-TEST(ResponseHelperTest, MakeJSONResponseWithKeepAlive) {
-    http::request<http::string_body> req{http::verb::get, "/test", 11};
-    req.keep_alive(true);
-    auto res = handlers::MakeOKResp({{"status", "ok"}}, req);
-    EXPECT_TRUE(res.keep_alive());
+TEST(ResponseHelperTest, JSONResponsesPreserveStatusHeadersBodyAndConnectionPolicy) {
+    for (bool keep_alive : {false, true}) {
+        SCOPED_TRACE(keep_alive);
+        http::request<http::string_body> req{http::verb::get, "/test", 11};
+        req.keep_alive(keep_alive);
+        const auto verify = [&](const auto& response, http::status status,
+                                const nlohmann::json& body) {
+            EXPECT_EQ(response.result(), status);
+            EXPECT_EQ(response[http::field::content_type], "application/json");
+            EXPECT_EQ(response[http::field::access_control_allow_origin], "https://example.com");
+            EXPECT_EQ(response.keep_alive(), keep_alive);
+            EXPECT_EQ(response[http::field::content_length],
+                      std::to_string(response.body().size()));
+            EXPECT_EQ(nlohmann::json::parse(response.body()), body);
+        };
+        verify(MakeOKResp({{"key", "value"}}, req, "https://example.com"), http::status::ok,
+               {{"key", "value"}});
+        verify(MakeFailResp(404, "not found", req, "https://example.com"), http::status::not_found,
+               {{"error", "not found"}});
+        verify(MakeNotAvailableResp({{"msg", "busy"}}, req, "https://example.com"),
+               http::status::service_unavailable, {{"msg", "busy"}});
+    }
 }

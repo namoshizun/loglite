@@ -28,6 +28,15 @@ Statement::Statement(sqlite3* db, std::string_view sql) {
         throw std::runtime_error(fmt::format("sqlite3_prepare_v2: {}", sqlite3_errmsg(db)));
 }
 
+int Statement::Step() {
+    const int rc = sqlite3_step(raw);
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+        throw std::runtime_error(
+            fmt::format("sqlite3_step ({}): {}", rc, sqlite3_errmsg(sqlite3_db_handle(raw))));
+    }
+    return rc;
+}
+
 Database::Database(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
     : cfg_(cfg), catalog_(std::move(catalog)) {}
 
@@ -143,7 +152,7 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
     std::vector<ColumnInfo> out;
     auto sql = fmt::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (stmt.Step() == SQLITE_ROW) {
         ColumnInfo ci;
         ci.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         ci.type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
@@ -157,7 +166,7 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
 std::string Database::GetPragma(std::string_view name) const {
     auto sql = fmt::format("PRAGMA {}", name);
     Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (stmt.Step() == SQLITE_ROW) {
         const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         return txt ? txt : "";
     }
@@ -167,7 +176,7 @@ std::string Database::GetPragma(std::string_view name) const {
 int64_t Database::GetMaxLogId() const {
     auto sql = fmt::format("SELECT MAX(id) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+    if (stmt.Step() == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
         return sqlite3_column_int64(stmt, 0);
     return 0;
 }
@@ -175,7 +184,7 @@ int64_t Database::GetMaxLogId() const {
 int64_t Database::GetMinLogId() const {
     auto sql = fmt::format("SELECT MIN(id) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+    if (stmt.Step() == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
         return sqlite3_column_int64(stmt, 0);
     return 0;
 }
@@ -183,7 +192,7 @@ int64_t Database::GetMinLogId() const {
 std::string Database::GetMinTimestamp() const {
     auto sql = fmt::format("SELECT MIN({}) FROM {}", cfg_.log_timestamp_field, cfg_.log_table_name);
     Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
+    if (stmt.Step() == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
         const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         return txt ? txt : "";
     }
@@ -205,7 +214,7 @@ int64_t Database::EstimateLogRowCount() const {
     auto sql =
         fmt::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
     Statement stmt{db_, sql};
-    if (sqlite3_step(stmt) == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
+    if (stmt.Step() == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
     return 0;
 }
 

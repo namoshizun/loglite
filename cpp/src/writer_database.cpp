@@ -69,12 +69,20 @@ void WriterDatabase::Initialize() {
     }
 
     RefreshColumnInfo();
+    LoadColumnDictionary();
+}
 
+void WriterDatabase::LoadColumnDictionary() {
     LookupTable lut;
     for (const auto& [col, value, id] : GetColumnDictRows()) {
         lut[col][value] = id;
     }
     log::INFO("Loaded column dictionary ({} entries)", lut.size());
+
+    if (catalog_->col_dict) {
+        catalog_->col_dict->Reload(std::move(lut));
+        return;
+    }
 
     catalog_->col_dict = std::make_shared<ColumnDictionary>(
         std::move(lut), [this](const std::string& col, const std::string& val, ValueId vid) {
@@ -132,16 +140,15 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
             }
 
             if (!valid) continue;
-            int rc = sqlite3_step(stmt);
-            if (rc == SQLITE_DONE)
-                ++inserted;
-            else
-                log::ERROR("Insert step failed: {}", sqlite3_errmsg(db_));
+            stmt.Step();
+            ++inserted;
         }
         exec_sql("COMMIT");
         return inserted;
     } catch (...) {
+        sqlite3_reset(stmt);
         sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        if (cfg_.compression.enabled) LoadColumnDictionary();
         throw;
     }
 }
@@ -151,7 +158,7 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     auto sql = fmt::format("DELETE FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement stmt{db_, sql};
     for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(stmt, i + 1, params[i]);
-    ensure_ok(sqlite3_step(stmt), "delete_logs");
+    stmt.Step();
     return sqlite3_changes(db_);
 }
 
@@ -196,7 +203,7 @@ bool WriterDatabase::InsertActivityStats(const ActivityStatsRow& row) {
     sqlite3_bind_int64(stmt, 15, row.sse_session_count);
     sqlite3_bind_int64(stmt, 16, row.http_conn_count);
 
-    ensure_ok(sqlite3_step(stmt), "insert_activity_stats");
+    stmt.Step();
     return true;
 }
 
@@ -208,7 +215,7 @@ bool WriterDatabase::InsertDatabaseStats(const DatabaseStatsRow& row) {
     sqlite3_bind_int64(stmt, 2, row.rows_count);
     sqlite3_bind_int64(stmt, 3, row.db_size);
 
-    ensure_ok(sqlite3_step(stmt), "insert_database_stats");
+    stmt.Step();
     return true;
 }
 
@@ -218,14 +225,14 @@ int WriterDatabase::DeleteStatsBefore(std::string_view cutoff) {
         Statement stmt{db_, "DELETE FROM activity_stats WHERE until < ?"};
         sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
                           SQLITE_TRANSIENT);
-        ensure_ok(sqlite3_step(stmt), "delete_activity_stats");
+        stmt.Step();
         removed += sqlite3_changes(db_);
     }
     {
         Statement stmt{db_, "DELETE FROM database_stats WHERE timestamp < ?"};
         sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
                           SQLITE_TRANSIENT);
-        ensure_ok(sqlite3_step(stmt), "delete_database_stats");
+        stmt.Step();
         removed += sqlite3_changes(db_);
     }
     return removed;
@@ -234,7 +241,7 @@ int WriterDatabase::DeleteStatsBefore(std::string_view cutoff) {
 std::vector<int> WriterDatabase::GetAppliedVersions() const {
     Statement stmt{db_, "SELECT version FROM versions ORDER BY version"};
     std::vector<int> out;
-    while (sqlite3_step(stmt) == SQLITE_ROW) out.push_back(sqlite3_column_int(stmt, 0));
+    while (stmt.Step() == SQLITE_ROW) out.push_back(sqlite3_column_int(stmt, 0));
     return out;
 }
 
@@ -250,16 +257,15 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
         for (const auto& sql : statements) exec_sql(sql);
         Statement ins{db_, "INSERT INTO versions (version) VALUES (?)"};
         sqlite3_bind_int(ins, 1, version);
-        sqlite3_step(ins);
+        ins.Step();
         exec_sql("COMMIT");
-        log::INFO("Applied migration v{}", version);
-        RefreshColumnInfo();
-        return true;
-    } catch (const std::exception& e) {
-        exec_sql("ROLLBACK");
-        log::ERROR("Failed to apply migration v{}: {}", version, e.what());
-        return false;
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        throw;
     }
+    log::INFO("Applied migration v{}", version);
+    RefreshColumnInfo();
+    return true;
 }
 
 bool WriterDatabase::RollbackMigration(int version, const std::vector<std::string>& statements) {
@@ -268,23 +274,22 @@ bool WriterDatabase::RollbackMigration(int version, const std::vector<std::strin
         for (const auto& sql : statements) exec_sql(sql);
         Statement del{db_, "DELETE FROM versions WHERE version = ?"};
         sqlite3_bind_int(del, 1, version);
-        sqlite3_step(del);
+        del.Step();
         exec_sql("COMMIT");
-        log::INFO("Rolled back migration v{}", version);
-        RefreshColumnInfo();
-        return true;
-    } catch (const std::exception& e) {
-        exec_sql("ROLLBACK");
-        log::ERROR("Failed to rollback migration v{}: {}", version, e.what());
-        return false;
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        throw;
     }
+    log::INFO("Rolled back migration v{}", version);
+    RefreshColumnInfo();
+    return true;
 }
 
 std::vector<std::tuple<std::string, std::string, ValueId>> WriterDatabase::GetColumnDictRows()
     const {
     Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
     std::vector<std::tuple<std::string, std::string, ValueId>> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (stmt.Step() == SQLITE_ROW) {
         const auto* col = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         int vid = sqlite3_column_int(stmt, 2);
@@ -299,7 +304,7 @@ bool WriterDatabase::InsertColumnDictValue(const std::string& col, const std::st
     sqlite3_bind_text(stmt, 1, col.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
-    return sqlite3_step(stmt) == SQLITE_DONE;
+    return stmt.Step() == SQLITE_DONE;
 }
 
 }  // namespace loglite

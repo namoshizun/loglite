@@ -60,8 +60,10 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 void RunServer(const std::filesystem::path& config_path) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
+
     log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
+
     LogStore db_write{cfg};
     db_write.Open();
     db_write.Initialize();
@@ -119,6 +121,7 @@ void RunServer(const std::filesystem::path& config_path) {
 
     db_read.Close();
     db_write.Close();
+
     if (failure) {
         std::rethrow_exception(failure);
     }

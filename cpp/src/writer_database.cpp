@@ -34,6 +34,7 @@ void WriterDatabase::CreateInternalTables() {
         value_id INTEGER NOT NULL,
         value    JSON
     ))");
+
     exec_sql(R"(CREATE TABLE IF NOT EXISTS activity_stats (
         id                  INTEGER PRIMARY KEY,
         since               DATETIME NOT NULL,
@@ -53,6 +54,7 @@ void WriterDatabase::CreateInternalTables() {
         sse_session_count   INTEGER,
         http_conn_count     INTEGER
     ))");
+
     exec_sql(R"(CREATE TABLE IF NOT EXISTS database_stats (
         id           INTEGER PRIMARY KEY,
         timestamp    DATETIME,
@@ -83,6 +85,7 @@ void WriterDatabase::LoadColumnDictionary() {
     for (const auto& [col, value, id] : GetColumnDictRows()) {
         lut[col][value] = id;
     }
+
     log::INFO("Loaded column dictionary ({} entries)", lut.size());
 
     if (catalog_->col_dict) {
@@ -117,6 +120,7 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
         col_list = "id," + col_list;
         placeholders = "?," + placeholders;
     }
+
     auto sql =
         fmt::format("INSERT INTO {} ({}) VALUES ({})", cfg_.log_table_name, col_list, placeholders);
     Statement stmt{db_, sql};
@@ -126,6 +130,7 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
         int inserted = 0;
         size_t row_index = 0;
         int64_t last_id = first_id == 0 ? GetMaxLogId() : committed_id_;
+
         for (const auto& log : logs) {
             sqlite3_reset(stmt);
             sqlite3_clear_bindings(stmt);
@@ -134,6 +139,7 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
             const int64_t assigned_id =
                 first_id > 0 ? first_id + static_cast<int64_t>(row_index++) : 0;
             if (first_id > 0) bind_param(stmt, 1, assigned_id);
+
             for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
                 const auto& ci = cols[i];
                 auto it = log.find(ci.name);
@@ -161,6 +167,7 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
                                             : static_cast<int64_t>(sqlite3_last_insert_rowid(db_)));
             ++inserted;
         }
+
         exec_sql("COMMIT");
         // No SQLite work may fail between COMMIT and publishing the committed ID.
         committed_id_ = last_id;
@@ -177,6 +184,7 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     auto [where, params] = build_where_clause(filters);
     auto sql = fmt::format("DELETE FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement stmt{db_, sql};
+
     for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(stmt, i + 1, params[i]);
     stmt.Step();
     return sqlite3_changes(db_);
@@ -206,6 +214,7 @@ std::optional<std::string> WriterDatabase::GetPartitionInterval() const {
     Statement table{
         db_, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partition_state'"};
     if (table.Step() != SQLITE_ROW) return std::nullopt;
+
     Statement state{db_, "SELECT interval FROM partition_state WHERE id = 1"};
     if (state.Step() != SQLITE_ROW) return std::nullopt;
     return column_to_json(state, 0).get<std::string>();
@@ -315,6 +324,7 @@ int WriterDatabase::DeleteStatsBefore(std::string_view cutoff) {
         stmt.Step();
         removed += sqlite3_changes(db_);
     }
+
     return removed;
 }
 
@@ -343,6 +353,7 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
         sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
         throw;
     }
+
     log::INFO("Applied migration v{}", version);
     RefreshColumnInfo();
     return true;
@@ -350,6 +361,7 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
 
 bool WriterDatabase::RollbackMigration(int version, const std::vector<std::string>& statements) {
     if (!range_contains(GetAppliedVersions(), version)) return false;
+
     exec_sql("BEGIN");
     try {
         for (const auto& sql : statements) exec_sql(sql);
@@ -361,6 +373,7 @@ bool WriterDatabase::RollbackMigration(int version, const std::vector<std::strin
         sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
         throw;
     }
+
     log::INFO("Rolled back migration v{}", version);
     RefreshColumnInfo();
     return true;
@@ -370,6 +383,7 @@ std::vector<std::tuple<std::string, std::string, ValueId>> WriterDatabase::GetCo
     const {
     Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
     std::vector<std::tuple<std::string, std::string, ValueId>> rows;
+
     while (stmt.Step() == SQLITE_ROW) {
         const auto* col = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -380,6 +394,7 @@ std::vector<std::tuple<std::string, std::string, ValueId>> WriterDatabase::GetCo
                               : std::string{},
                           vid);
     }
+
     return rows;
 }
 

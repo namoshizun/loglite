@@ -43,6 +43,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         }
 
         if (ctx.StopRequested()) {
+            // Backlog may still be full... But timely termination guarantee is more important.
             log::INFO("[Termination] backlog flush task stopped");
             co_return;
         }

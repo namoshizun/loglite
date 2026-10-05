@@ -206,21 +206,26 @@ void Config::validate() const {
             "Time partitioning requires uncompressed id and log_timestamp_field; remove "
             "these columns from compression.columns.");
     }
+
     for (const auto& h : harvesters) {
         if (h.type.empty() || h.name.empty()) {
             throw std::runtime_error(
                 "each 'harvesters' entry must include non-empty 'type' and 'name'");
         }
     }
+
     if (migrations.empty()) {
         throw std::runtime_error("'migrations' list must not be empty");
     }
+
     if (task_diagnostics_interval < 30) {
         throw std::runtime_error("'task_diagnostics_interval' must be at least 30 seconds");
     }
+
     if (task_backlog_max_size < 1) {
         throw std::runtime_error("'task_backlog_max_size' must be at least 1");
     }
+
     (void)resolve_pool_size();
 }
 

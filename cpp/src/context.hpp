@@ -66,13 +66,14 @@ struct ServerContext {
         return stopping.load(std::memory_order_acquire);
     }
 
-    // Call on the write strand. Notify committed IDs even if a later file fails;
+    // Notify committed IDs even if a later file fails;
     // FlushCommitted restores only the uncommitted suffix of the batch.
     int FlushBacklog() {
         struct NotifyCommitted {
             ServerContext& ctx;
             ~NotifyCommitted() { ctx.notifier.Notify(ctx.db_write.GetCommittedLogId()); }
         } notify{*this};
+
         return backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
             return db_write.Insert(entries, acknowledge);
         });

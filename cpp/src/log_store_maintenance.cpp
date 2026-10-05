@@ -25,12 +25,14 @@ bool ReclaimPages(WriterDatabase& db, int64_t& budget) {
     const int64_t page_size = std::stoll(db.GetPragma("page_size"));
     const int64_t free_pages = std::stoll(db.GetPragma("freelist_count"));
     const int64_t pages = std::min({free_pages, budget / page_size, int64_t{INT_MAX}});
+
     if (pages > 0) {
         Timer timer;
         db.IncrementalVacuum(static_cast<int>(pages));
         budget -= pages * page_size;
         log::INFO("[vacuum] IncrementalVacuum({}) pages in {:.1f}s", pages, timer.elapsed_s());
     }
+
     return std::stoll(db.GetPragma("freelist_count")) > 0;
 }
 
@@ -41,6 +43,7 @@ bool ReclaimPages(WriterDatabase& db, int64_t& budget) {
 // partitioning, logs.db is that boundary file and is never removed.
 void LogStore::Maintain() {
     writer_.reset();
+
     const int vacuum_mode = std::stoi(control_.GetPragma("auto_vacuum"));
     const bool incremental = vacuum_mode == 2;
     const int64_t pass_bytes = static_cast<int64_t>(cfg_.task_vacuum_max_size) * 1024 * 1024;
@@ -50,6 +53,7 @@ void LogStore::Maintain() {
     // The pass budget belongs to logical storage, so it is shared by all files.
     int64_t vacuum_budget = pass_bytes > 0 ? pass_bytes : std::numeric_limits<int64_t>::max();
     bool reclaiming = false;
+
     std::vector<Candidate> files;
     for (auto& entry : registry_.Snapshot()) {
         auto& file = files.emplace_back(Candidate{std::move(entry)});
@@ -66,17 +70,21 @@ void LogStore::Maintain() {
         rows += file.entry.rows;
         bytes += file.bytes;
     }
+
     const int64_t average_bytes = std::max<int64_t>(1, bytes / std::max<int64_t>(1, rows));
     int64_t delete_budget = incremental && pass_bytes > 0
                                 ? std::max<int64_t>(1, pass_bytes / average_bytes)
                                 : std::numeric_limits<int64_t>::max();
+
     std::set<std::filesystem::path> trimmed;
+    // Applies `remove` to one file and keeps the registry and budget in step.
     const auto trim = [&](Candidate& file, auto&& remove) {
         int64_t removed = 0;
         UseFile(file.entry.partition.path, [&](WriterDatabase& db) {
             removed = remove(db);
             if (removed > 0) file.bytes = db.GetSizeBytes();
         });
+
         if (removed == 0) return removed;
         file.entry.rows -= removed;
         delete_budget -= removed;
@@ -92,6 +100,7 @@ void LogStore::Maintain() {
     const auto& columns = control_.GetColumnInfo();
     const bool has_timestamp =
         std::ranges::find(columns, cfg_.log_timestamp_field, &ColumnInfo::name) != columns.end();
+
     int64_t stale = 0;
     for (auto& file : files) {
         if (file.entry.partition.since > expiry) break;
@@ -103,6 +112,7 @@ void LogStore::Maintain() {
             stale += trim(
                 file, [&](WriterDatabase& db) { return db.DeleteOldLogs(cutoff, delete_budget); });
     }
+
     if (stale > 0)
         log::INFO("[vacuum] removed {} stale log(s) older than {} days", stale,
                   cfg_.vacuum_max_days);
@@ -111,11 +121,13 @@ void LogStore::Maintain() {
     int64_t live_bytes = 0;
     for (const auto& file : files)
         if (!file.expired) live_bytes += file.bytes;
+
     if (live_bytes > cfg_.vacuum_max_size_bytes && delete_budget > 0) {
         int64_t excess = live_bytes - cfg_.vacuum_target_size_bytes;
         log::INFO("[vacuum] db={:.1f}MB limit={:.1f}MB target={:.1f}MB", bytes_to_mb(live_bytes),
                   bytes_to_mb(cfg_.vacuum_max_size_bytes),
                   bytes_to_mb(cfg_.vacuum_target_size_bytes));
+
         for (auto& file : files) {
             if (file.expired || file.entry.rows == 0) continue;
             if (excess <= 0) break;
@@ -124,6 +136,7 @@ void LogStore::Maintain() {
                 excess -= file.bytes;
                 continue;
             }
+
             const long double ratio = std::clamp(
                 static_cast<long double>(excess) / std::max<int64_t>(1, file.bytes), 0.0L, 1.0L);
             const int64_t count = std::min(
@@ -135,6 +148,7 @@ void LogStore::Maintain() {
         }
     }
 
+    // Files are unlinked after all accounting so a deferred removal retries next pass.
     std::vector<std::filesystem::path> unlinked;
     for (const auto& file : files)
         if (removable && (file.expired || file.entry.rows == 0))
@@ -157,6 +171,7 @@ void LogStore::Maintain() {
 
 void LogStore::RemoveFiles(const std::vector<std::filesystem::path>& paths) {
     if (paths.empty()) return;
+
     // Readers hold the lease for a whole query. Waiting here would stall the write
     // strand, so files in use are removed by a later pass.
     std::unique_lock lease{lease_, std::try_to_lock};
@@ -165,6 +180,7 @@ void LogStore::RemoveFiles(const std::vector<std::filesystem::path>& paths) {
                    paths.size());
         return;
     }
+
     for (const auto& path : paths) {
         registry_.Erase(path);
         for (const auto* suffix : {"", "-wal", "-shm"})

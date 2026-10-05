@@ -223,6 +223,21 @@ TEST_F(HandlersTest, InvalidIngestionDoesNotEnqueueData) {
     }
 }
 
+TEST_F(HandlersTest, MalformedArrayRejectsWholeRequestWithoutChangingBacklog) {
+    const nlohmann::json valid{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "valid"}, {"level", "INFO"}};
+    for (const auto* invalid : {"42", "null", "true", "\"string\"", "[]"}) {
+        SCOPED_TRACE(invalid);
+        backlog_->Add(valid);
+        const auto payload = nlohmann::json::array({valid, nlohmann::json::parse(invalid), valid});
+        auto req = MakeRequest(http::verb::post, "/logs", payload.dump());
+        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::bad_request);
+        EXPECT_EQ(nlohmann::json::parse(res.body())["error"], "Array entries must be JSON objects");
+        EXPECT_EQ(backlog_->Flush(), (std::vector<nlohmann::json>{valid}));
+    }
+}
+
 // ── Query handler ───────────────────────────────────────────────────────────
 
 TEST_F(HandlersTest, QueryValidationRejectsInvalidRequestsAndRecordsMetrics) {

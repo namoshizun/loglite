@@ -54,12 +54,15 @@ CalendarRange Containing(PartitionInterval interval, TimePoint timestamp) {
 std::optional<CalendarRange> FromFilename(PartitionInterval interval, std::string_view filename) {
     const auto prefix = fmt::format("logs-{}-", ToString(interval));
     if (!filename.starts_with(prefix) || !filename.ends_with(".db")) return std::nullopt;
+
     std::string timestamp{filename.substr(prefix.size(), filename.size() - prefix.size() - 3)};
     timestamp += interval == PartitionInterval::kHourly    ? ":00:00Z"
                  : interval == PartitionInterval::kMonthly ? "-01T00:00:00Z"
                                                            : "T00:00:00Z";
+
     const auto parsed = parse_iso8601(timestamp);
     if (!parsed) return std::nullopt;
+
     auto range = Containing(interval, *parsed);
     if (range.filename != filename) return std::nullopt;
     return range;
@@ -75,11 +78,13 @@ std::optional<TimePoint> FilterInstant(const QueryFilter& filter, std::string_vi
 
 Partition PartitionScheme::Place(nlohmann::json& entry, TimePoint ingestion) const {
     if (!partitioned()) return Route(ingestion);
+
     auto timestamp = ingestion;
     auto& value = entry[cfg_.log_timestamp_field];
     if (value.is_string())
         if (const auto parsed = parse_iso8601(value.get_ref<const std::string&>()))
             timestamp = *parsed;
+
     // Route the instant the stored text denotes, so the file range invariant holds.
     timestamp = std::chrono::floor<std::chrono::milliseconds>(timestamp);
     value = format_utc(timestamp);
@@ -88,12 +93,14 @@ Partition PartitionScheme::Place(nlohmann::json& entry, TimePoint ingestion) con
 
 Partition PartitionScheme::Route(TimePoint timestamp) const {
     if (!partitioned()) return {cfg_.db_path};
+
     auto range = Containing(cfg_.partition_interval, timestamp);
     return {cfg_.sqlite_dir / range.filename, range.since, range.until};
 }
 
 std::optional<Partition> PartitionScheme::Parse(const std::filesystem::path& path) const {
     if (!partitioned()) return std::nullopt;
+
     const auto range = FromFilename(cfg_.partition_interval, path.filename().string());
     if (!range) return std::nullopt;
     return Partition{path, range->since, range->until};
@@ -101,9 +108,11 @@ std::optional<Partition> PartitionScheme::Parse(const std::filesystem::path& pat
 
 std::vector<QueryFilter> PartitionScheme::NormalizeFilters(std::vector<QueryFilter> filters) const {
     if (!partitioned()) return filters;
+
     for (auto& filter : filters)
         if (const auto instant = FilterInstant(filter, cfg_.log_timestamp_field))
             filter.value = format_utc(*instant);
+
     return filters;
 }
 
@@ -137,6 +146,7 @@ void PartitionRegistry::Add(Partition partition) {
             return e.partition.path;
         }) != entries_.end())
         return;
+
     const auto position = std::ranges::upper_bound(
         entries_, partition.since, {}, [](const Entry& e) { return e.partition.since; });
     entries_.insert(position, Entry{std::move(partition)});
@@ -148,6 +158,7 @@ void PartitionRegistry::Update(const std::filesystem::path& path, int64_t id_upp
     const auto entry = std::ranges::find(
         entries_, path, [](const Entry& e) -> const auto& { return e.partition.path; });
     if (entry == entries_.end()) throw std::logic_error("Unknown partition file: " + path.string());
+
     entry->id_upper_bound = std::max(entry->id_upper_bound, id_upper_bound);
     entry->rows += row_delta;
 }

@@ -27,6 +27,7 @@ bool SameSchema(const std::vector<ColumnInfo>& lhs, const std::vector<ColumnInfo
 
 void LogStore::Open() {
     cfg_.validate();
+
     std::vector<std::filesystem::path> files;
     for (const auto& entry : std::filesystem::directory_iterator(cfg_.sqlite_dir)) {
         if (!entry.is_regular_file()) continue;
@@ -38,6 +39,7 @@ void LogStore::Open() {
                 "interval or select a new sqlite_dir.");
         files.push_back(entry.path());
     }
+
     if (!files.empty() && !std::filesystem::exists(cfg_.db_path))
         throw std::runtime_error(
             "Partition files exist without control logs.db; restore logs.db before starting "
@@ -45,6 +47,7 @@ void LogStore::Open() {
 
     control_.Open();
     control_.CreateInternalTables();
+
     const auto persisted = control_.GetPartitionInterval();
     if (!scheme_.partitioned()) {
         if (persisted)
@@ -70,6 +73,7 @@ void LogStore::Open() {
             "Cannot change the persisted partition_interval; keep the original interval or "
             "select a new sqlite_dir.");
     }
+
     // The ID reservation must be durable before a different file commits.
     control_.SetPragma("synchronous", "FULL");
     for (const auto& path : files) registry_.Add(*scheme_.Parse(path));
@@ -79,8 +83,10 @@ void LogStore::Initialize() {
     if (cfg_.auto_rollout)
         while (Rollout()) {
         }
+
     control_.Initialize(std::span<const Migration>{});
     int64_t max_id = control_.GetCommittedLogId();
+
     if (!scheme_.partitioned()) {
         const int64_t rows = control_.GetColumnInfo().empty() ? 0 : control_.EstimateLogRowCount();
         registry_.Update(cfg_.db_path, max_id, rows);
@@ -95,12 +101,14 @@ void LogStore::Initialize() {
             file.RefreshColumnInfo();
             if (!SameSchema(file.GetColumnInfo(), control_.GetColumnInfo()))
                 throw std::runtime_error("Partition log schema differs from logs.db");
+
             const int64_t file_max = file.GetMaxLogId();
             registry_.Update(partition.path, file_max, file.CountLogRows());
             max_id = std::max(max_id, file_max);
         });
         control_.ObserveLogId(max_id);
     }
+
     committed_id_.store(max_id, std::memory_order_release);
 }
 
@@ -116,10 +124,12 @@ void LogStore::ValidateSchema() const {
     std::string id_type = id == columns.end() ? "" : id->type;
     std::ranges::transform(id_type, id_type.begin(),
                            [](unsigned char c) { return std::toupper(c); });
+
     if (id == columns.end() || !id->is_pk || id_type != "INTEGER" ||
         std::ranges::count_if(columns, &ColumnInfo::is_pk) != 1)
         throw std::runtime_error(
             "Time partitioning requires the log table to have id INTEGER PRIMARY KEY.");
+
     if (std::ranges::find(columns, cfg_.log_timestamp_field, &ColumnInfo::name) == columns.end())
         throw std::runtime_error("Time partitioning requires the configured timestamp field");
 }
@@ -139,6 +149,7 @@ std::vector<Migration> LogStore::ApprovedMigrations() const {
 
 bool LogStore::Rollout(int start_version) {
     writer_.reset();
+
     bool changed = false;
     // Repair files left behind by an interrupted command before advancing logs.db.
     if (scheme_.partitioned()) {
@@ -150,12 +161,14 @@ bool LogStore::Rollout(int start_version) {
     }
 
     const auto applied = control_.GetAppliedVersions();
+
     const Migration* pending = nullptr;
     for (const auto& migration : cfg_.migrations) {
         if (migration.version <= start_version || range_contains(applied, migration.version))
             continue;
         if (!pending || migration.version < pending->version) pending = &migration;
     }
+
     if (!pending) return changed;
 
     // Pass only this migration: a file already repaired during a previous attempt
@@ -164,6 +177,7 @@ bool LogStore::Rollout(int start_version) {
     VisitPartitionFiles([&](WriterDatabase& file, const Partition&) {
         MigrationManager{file, selected}.ApplyPendingMigrations(start_version);
     });
+
     return MigrationManager{control_, selected}.ApplyPendingMigrations(start_version);
 }
 
@@ -173,7 +187,9 @@ bool LogStore::Rollback(int version, bool force) {
         throw std::runtime_error(fmt::format("Migration v{} not found in config", version));
     if (!force && !MigrationManager::ConfirmRollback(version)) return false;
 
+    // Release the open partition handle before touching files.
     writer_.reset();
+
     bool rolled_back = false;
     VisitPartitionFiles([&](WriterDatabase& file, const Partition&) {
         rolled_back |= file.RollbackMigration(version, migration->rollback);
@@ -185,12 +201,14 @@ bool LogStore::Rollback(int version, bool force) {
 WriterDatabase& LogStore::Writer(const Partition& partition) {
     if (partition.path == cfg_.db_path) return control_;
     if (writer_ && writer_path_ == partition.path) return *writer_;
+
     writer_.reset();
     auto file = std::make_unique<WriterDatabase>(cfg_);
     file->Open(partition.path);
     file->Initialize(ApprovedMigrations());
     if (file->GetAppliedVersions() != control_.GetAppliedVersions())
         throw std::runtime_error("Partition migration versions differ from logs.db");
+
     registry_.Add(partition);
     writer_path_ = partition.path;
     writer_ = std::move(file);
@@ -199,15 +217,20 @@ WriterDatabase& LogStore::Writer(const Partition& partition) {
 
 int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge) {
     const auto ingestion = std::chrono::system_clock::now();
-    std::vector<std::pair<Partition, nlohmann::json>> placed;
-    placed.reserve(logs.size());
-    for (auto& entry : logs) {
-        auto partition = scheme_.Place(entry, ingestion);
-        placed.emplace_back(std::move(partition), std::move(entry));
-    }
-    std::ranges::stable_sort(placed, {}, [](const auto& item) { return item.first.since; });
-    for (size_t i = 0; i < logs.size(); ++i) logs[i] = std::move(placed[i].second);
 
+    // Route and sort indices before moving entries: a failure must leave the
+    // uncommitted logs available for backlog restoration.
+    std::vector<std::pair<Partition, size_t>> placed;
+    placed.reserve(logs.size());
+    for (size_t i = 0; i < logs.size(); ++i)
+        placed.emplace_back(scheme_.Place(logs[i], ingestion), i);
+    std::ranges::stable_sort(placed, {}, [](const auto& item) { return item.first.since; });
+
+    std::vector<nlohmann::json> ordered(logs.size());
+    for (size_t i = 0; i < logs.size(); ++i) ordered[i] = std::move(logs[placed[i].second]);
+    logs.swap(ordered);
+
+    // Write one contiguous run of logs per partition.
     int inserted = 0;
     for (size_t begin = 0; begin < logs.size();) {
         const auto& partition = placed[begin].first;
@@ -219,14 +242,17 @@ int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& ackno
         const int64_t first_id =
             scheme_.partitioned() ? control_.ReserveLogIds(static_cast<int64_t>(group.size())) : 0;
         const int count = file.InsertRows(group, first_id);
+
         registry_.Update(partition.path, file.GetCommittedLogId(), count);
         // Reserved IDs exceed every committed ID. Without reservations SQLite reuses
         // IDs after the newest rows are deleted, and the watermark must follow.
         if (count > 0) committed_id_.store(file.GetCommittedLogId(), std::memory_order_release);
+
         inserted += count;
         if (acknowledge) acknowledge(end);
         begin = end;
     }
+
     return inserted;
 }
 

@@ -251,6 +251,7 @@ class FileHarvester final : public Harvester {
             return std::nullopt;
         }
 
+        // Re-check identity to detect rotation racing with the open.
         const auto identity_after_open = current_path_identity();
         if (!identity_after_open.has_value()) {
             return std::nullopt;

@@ -45,6 +45,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
     // ── Parse fields param ────────────────────────────────────────────────────
     auto [path, qs] = SplitURLTarget(req.target());
     auto params = ParseQueryString(qs);
+
     std::vector<std::string> fields;
     if (auto it = params.find("fields"); it != params.end() && it->second != "*") {
         for (auto sv : std::views::split(it->second, ','))
@@ -55,6 +56,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
 
     // ── Send response headers ─────────────────────────────────────────────────
     stream.expires_never();
+
     http::response<http::empty_body> res{http::status::ok, req.version()};
     res.set(http::field::content_type, "text/event-stream");
     res.set(http::field::cache_control, "no-cache");
@@ -91,6 +93,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
         // Arm the subscription timer.  notify() cancels it early when new logs arrive.
         sub->timer->expires_after(debounce);
         co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
+
         if (ctx.StopRequested()) break;
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
@@ -124,6 +127,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
             {"id", ">", pushed_id},
             {"id", "<=", current_id},
         };
+
         PaginatedQueryResult result;
         try {
             result = co_await ctx.db_read.AsyncUseConnection(
@@ -147,6 +151,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
             payload << result.results[i];
         }
         payload << "]\r\n\r\n";
+
         std::string event = std::move(payload).str();
         auto chunk = http::make_chunk(net::buffer(event));
 

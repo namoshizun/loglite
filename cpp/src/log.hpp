@@ -21,9 +21,11 @@ inline std::atomic<Level> g_min_level{Level::kInfo};
 inline void SetLevel(Level level) { g_min_level.store(level, std::memory_order_relaxed); }
 
 namespace detail {
+
 inline bool enabled(Level level) {
     return static_cast<int>(level) >= static_cast<int>(g_min_level.load(std::memory_order_relaxed));
 }
+
 inline std::string timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto s = std::chrono::floor<std::chrono::seconds>(now);
@@ -67,6 +69,7 @@ inline bool stream_supports_color(FILE* stream) {
 
     static const bool kStdoutColor = isatty(fileno(stdout)) != 0;
     static const bool kStderrColor = isatty(fileno(stderr)) != 0;
+
     if (stream == stdout) return kStdoutColor;
     if (stream == stderr) return kStderrColor;
 
@@ -77,9 +80,11 @@ template <typename... Args>
 inline void log_formatted(FILE* stream, Level level, fmt::format_string<Args...> fmt,
                           Args&&... args) {
     if (!enabled(level)) return;
+
     const auto msg = fmt::format(fmt, std::forward<Args>(args)...);
     const auto ts = timestamp();
     const auto label = level_label(level);
+
     std::string line;
     if (stream_supports_color(stream)) {
         const auto levelStyled = fmt::format(style_for(level), "{}", label);
@@ -87,8 +92,10 @@ inline void log_formatted(FILE* stream, Level level, fmt::format_string<Args...>
     } else {
         line = fmt::format("[{}] [{}] {}\n", ts, label, msg);
     }
+
     std::fwrite(line.data(), 1, line.size(), stream);
 }
+
 }  // namespace detail
 
 inline void INFO(std::string_view msg) { detail::log_formatted(stdout, Level::kInfo, "{}", msg); }

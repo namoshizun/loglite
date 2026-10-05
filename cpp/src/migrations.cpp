@@ -43,6 +43,7 @@ bool MigrationManager::RollbackMigration(int version, bool force) {
 
 bool MigrationManager::ConfirmRollback(int version) {
     std::cout << fmt::format("Roll back migration v{}? [y/N] ", version);
+
     std::string ans;
     std::getline(std::cin, ans);
     if (ans == "y" || ans == "Y") return true;

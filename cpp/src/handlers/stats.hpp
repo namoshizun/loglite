@@ -44,6 +44,7 @@ asio::awaitable<http::response<http::string_body>> HandleStats(const http::reque
     // ── Parse timestamps, validate window ≤ 1 day ────────────────────────────
     auto since_tp = loglite::parse_iso8601(since_str);
     auto until_tp = loglite::parse_iso8601(until_str);
+
     if (!since_tp || !until_tp)
         co_return MakeFailResp(400, "'since' and 'until' must be ISO-8601 timestamps", req,
                                ctx.config.allow_origin);
@@ -58,12 +59,14 @@ asio::awaitable<http::response<http::string_body>> HandleStats(const http::reque
     // ── Resolve field lists ──────────────────────────────────────────────────
     auto split_fields = [](std::string_view s) -> std::vector<std::string> {
         if (s == "*") return {"*"};
+
         std::vector<std::string> out;
         for (auto part : std::views::split(s, ',')) {
             std::string_view raw(std::ranges::begin(part), std::ranges::end(part));
             auto piece = loglite::strip_spaces(raw);
             if (!piece.empty()) out.emplace_back(piece);
         }
+
         return out;
     };
 

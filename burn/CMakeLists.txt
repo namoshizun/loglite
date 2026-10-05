@@ -13,11 +13,18 @@ find_package(Boost REQUIRED CONFIG)
 find_package(CLI11 REQUIRED CONFIG)
 find_package(nlohmann_json REQUIRED CONFIG)
 find_package(fmt REQUIRED CONFIG)
+find_package(Threads REQUIRED)
 
 add_executable(burn src/main.cpp)
 
 target_include_directories(burn PRIVATE src)
-target_link_libraries(burn PRIVATE boost::boost CLI11::CLI11 nlohmann_json::nlohmann_json fmt::fmt)
+target_link_libraries(burn PRIVATE
+    boost::boost
+    CLI11::CLI11
+    nlohmann_json::nlohmann_json
+    fmt::fmt
+    Threads::Threads
+)
 
 target_compile_definitions(burn PRIVATE
     BOOST_ASIO_HAS_CO_AWAIT

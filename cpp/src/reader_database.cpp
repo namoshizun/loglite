@@ -50,6 +50,7 @@ std::vector<std::string> ReaderDatabase::ResolveFields(
 nlohmann::json ReaderDatabase::DecodeRow(sqlite3_stmt* stmt,
                                          const std::vector<std::string>& fields) const {
     auto row = nlohmann::json::object();
+
     for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
         const auto& field = fields[column];
         auto value = column_to_json(stmt, column);
@@ -57,6 +58,7 @@ nlohmann::json ReaderDatabase::DecodeRow(sqlite3_stmt* stmt,
             value = catalog_->col_dict->GetValue(field, value.get<int>());
         row[field] = std::move(value);
     }
+
     return row;
 }
 
@@ -76,6 +78,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     const int64_t total = filters.empty() ? EstimateLogRowCount() : CountLogs(filters);
     PaginatedQueryResult result{total, offset, limit, {}};
     if (total == 0) return result;
+
     for (auto& row : ReadLogs(resolved, filters, LogOrder::kNewestFirst, limit, offset))
         result.results.push_back(std::move(row.values));
     return result;
@@ -85,6 +88,7 @@ std::vector<ReaderDatabase::LogRow> ReaderDatabase::ReadLogs(
     const std::vector<std::string>& fields, const std::vector<QueryFilter>& filters, LogOrder order,
     int limit, int offset) const {
     auto [where, params] = build_where_clause(filters);
+
     const auto ordering = order == LogOrder::kIdAscending
                               ? std::string{"id ASC"}
                               : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
@@ -100,15 +104,19 @@ std::vector<ReaderDatabase::LogRow> ReaderDatabase::ReadLogs(
     std::vector<LogRow> rows;
     rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
     const auto id_column = static_cast<int>(fields.size());
+
     while (stmt.Step() == SQLITE_ROW)
         rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
+
     return rows;
 }
 
 void ReaderDatabase::LoadReadDictionary() {
     if (catalog_->compressed_columns.empty()) return;
+
     LookupTable lookup;
     Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
+
     while (stmt.Step() == SQLITE_ROW) {
         auto column = column_to_json(stmt, 0).get<std::string>();
         const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -116,6 +124,7 @@ void ReaderDatabase::LoadReadDictionary() {
                           : std::string{};
         lookup[column][std::move(text)] = sqlite3_column_int(stmt, 2);
     }
+
     catalog_->col_dict = std::make_shared<ColumnDictionary>(std::move(lookup), nullptr);
 }
 
@@ -124,10 +133,12 @@ std::unique_ptr<ReaderDatabase> ReaderDatabase::OpenFile(const std::filesystem::
     local_catalog->log_column_info = catalog_->log_column_info;
     auto reader = std::make_unique<ReaderDatabase>(cfg_, std::move(local_catalog));
     reader->Open(path);
+
     // Dictionary, count and rows use the same snapshot. Closing this short-lived
     // reader ends the read transaction, including on exceptions.
     reader->exec_sql("BEGIN");
     reader->LoadReadDictionary();
+
     return reader;
 }
 

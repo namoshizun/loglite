@@ -11,6 +11,7 @@ asio::awaitable<http::response<http::string_body>> HandleHealth(const http::requ
                                                                 ServerContext& ctx) {
     bool ok_flag = co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor,
                                                            [&](LogReader& r) { return r.Ping(); });
+
     if (ok_flag) {
         co_return MakeOKResp({{"status", "ok"}}, req, ctx.config.allow_origin);
     } else {

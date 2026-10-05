@@ -276,6 +276,40 @@ TEST_F(PartitionStorageTest, InvalidTimestampsUseIngestionTimeAndRowsMissingFiel
     EXPECT_EQ(ReservedId(), 4);  // the skipped row never became committed ID 4
 }
 
+TEST_F(PartitionStorageTest, RoutingFailureRestoresAllUncommittedEntriesForRetry) {
+    const std::vector<nlohmann::json> batch{Log("2024-01-02T00:00:00.000Z", "newer"),
+                                            Log("2024-01-01T00:00:00.000Z", "older"), 42,
+                                            Log("2024-01-03T00:00:00.000Z", "following")};
+    Backlog backlog{10};
+    for (const auto& entry : batch) backlog.Add(entry);
+    std::vector<size_t> acknowledged;
+    EXPECT_THROW(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
+        return db_->Insert(entries, [&](size_t prefix) {
+            acknowledged.push_back(prefix);
+            acknowledge(prefix);
+        });
+    }),
+                 nlohmann::json::type_error);
+
+    auto restored = backlog.Flush();
+    ASSERT_EQ(restored, batch);
+    EXPECT_TRUE(acknowledged.empty());
+    EXPECT_TRUE(PartitionFiles().empty());
+    EXPECT_EQ(ReservedId(), 0);
+
+    // Remove the malformed entry and retry the preserved logs.
+    restored.erase(restored.begin() + 2);
+    for (auto& entry : restored) backlog.Add(std::move(entry));
+    EXPECT_EQ(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
+        return db_->Insert(entries, acknowledge);
+    }),
+              3);
+    EXPECT_TRUE(backlog.Flush().empty());
+    EXPECT_EQ(Query({"message"}, {}, 10, 0).results,
+              (std::vector<nlohmann::json>{
+                  {{"message", "following"}}, {{"message", "newer"}}, {{"message", "older"}}}));
+}
+
 TEST_F(PartitionStorageTest, PartialFailureAcknowledgesCommittedPrefixAndNotifiesDurableRows) {
     cfg_.migrations.push_back(
         {2,

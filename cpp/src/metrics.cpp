@@ -46,9 +46,11 @@ std::vector<Observation> MetricsRegistry::Flush() {
     auto now = std::chrono::steady_clock::now();
     std::lock_guard lk(mtx_);
     prune(now);
+
     std::vector<Observation> out(std::make_move_iterator(observations_.begin()),
                                  std::make_move_iterator(observations_.end()));
     observations_.clear();
+
     return out;
 }
 

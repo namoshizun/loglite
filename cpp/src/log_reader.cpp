@@ -15,6 +15,7 @@ PaginatedQueryResult LogReader::Query(const std::vector<std::string>& fields,
     const auto& scheme = store_.scheme();
     // logs.db is the only file; SQLite pages it and estimates the unfiltered total.
     if (!scheme.partitioned()) return connection_.Query(fields, filters, limit, offset);
+
     const auto normalized = scheme.NormalizeFilters(filters);
     const auto resolved = connection_.ResolveFields(fields);
     connection_.ValidateFilters(normalized);
@@ -24,8 +25,10 @@ PaginatedQueryResult LogReader::Query(const std::vector<std::string>& fields,
     const auto page_full = [&] {
         return limit >= 0 && result.results.size() >= static_cast<size_t>(limit);
     };
+
     const auto lease = store_.ReadLease();
     const auto files = store_.Partitions();
+
     for (const auto& file : files | std::views::reverse) {
         if (!scheme.MayContain(file.partition, normalized)) continue;
         if (normalized.empty() && (page_full() || skip >= file.rows)) {
@@ -48,6 +51,7 @@ PaginatedQueryResult LogReader::Query(const std::vector<std::string>& fields,
             skip = 0;
         });
     }
+
     return result;
 }
 
@@ -57,6 +61,7 @@ LogIdQueryResult LogReader::QueryLogIdRange(const std::vector<std::string>& fiel
                                             int64_t since_exclusive, int64_t until_inclusive,
                                             int limit) const {
     const auto resolved = connection_.ResolveFields(fields);
+
     const std::vector<QueryFilter> range{{"id", ">", since_exclusive},
                                          {"id", "<=", until_inclusive}};
     std::vector<ReaderDatabase::LogRow> rows;
@@ -71,6 +76,7 @@ LogIdQueryResult LogReader::QueryLogIdRange(const std::vector<std::string>& fiel
             });
         }
     }
+
     std::ranges::sort(rows, {}, &ReaderDatabase::LogRow::id);
     if (limit >= 0 && rows.size() > static_cast<size_t>(limit)) rows.resize(limit);
 

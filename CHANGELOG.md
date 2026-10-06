@@ -3,10 +3,9 @@
 ### 1.4.0
 
 - feat: time-based partitioning (`partition_interval: hourly | daily | weekly | monthly`), one SQLite file per UTC range.
-- **breaking**: partitioning requires a fresh `sqlite_dir`; the server and the `rollout` / `rollback` commands refuse to start on an existing `logs.db` that holds logs.
-- **breaking**: with partitioning, stored timestamps are rewritten to canonical UTC with millisecond precision; missing or unparseable timestamps use the flush time.
+  - **breaking**: partitioning requires a fresh `sqlite_dir`.
 - perf: partitioned queries read files newest first, skip files by row count and timestamp filters; retention deletes whole expired files.
-- change: SQLite connections wait up to 5s for locks unless `busy_timeout` is configured.
+- refactor: set default 5s `busy_timeout` for SQLite connections.
 
 ### 1.3.3
 

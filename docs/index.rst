@@ -72,7 +72,7 @@ A minimal example:
         rollout:
           - |
             CREATE TABLE Log (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME NOT NULL,
                 message TEXT NOT NULL,
                 level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),

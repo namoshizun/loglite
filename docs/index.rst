@@ -117,7 +117,7 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
    log_timestamp_field: timestamp   # Column used for age-based vacuum
 
    # ── SSE ──────────────────────────────────────────────────
-   sse_limit: 1000          # Max logs per SSE event payload
+   sse_limit: 50            # Live window size / max logs per SSE event
    sse_debounce_ms: 500     # Coalesce bursts faster than this window
 
    # ── Vacuum ───────────────────────────────────────────────
@@ -163,89 +163,20 @@ Time-based partitioning
 
 Set ``partition_interval`` to ``hourly``, ``daily``, ``weekly``, or ``monthly``
 to store each time range in its own SQLite file under ``sqlite_dir``.
-The default, ``none``, keeps the single ``logs.db`` file.
+The default, ``none``, keeps the single ``logs.db`` file. Log IDs remain unique
+and increasing across files
 
 .. code-block:: yaml
 
    sqlite_dir: ./db
    partition_interval: daily
 
-Ranges follow the UTC calendar: hours begin on the hour, days at midnight,
-weeks on Monday at midnight, and months on the first day at midnight.
-Each range includes its start and excludes its end. The setting accepts the
-exact lowercase values above and can be overridden with the
-``LOGLITE_PARTITION_INTERVAL`` environment variable.
-
-Files are named after the start of their range, for example:
-
-- ``hourly``: ``logs-hourly-2026-05-05T12.db``
-- ``daily``: ``logs-daily-2026-05-05.db``
-- ``weekly``: ``logs-weekly-2026-05-04.db`` (Monday)
-- ``monthly``: ``logs-monthly-2026-05.db``
-
 .. warning::
 
-   Partitioning (1.4.0) is not backwards compatible with an existing database
-   that holds logs. If ``logs.db`` in ``sqlite_dir`` already contains logs,
-   the server and the ``rollout``/``rollback`` commands refuse to start.
-   Enable partitioning on a fresh ``sqlite_dir``.
+   Partitioning (1.4.0) is **not backwards compatible** with an existing database
+   that holds logs. Please restart with a fresh new ``sqlite_dir`` if you
+   want to start using partitioning.
 
-New logs are routed by ``log_timestamp_field``. Each stored timestamp is
-rewritten to canonical UTC with millisecond precision
-(``YYYY-MM-DDTHH:MM:SS.mmmZ``); sub-millisecond digits are truncated.
-Timestamps accept full ISO-8601 date-times, including fractional seconds and
-UTC offsets; omitted offsets mean UTC. Missing, non-string, or unparseable
-timestamps are replaced with the time the backlog is flushed. Other schema
-requirements still apply. Late logs go into their original time range.
-
-Every file holds only timestamps inside its own range, so queries read the
-files newest first and stop once the page is full; whole files before the
-requested ``offset`` are skipped without being opened. Results are ordered by
-timestamp descending and then ID descending. Filters on the timestamp field
-are normalized the same way as stored values (``2024-01-02T08:00:00+08:00``
-matches ``2024-01-02T00:00:00.000Z``) and skip files outside the filtered range.
-
-Log IDs remain unique and increasing across files and server restarts; gaps
-are possible. A flush assigns IDs file by file in range order. The live
-stream uses the same order as ``GET /logs``: timestamp descending, then ID
-descending, at most ``sse_limit`` rows per event.
-
-Partitioning requires ``id INTEGER PRIMARY KEY`` in the log table. When
-compression is enabled, keep ``id`` and ``log_timestamp_field`` out of
-``compression.columns``; other columns can use dictionary compression.
-LogLite owns log IDs when partitioning is enabled: migrations and log-table
-triggers must not insert log rows or change IDs.
-
-With partitioning, ``logs.db`` is a control database: it holds migration
-versions, ID reservations, statistics, and an empty log table that serves as
-the schema template. Use a fresh ``sqlite_dir`` to change the interval or
-return to ``none``, even if no logs have been written yet.
-The control database uses ``synchronous=FULL`` to make ID reservations durable;
-range files honor the configured SQLite settings.
-
-Migration commands apply to every database file. New partitions inherit the
-migrations already applied to ``logs.db``. A flush spanning several files
-commits each file separately; a later failure can leave earlier files
-committed, and retries retain only the uncommitted entries.
-
-Run migrations while the server is stopped. Files commit independently,
-with ``logs.db`` updated last. If a command is interrupted, correct the
-reported failure and rerun that command to finish the remaining files before
-restarting the server. Keep ``logs.db`` with its partition files when moving
-or restoring the directory: its ID reservations preserve uniqueness even
-after retention has deleted historical rows.
-
-Retention limits apply to all log files together and work on whole files.
-Age-based cleanup deletes files whose range ended before the cutoff and
-removes expired rows only from the file containing the cutoff. Size-based
-cleanup deletes the oldest files while the excess is at least their size,
-then removes the oldest IDs from the next file. Files are deleted only while
-no query is reading them; otherwise the next vacuum pass retries. With
-``auto_vacuum: FULL``, only files that lost rows are vacuumed. Empty partition
-files are removed.
-
-Connections wait up to 5 seconds for SQLite locks unless ``busy_timeout`` is
-set in ``sqlite_params``.
 
 Command Line Interface
 ----------------------
@@ -327,9 +258,20 @@ Supported operators: ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``, ``~=``
 ~~~~~~~~~~~~~~~~~
 
 Subscribe to new logs in real time over `Server-Sent Events
-<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_. The
-``fields`` parameter behaves the same as on ``GET /logs``. Bursts of writes are
-coalesced according to ``sse_debounce_ms``.
+<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_.
+Each event is a JSON array of at most ``sse_limit`` logs (default 50), newest
+first by commit order, sent as ``data: [ ... ]`` chunks. The ``fields``
+parameter works as on ``GET /logs``: omit it or use ``*`` for all columns, or
+a comma-separated list; empty or unknown names return HTTP 400 before the
+stream starts.
+
+All connections share one in-memory window of the last ``sse_limit``
+committed logs of this process (minimum 1); it starts empty on restart.
+A connection receives only logs committed after it subscribed: no replay of
+the window or history, and no ``Last-Event-ID`` recovery. Slow clients skip
+logs already evicted from the window; SSE is a lossy live view, not a
+complete feed. Pushes are at most one per ``sse_debounce_ms`` (default 500,
+minimum 1); a heartbeat comment is sent after 15 s without a write.
 
 .. code-block:: bash
 

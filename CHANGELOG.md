@@ -1,6 +1,6 @@
 ## Changelog
 
-### 1.4.0
+### [Unreleased]
 
 - feat: time-based partitioning (`partition_interval: hourly | daily | weekly | monthly`), one SQLite file per UTC range.
   - **breaking**: partitioning requires a fresh `sqlite_dir`.

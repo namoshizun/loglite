@@ -72,7 +72,7 @@ A minimal example:
         rollout:
           - |
             CREATE TABLE Log (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME NOT NULL,
                 message TEXT NOT NULL,
                 level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
@@ -100,7 +100,8 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
                       # each SQLite connection holds a distinct cache memory.
 
    # ── Database ─────────────────────────────────────────────
-   sqlite_dir: ./db       # Directory holding the SQLite db file
+   sqlite_dir: ./db       # Directory holding the SQLite files
+   partition_interval: none  # none (default), hourly, daily, weekly, or monthly
    auto_rollout: false    # Apply pending migrations on startup
 
    sqlite_params:         # Any valid SQLite PRAGMA key/value pairs
@@ -116,7 +117,7 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
    log_timestamp_field: timestamp   # Column used for age-based vacuum
 
    # ── SSE ──────────────────────────────────────────────────
-   sse_limit: 1000          # Max logs per SSE event payload
+   sse_limit: 50            # Live window size / max logs per SSE event
    sse_debounce_ms: 500     # Coalesce bursts faster than this window
 
    # ── Vacuum ───────────────────────────────────────────────
@@ -156,6 +157,25 @@ A full annotated example, including vacuuming, SSE, harvesters, and SQLite pragm
 See `configs/ <https://github.com/namoshizun/loglite/tree/main/configs>`_ in
 the repo for runnable examples (``basic.yaml``, ``enable-compression.yaml``,
 ``file-harvester.yaml``).
+
+Time-based partitioning
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``partition_interval`` to ``hourly``, ``daily``, ``weekly``, or ``monthly``
+to store each time range in its own SQLite file under ``sqlite_dir``.
+The default, ``none``, keeps the single ``logs.db`` file. Log IDs remain unique
+and increasing across files
+
+.. code-block:: yaml
+
+   sqlite_dir: ./db
+   partition_interval: daily
+
+.. warning::
+
+   Partitioning (1.4.0) is **not backwards compatible** with an existing database
+   that holds logs. Please restart with a fresh new ``sqlite_dir`` if you
+   want to start using partitioning.
 
 
 Command Line Interface
@@ -238,9 +258,20 @@ Supported operators: ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``, ``~=``
 ~~~~~~~~~~~~~~~~~
 
 Subscribe to new logs in real time over `Server-Sent Events
-<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_. The
-``fields`` parameter behaves the same as on ``GET /logs``. Bursts of writes are
-coalesced according to ``sse_debounce_ms``.
+<https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events>`_.
+Each event is a JSON array of at most ``sse_limit`` logs (default 50), newest
+first by commit order, sent as ``data: [ ... ]`` chunks. The ``fields``
+parameter works as on ``GET /logs``: omit it or use ``*`` for all columns, or
+a comma-separated list; empty or unknown names return HTTP 400 before the
+stream starts.
+
+All connections share one in-memory window of the last ``sse_limit``
+committed logs of this process (minimum 1); it starts empty on restart.
+A connection receives only logs committed after it subscribed: no replay of
+the window or history, and no ``Last-Event-ID`` recovery. Slow clients skip
+logs already evicted from the window; SSE is a lossy live view, not a
+complete feed. Pushes are at most one per ``sse_debounce_ms`` (default 500,
+minimum 1); a heartbeat comment is sent after 15 s without a write.
 
 .. code-block:: bash
 
@@ -382,7 +413,7 @@ Response:
 
 Included settings:
 
-- ``log_table_name``, ``log_timestamp_field``
+- ``log_table_name``, ``log_timestamp_field``, ``partition_interval``
 - ``sqlite_params`` (object of PRAGMA key/value pairs)
 - ``auto_rollout``
 - ``vacuum_max_days``, ``vacuum_max_size``, ``vacuum_target_size``,

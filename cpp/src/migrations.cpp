@@ -36,17 +36,19 @@ bool MigrationManager::RollbackMigration(int version, bool force) {
     if (it == migrations_.end())
         throw std::runtime_error(fmt::format("Migration v{} not found in config", version));
 
-    if (!force) {
-        std::cout << fmt::format("Roll back migration v{}? [y/N] ", version);
-        std::string ans;
-        std::getline(std::cin, ans);
-        if (ans != "y" && ans != "Y") {
-            log::INFO("Rollback cancelled.");
-            return false;
-        }
-    }
+    if (!force && !ConfirmRollback(version)) return false;
 
     return db_.RollbackMigration(version, it->rollback);
+}
+
+bool MigrationManager::ConfirmRollback(int version) {
+    std::cout << fmt::format("Roll back migration v{}? [y/N] ", version);
+
+    std::string ans;
+    std::getline(std::cin, ans);
+    if (ans == "y" || ans == "Y") return true;
+    log::INFO("Rollback cancelled.");
+    return false;
 }
 
 }  // namespace loglite

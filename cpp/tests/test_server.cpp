@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "test_support.hpp"
-#include "writer_database.hpp"
+#include "log_store.hpp"
 #include "context.hpp"
 #include "metrics.hpp"
-#include "reader_database.hpp"
+#include "log_reader.hpp"
 #include "server.hpp"
 
 #include <boost/asio.hpp>
@@ -103,7 +103,7 @@ class ServerTest : public ::testing::Test {
             cfg_.port = port_picker.local_endpoint().port();
         }
 
-        db_ = std::make_unique<WriterDatabase>(cfg_);
+        db_ = std::make_unique<LogStore>(cfg_);
         db_->Open();
         db_->Initialize();
 
@@ -112,9 +112,9 @@ class ServerTest : public ::testing::Test {
 
         backlog_ = std::make_unique<Backlog>(200);
         notifier_ = std::make_unique<LogNotifier>();
-        notifier_->Notify(db_->GetMaxLogId());
+        notifier_->Notify(db_->GetCommittedLogId());
 
-        db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 2u);
+        db_read_ = std::make_unique<LogReaderPool>(*db_, 2u);
 
         ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
                                                asio::make_strand(db_ops_pool_->get_executor()),
@@ -184,8 +184,8 @@ class ServerTest : public ::testing::Test {
 
     test::TempDirectory directory_;
     Config cfg_{test::MakeConfig(directory_.path())};
-    std::unique_ptr<WriterDatabase> db_;
-    std::unique_ptr<ReadDatabasePool> db_read_;
+    std::unique_ptr<LogStore> db_;
+    std::unique_ptr<LogReaderPool> db_read_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<ServerContext> ctx_;
@@ -267,8 +267,11 @@ TEST_F(ServerTest, ShutdownLeavesBufferedLogsForFinalFlushAfterProducersStop) {
 }
 
 TEST_F(ServerTest, FatalBackgroundFailureIsRethrownAndRestoresBatch) {
-    db_->ApplyMigration(2, {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog "
-                            "BEGIN SELECT RAISE(ABORT, 'injected background failure'); END"});
+    cfg_.migrations.push_back({2,
+                               {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog "
+                                "BEGIN SELECT RAISE(ABORT, 'injected background failure'); END"},
+                               {"DROP TRIGGER reject_log"}});
+    ASSERT_TRUE(db_->Rollout());
     for (int i = 0; i < 190; ++i) {
         backlog_->Add(
             {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "failure"}, {"level", "INFO"}});
@@ -376,6 +379,99 @@ TEST_F(ServerTest, ShutdownCancelsIdleSSESubscriptions) {
     EXPECT_EQ(notifier_->SubscriberCount(), 0u);
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kHttpConnection), 0);
+}
+
+class PartitionedServerTest : public ServerTest {
+   protected:
+    void SetUp() override {
+        cfg_.partition_interval = PartitionInterval::kDaily;
+        cfg_.sse_limit = 2;
+        cfg_.sse_debounce_ms = 10;
+        ServerTest::SetUp();
+    }
+};
+
+TEST_F(PartitionedServerTest, SSESendsNewestPageInQueryOrder) {
+    auto insert_and_notify = [&](std::vector<nlohmann::json> logs) {
+        const auto last_id = asio::co_spawn(
+                                 ctx_->write_strand,
+                                 [&]() -> asio::awaitable<int64_t> {
+                                     db_->Insert(logs);
+                                     co_return db_->GetCommittedLogId();
+                                 },
+                                 asio::use_future)
+                                 .get();
+        notifier_->Notify(last_id);
+    };
+    insert_and_notify({{{"timestamp", "2024-01-05T00:00:00Z"},
+                        {"message", "before subscription"},
+                        {"level", "INFO"}}});
+
+    asio::io_context io;
+    tcp::socket socket{io};
+    socket.connect({asio::ip::make_address(cfg_.host), cfg_.port});
+    http::request<http::empty_body> req{http::verb::get, "/logs/sse?fields=message", 11};
+    req.set(http::field::host, cfg_.host);
+    http::write(socket, req);
+    beast::flat_buffer buffer;
+    http::response_parser<http::empty_body> parser;
+    http::read_header(socket, buffer, parser);
+    ASSERT_EQ(parser.get().result(), http::status::ok);
+    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
+    socket.non_blocking(true);
+
+    std::string pending = beast::buffers_to_string(buffer.data());
+    std::vector<nlohmann::json> events;
+    auto await_events = [&](size_t expected) {
+        return test::WaitUntil(
+            [&] {
+                char bytes[4096];
+                boost::system::error_code ec;
+                const auto count = socket.read_some(asio::buffer(bytes), ec);
+                if (ec != asio::error::would_block && ec != asio::error::try_again && ec) {
+                    throw boost::system::system_error(ec);
+                }
+                pending.append(bytes, count);
+                for (;;) {
+                    const auto start = pending.find("data: ");
+                    if (start == std::string::npos) break;
+                    const auto end = pending.find("\r\n\r\n", start);
+                    if (end == std::string::npos) break;
+                    events.push_back(
+                        nlohmann::json::parse(pending.substr(start + 6, end - start - 6)));
+                    pending.erase(0, end + 4);
+                }
+                return events.size() >= expected;
+            },
+            std::chrono::seconds{3});
+    };
+
+    insert_and_notify({
+        {{"timestamp", "2024-01-04T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}},
+        {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "late"}, {"level", "INFO"}},
+        {{"timestamp", "2024-01-03T00:00:00Z"}, {"message", "third"}, {"level", "INFO"}},
+        {{"timestamp", "2024-01-02T00:00:00Z"}, {"message", "fourth"}, {"level", "INFO"}},
+        {{"timestamp", "2024-01-04T00:00:01Z"}, {"message", "fifth"}, {"level", "INFO"}},
+    });
+    // Same order as GET /logs. sse_limit keeps the newest page and the cursor
+    // advances to the high watermark, so the older rows of this burst are not replayed.
+    ASSERT_TRUE(await_events(1));
+    EXPECT_EQ(events, (std::vector<nlohmann::json>{
+                          nlohmann::json::array({{{"message", "fifth"}}, {{"message", "first"}}}),
+                      }));
+
+    insert_and_notify({
+        {{"timestamp", "2023-12-01T00:00:00Z"}, {"message", "sixth"}, {"level", "INFO"}},
+        {{"timestamp", "2023-12-02T00:00:00Z"}, {"message", "seventh"}, {"level", "INFO"}},
+    });
+    ASSERT_TRUE(await_events(2));
+    EXPECT_EQ(events.back(),
+              nlohmann::json::array({{{"message", "seventh"}}, {{"message", "sixth"}}}));
+
+    insert_and_notify(
+        {{{"timestamp", "2023-11-01T00:00:00Z"}, {"message", "later arrival"}, {"level", "INFO"}}});
+    ASSERT_TRUE(await_events(3));
+    EXPECT_EQ(events.back(), nlohmann::json::array({{{"message", "later arrival"}}}));
 }
 
 // ── Handle connection error ─────────────────────────────────────────────────

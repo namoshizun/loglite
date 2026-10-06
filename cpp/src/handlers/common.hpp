@@ -69,10 +69,12 @@ inline std::unordered_multimap<std::string, std::string> ParseQueryString(std::s
 
         auto eq = pair.find('=');
         if (eq == std::string_view::npos) continue;
+
         std::string key = url_decode(pair.substr(0, eq));
         std::string value = url_decode(pair.substr(eq + 1));
         out.emplace(std::move(key), std::move(value));
     }
+
     return out;
 }
 
@@ -122,6 +124,7 @@ inline std::vector<QueryFilter> ParseQueryFilters(std::string_view field, std::s
         while (!val.empty() && val.back() == ' ') val.pop_back();
         filters.push_back({std::string(field), std::move(op), std::move(val)});
     }
+
     return filters;
 }
 

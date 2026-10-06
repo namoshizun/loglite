@@ -70,6 +70,7 @@ inline auto summarize_observations(const std::vector<metrics::Observation>& samp
             s.max = 0.0;
         }
     }
+
     return out;
 }
 
@@ -82,6 +83,7 @@ inline ActivityStatsRow build_activity_stats(std::string since, std::string unti
                                metrics::kBacklogDrop, metrics::kInsertBatch);
 
     auto& registry = metrics::MetricsRegistry::Instance();
+
     return {
         std::move(since),
         std::move(until),
@@ -113,6 +115,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     auto& cfg = ctx.config;
     auto timer = std::make_shared<asio::steady_timer>(ex);
     ctx.RegisterShutdownTimer(timer);
+
     auto window_since = std::chrono::system_clock::now();
 
     log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
@@ -120,6 +123,7 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
     while (!ctx.StopRequested()) {
         timer->expires_after(cfg.task_diagnostics_interval * 1s);
         co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
+
         if (ctx.StopRequested()) {
             log::INFO("[Termination] diagnostics task stopped");
             co_return;
@@ -132,16 +136,16 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
         auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
         window_since = window_until;
 
-        int pruned =
-            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](WriterDatabase& db) {
-                db.InsertActivityStats(row);
-                db.InsertDatabaseStats({
-                    row.until,
-                    db.EstimateLogRowCount(),
-                    db.GetSizeBytes(),
-                });
-                return db.DeleteStatsBefore(cutoff);
+        // Persist the snapshot and prune expired rows in one write-strand hop.
+        int pruned = co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](LogStore& db) {
+            db.InsertActivityStats(row);
+            db.InsertDatabaseStats({
+                row.until,
+                db.EstimateLogRowCount(),
+                db.GetSizeBytes(),
             });
+            return db.DeleteStatsBefore(cutoff);
+        });
 
         log::INFO(
             "[query]: count={} avg={}ms max={}ms | "

@@ -18,9 +18,8 @@ namespace loglite {
 // Thread-safe, bounded in-memory buffer for incoming log entries.
 // Logs are batched here and flushed to SQLite by a background task.
 //
-// When the queue is at capacity, Add() evicts the oldest entry before
-// inserting the new one (drop-oldest policy), so memory use is bounded
-// even if the flush task falls behind or dies.
+// When the queue is at capacity, Add() evicts the oldest entry, so
+// memory use is bounded even if the flush task falls behind or dies.
 //
 // `IsFull()` is polled by the flush task so it can exit the periodic wait early
 // when the queue crosses a ~95% high watermark — before drop-oldest triggers
@@ -32,7 +31,7 @@ class Backlog {
 
     void Add(nlohmann::json log);
 
-    // Move all pending entries out of the backlog in one critical section.
+    // Move all pending entries out of the backlog and return them.
     std::vector<nlohmann::json> Flush();
 
     // Lend the batch read-only to persistence; restore it on failure.
@@ -41,9 +40,28 @@ class Backlog {
     int Flush(F&& persist) {
         auto entries = Flush();
         if (entries.empty()) return 0;
+
         try {
             return std::invoke(std::forward<F>(persist), std::as_const(entries));
         } catch (...) {
+            Restore(std::move(entries));
+            throw;
+        }
+    }
+
+    // Lend the batch mutably: persistence may reorder it, then acknowledges the
+    // committed prefix of that order. A failure restores only the uncommitted rest.
+    template <typename F>
+    int FlushCommitted(F&& persist) {
+        auto entries = Flush();
+        if (entries.empty()) return 0;
+
+        size_t committed = 0;
+        const auto acknowledge = [&committed](size_t prefix) { committed = prefix; };
+        try {
+            return std::invoke(std::forward<F>(persist), entries, acknowledge);
+        } catch (...) {
+            entries.erase(entries.begin(), entries.begin() + committed);
             Restore(std::move(entries));
             throw;
         }
@@ -55,6 +73,7 @@ class Backlog {
 
    private:
     void Restore(std::vector<nlohmann::json> entries);
+    size_t GuardOverflow();
 
     mutable std::mutex mtx_;
     std::deque<nlohmann::json> queue_;

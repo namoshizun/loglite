@@ -10,7 +10,7 @@
 #include "handlers/query.hpp"
 #include "test_support.hpp"
 #include "handlers/stats.hpp"
-#include "writer_database.hpp"
+#include "log_store.hpp"
 #include "context.hpp"
 #include "backlog.hpp"
 #include "metrics.hpp"
@@ -37,7 +37,7 @@ class HandlersTest : public ::testing::Test {
     void SetUp() override {
         metrics::MetricsRegistry::Instance().Reset();
 
-        db_ = std::make_unique<WriterDatabase>(cfg_);
+        db_ = std::make_unique<LogStore>(cfg_);
         db_->Open();
         db_->Initialize();
 
@@ -46,7 +46,7 @@ class HandlersTest : public ::testing::Test {
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
         reader_pool_ = std::make_unique<asio::thread_pool>(1u);
-        db_read_ = std::make_unique<ReadDatabasePool>(cfg_, db_->catalog(), 1u);
+        db_read_ = std::make_unique<LogReaderPool>(*db_, 1u);
 
         ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
                                                asio::make_strand(db_ops_pool_->get_executor()),
@@ -79,8 +79,8 @@ class HandlersTest : public ::testing::Test {
 
     test::TempDirectory directory_;
     Config cfg_{test::MakeConfig(directory_.path())};
-    std::unique_ptr<WriterDatabase> db_;
-    std::unique_ptr<ReadDatabasePool> db_read_;
+    std::unique_ptr<LogStore> db_;
+    std::unique_ptr<LogReaderPool> db_read_;
     std::unique_ptr<Backlog> backlog_;
     std::unique_ptr<LogNotifier> notifier_;
     std::unique_ptr<asio::thread_pool> db_ops_pool_;
@@ -220,6 +220,21 @@ TEST_F(HandlersTest, InvalidIngestionDoesNotEnqueueData) {
         else
             EXPECT_EQ(error, "Body must be a JSON object or array");
         EXPECT_EQ(backlog_->Size(), 0u);
+    }
+}
+
+TEST_F(HandlersTest, MalformedArrayRejectsWholeRequestWithoutChangingBacklog) {
+    const nlohmann::json valid{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "valid"}, {"level", "INFO"}};
+    for (const auto* invalid : {"42", "null", "true", "\"string\"", "[]"}) {
+        SCOPED_TRACE(invalid);
+        backlog_->Add(valid);
+        const auto payload = nlohmann::json::array({valid, nlohmann::json::parse(invalid), valid});
+        auto req = MakeRequest(http::verb::post, "/logs", payload.dump());
+        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        EXPECT_EQ(res.result(), http::status::bad_request);
+        EXPECT_EQ(nlohmann::json::parse(res.body())["error"], "Array entries must be JSON objects");
+        EXPECT_EQ(backlog_->Flush(), (std::vector<nlohmann::json>{valid}));
     }
 }
 

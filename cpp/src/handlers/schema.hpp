@@ -20,6 +20,7 @@ inline std::string NormalizeColumnKind(std::string_view sqlite_type, bool compre
 
     auto end = sqlite_type.find('(');
     if (end == std::string_view::npos) end = sqlite_type.size();
+
     std::string token(sqlite_type.substr(0, end));
     std::ranges::transform(token, token.begin(),
                            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
@@ -33,6 +34,7 @@ inline std::string NormalizeColumnKind(std::string_view sqlite_type, bool compre
     if (token == "JSON") return "json";
     if (token == "BLOB") return "blob";
     if (token == "BOOLEAN") return "boolean";
+
     return "text";
 }
 
@@ -42,6 +44,7 @@ inline nlohmann::json BuildSchemaPayload(const ServerContext& ctx) {
     const auto& compressed = ctx.db_write.catalog()->compressed_columns;
 
     nlohmann::json out_columns = nlohmann::json::array();
+
     for (const auto& ci : columns) {
         const bool is_compressed = cfg.compression.enabled && compressed.contains(ci.name);
         out_columns.push_back({{"name", ci.name},

@@ -1,11 +1,12 @@
 host: 0.0.0.0
 port: 7788
-debug: true
+debug: false
 allow_origin: "*"
 db_pool_size: 2        # DB read concurrency; positive integer or "auto"
 
 # ── Database ─────────────────────────────────────────────
-sqlite_dir: ./db       # Directory holding the SQLite db file
+sqlite_dir: ./db       # Directory holding the SQLite files
+partition_interval: daily  # none (default), hourly, daily, weekly, or monthly; UTC, Monday weeks
 auto_rollout: false    # Apply pending migrations on startup
 
 sqlite_params:         # Any valid SQLite PRAGMA key/value pairs
@@ -52,7 +53,7 @@ migrations:
     rollout:
       - |
         CREATE TABLE Log (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME NOT NULL,
             message TEXT NOT NULL,
             level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),

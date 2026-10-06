@@ -6,6 +6,7 @@
 #include "../log.hpp"
 #include "../metrics.hpp"
 
+#include <algorithm>
 #include <boost/asio.hpp>
 
 namespace asio = boost::asio;
@@ -22,6 +23,10 @@ asio::awaitable<http::response<http::string_body>> HandleInsert(const http::requ
         auto body = nlohmann::json::parse(req.body());
 
         if (body.is_array()) {
+            if (!std::ranges::all_of(body, [](const auto& entry) { return entry.is_object(); }))
+                co_return MakeFailResp(400, "Array entries must be JSON objects", req,
+                                       ctx.config.allow_origin);
+
             for (auto& entry : body) ctx.backlog.Add(std::move(entry));
         } else if (body.is_object()) {
             ctx.backlog.Add(std::move(body));

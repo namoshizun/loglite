@@ -63,6 +63,7 @@ class Database {
     // DB query helpers
     [[nodiscard]] std::vector<ColumnInfo> FetchTableColumns(std::string_view table_name) const;
     [[nodiscard]] int64_t EstimateLogRowCount() const;
+    [[nodiscard]] int64_t CountLogRows() const;
     [[nodiscard]] int64_t EstimateAvgRowBytes() const;
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
     [[nodiscard]] int64_t GetSizeBytes() const;
@@ -72,6 +73,7 @@ class Database {
     [[nodiscard]] int64_t GetMinLogId() const;
     [[nodiscard]] std::string GetMinTimestamp() const;
     [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
+    void ValidateFilters(const std::vector<QueryFilter>& filters) const;
 
    protected:
     struct WhereClause {

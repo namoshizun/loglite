@@ -31,11 +31,14 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
     auto fields_str = params.find("fields")->second;
     auto limit_opt = ParseIntParam(params.find("limit")->second);
     auto offset_opt = ParseIntParam(params.find("offset")->second);
+
     if (!limit_opt || !offset_opt)
         co_return MakeFailResp(400, "Parameters 'limit' and 'offset' must be integers", req,
                                ctx.config.allow_origin);
+
     auto limit = *limit_opt;
     auto offset = *offset_opt;
+
     if (limit < 1)
         co_return MakeFailResp(400, "'limit' must be a positive integer", req,
                                ctx.config.allow_origin);
@@ -77,7 +80,7 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
     try {
         auto result = co_await ctx.db_read.AsyncUseConnection(
             ctx.reader_executor,
-            [&](ReaderDatabase& r) { return r.Query(fields, filters, limit, offset); });
+            [&](LogReader& r) { return r.Query(fields, filters, limit, offset); });
         co_return MakeOKResp(result.ToJSON(), req, ctx.config.allow_origin);
     } catch (const std::exception& e) {
         log::ERROR("Query error: {}", e.what());

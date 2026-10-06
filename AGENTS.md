@@ -1,15 +1,16 @@
 ## General coding style
 
-- Prefer iteration and modularization over code duplication.
-- Follow the "let it crash" principle: avoid excessive error handling and edge case checks, especially when implementing experimental solutions or features. **Don't let the main intent of functions and classes be obscured by boilerplate exception handling**. Don't blindly make things publicly accessible just for the sake of unit testing.
-- **Important**: try to fix things at the cause, not the symptom.
+- Prefer iteration and modularization over code duplication. Implementation must be elegant, intuitive and Pythonic.
+- Follow the "let it crash" principle: avoid excessive error handling and edge-case checks, especially for explorative development. Do not obscure the main intent with defensive boilerplate.
 - When asked to review the code, GO BY THE BOOK! Be thoughtful, critical and brutally honest.
-- Do not delete my code comments unless they are outdated / incorrect / no longer relevant.
 - Don't assume. Don't hide confusion. Surface tradeoffs.
+- Your code is for human to read and maintain. Keep readability and maintainability in mind. DO NOT SHOTGUN SLOPS OF LITTLE FUNCTIONS.
+- **Important**:
+  1. Fix problems at their root cause, not their symptoms.
+  2. If a bug reveals a deeper design flaw or incomplete design, propose fixing the design instead.
 
 ## Python dev
 
-- Your implementation must be elegant, intuitive and Pythonic.
 - All method parameters **must** be typed, all variables **should** be typed wherever sensible.
 - Adopt Python 3.10+ typing styles. Must use native collection types (e.g., list, dict) instead of importing them from the typing module (e.g., from typing import List).
 - Use loguru instead of the builtin logging module

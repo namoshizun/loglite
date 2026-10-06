@@ -43,6 +43,7 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         }
 
         if (ctx.StopRequested()) {
+            // Backlog may still be full... But timely termination guarantee is more important.
             log::INFO("[Termination] backlog flush task stopped");
             co_return;
         }
@@ -50,18 +51,16 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
         if (ctx.backlog.Size() == 0) continue;
 
         auto [count, max_id, elapsed] =
-            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&ctx](WriterDatabase& db) {
+            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&ctx](LogStore& db) {
                 Timer t;
-                int c = ctx.backlog.Flush([&db](const auto& logs) { return db.Insert(logs); });
-                int64_t m = db.GetMaxLogId();
+                int c = ctx.FlushBacklog();
+                int64_t m = db.GetCommittedLogId();
                 return std::make_tuple(c, m, t.elapsed_ms());
             });
 
         if (count == 0) continue;
 
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);
-        ctx.notifier.Notify(max_id);
-
         log::DEBUG("Inserted {} row(s), max_log_id={}", count, max_id);
     }
 }

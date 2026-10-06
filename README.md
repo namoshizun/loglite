@@ -67,7 +67,7 @@ migrations:
     rollout:
       - |
         CREATE TABLE Log (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME NOT NULL,
             message TEXT NOT NULL,
             level TEXT NOT NULL CHECK (level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
@@ -119,7 +119,7 @@ Full configuration reference, HTTP API, harvester plugin guide, and recipes:
 - [x] Native C++ core
 - [x] `/stats` endpoint for DB and background-task metrics
 - [x] Built-in web UI for browsing logs
-- [ ] Time-based partitioning (one SQLite file per day or month)
+- [x] Time-based partitioning (one SQLite file per hour, day, week, or month)
 
 ## License
 

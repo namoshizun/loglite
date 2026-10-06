@@ -13,22 +13,15 @@ Backlog::Backlog(size_t max_size) : max_size_(max_size) {
 }
 
 void Backlog::Add(nlohmann::json log) {
-    bool dropped = false;
+    size_t dropped = 0;
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        if (queue_.size() >= max_size_) {
-            queue_.pop_front();
-            dropped = true;
-        }
         queue_.push_back(std::move(log));
-
-        // Notify flush when the buffer is near full to avoid dropping logs.
-        if (queue_.size() >= max_size_ * 0.95) {
-            is_full_.store(true, std::memory_order_release);
-        }
+        dropped = GuardOverflow();
     }
+
     if (dropped) {
-        metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop);
+        metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop, 0, dropped);
     }
 }
 
@@ -49,15 +42,26 @@ void Backlog::Restore(std::vector<nlohmann::json> entries) {
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
             queue_.push_front(std::move(*it));
         }
-        while (queue_.size() > max_size_) {
-            queue_.pop_front();
-            ++dropped;
-        }
-        is_full_.store(queue_.size() >= max_size_ * 0.95, std::memory_order_release);
+
+        dropped = GuardOverflow();
     }
+
     if (dropped) {
         metrics::MetricsRegistry::Instance().Collect(metrics::kBacklogDrop, 0, dropped);
     }
+}
+
+size_t Backlog::GuardOverflow() {
+    const size_t current_size = queue_.size();
+    if (current_size <= max_size_) {
+        is_full_.store(current_size >= max_size_ * 0.95, std::memory_order_release);
+        return 0;
+    }
+
+    const size_t drop_count = current_size - max_size_;
+    queue_.erase(queue_.begin(), queue_.begin() + drop_count);
+    is_full_.store(true, std::memory_order_release);
+    return drop_count;
 }
 
 bool Backlog::IsFull() const noexcept { return is_full_.load(std::memory_order_acquire); }

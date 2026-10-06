@@ -112,6 +112,9 @@ PYBIND11_MODULE(_core, m) {
             py::arg("path"))
         .def_readonly("host", &Config::host)
         .def_readonly("port", &Config::port)
+        .def_property_readonly(
+            "partition_interval",
+            [](const Config& cfg) { return std::string{ToString(cfg.partition_interval)}; })
         .def_readonly("harvesters", &Config::harvesters)
         .def_readonly("log_table_name", &Config::log_table_name);
 

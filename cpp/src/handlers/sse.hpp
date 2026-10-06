@@ -31,7 +31,8 @@ using namespace std::chrono_literals;
 //   3. Arms the timer to expire after sse_debounce_ms.
 //      - If notify() cancels the timer early → new logs available.
 //      - If timer fires normally → check for any logs missed during processing.
-//   4. Queries DB for id > pushed_id AND id <= current_id and sends SSE chunk.
+//   4. Queries id > pushed_id AND id <= current_id in GET /logs order
+//      (timestamp descending, then ID descending) and sends one chunk.
 //   5. On write error (client disconnect), returns.
 
 inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
@@ -44,6 +45,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
     // ── Parse fields param ────────────────────────────────────────────────────
     auto [path, qs] = SplitURLTarget(req.target());
     auto params = ParseQueryString(qs);
+
     std::vector<std::string> fields;
     if (auto it = params.find("fields"); it != params.end() && it->second != "*") {
         for (auto sv : std::views::split(it->second, ','))
@@ -54,6 +56,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
 
     // ── Send response headers ─────────────────────────────────────────────────
     stream.expires_never();
+
     http::response<http::empty_body> res{http::status::ok, req.version()};
     res.set(http::field::content_type, "text/event-stream");
     res.set(http::field::cache_control, "no-cache");
@@ -90,6 +93,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
         // Arm the subscription timer.  notify() cancels it early when new logs arrive.
         sub->timer->expires_after(debounce);
         co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
+
         if (ctx.StopRequested()) break;
         // ec == success        → timer fired (timeout, still check for anything missed)
         // ec == operation_aborted → cancelled by notify() (new logs available)
@@ -116,16 +120,19 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
         if (last_push_tp.time_since_epoch().count() != 0 && (now - last_push_tp) < debounce)
             continue;
 
-        // ── Query new logs ────────────────────────────────────────────────────
+        // ── Query new logs ─────────────────────────────────────────────
+        // Same order as GET /logs. A burst larger than sse_limit keeps the
+        // newest page
         std::vector<QueryFilter> id_filters{
             {"id", ">", pushed_id},
             {"id", "<=", current_id},
         };
+
         PaginatedQueryResult result;
         try {
             result = co_await ctx.db_read.AsyncUseConnection(
                 ctx.reader_executor,
-                [&](ReaderDatabase& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
+                [&](LogReader& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
         } catch (const std::exception& e) {
             log::ERROR("SSE query error: {}", e.what());
             continue;
@@ -144,6 +151,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
             payload << result.results[i];
         }
         payload << "]\r\n\r\n";
+
         std::string event = std::move(payload).str();
         auto chunk = http::make_chunk(net::buffer(event));
 

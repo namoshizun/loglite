@@ -77,6 +77,10 @@ void Database::set_pragma(std::string_view name, std::string_view value) {
 void Database::apply_params(AccessMode mode) {
     constexpr auto kWriterOnlyPragmas =
         std::to_array<std::string_view>({"auto_vacuum", "journal_mode", "synchronous"});
+    // Partition connections are short-lived, so WAL recovery and close-time
+    // checkpoints routinely lock a file briefly. A configured busy_timeout wins.
+    constexpr int kDefaultBusyTimeoutMs = 5000;
+    sqlite3_busy_timeout(db_, kDefaultBusyTimeoutMs);
 
     for (const auto& [k, v] : cfg_.sqlite_params) {
         if (mode == AccessMode::READ && range_contains(kWriterOnlyPragmas, k)) {
@@ -152,6 +156,7 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
     std::vector<ColumnInfo> out;
     auto sql = fmt::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
+
     while (stmt.Step() == SQLITE_ROW) {
         ColumnInfo ci;
         ci.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -160,6 +165,7 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
         ci.is_pk = sqlite3_column_int(stmt, 5) != 0;
         out.push_back(std::move(ci));
     }
+
     return out;
 }
 
@@ -203,12 +209,18 @@ int64_t Database::GetSizeBytes() const {
     int64_t page_count = std::stoll(GetPragma("page_count"));
     int64_t page_size = std::stoll(GetPragma("page_size"));
     int64_t freelist = std::stoll(GetPragma("freelist_count"));
+
     return (page_count - freelist) * page_size;
 }
 
 double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
 
 const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return catalog_->log_column_info; }
+
+int64_t Database::CountLogRows() const {
+    Statement count{db_, fmt::format("SELECT COUNT(*) FROM {}", cfg_.log_table_name)};
+    return count.Step() == SQLITE_ROW ? sqlite3_column_int64(count, 0) : 0;
+}
 
 int64_t Database::EstimateLogRowCount() const {
     auto sql =
@@ -222,6 +234,7 @@ int64_t Database::EstimateAvgRowBytes() const {
     int64_t rowcnt = EstimateLogRowCount();
     int64_t db_size = GetSizeBytes();
     int64_t avg_row_bytes = db_size / std::max(int64_t{1}, rowcnt);
+
     if (avg_row_bytes == 0) avg_row_bytes = 1;
     return avg_row_bytes;
 }
@@ -234,15 +247,21 @@ void Database::validate_field(std::string_view name) const {
 
 static constexpr std::string_view kAllowedOps[] = {"=", "!=", ">", ">=", "<", "<=", "~="};
 
-Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter>& filters) const {
-    std::string sql_parts;
-    std::vector<nlohmann::json> params;
-
+void Database::ValidateFilters(const std::vector<QueryFilter>& filters) const {
     for (const auto& ft : filters) {
         validate_field(ft.field);
         if (!range_contains(kAllowedOps, ft.op))
             throw std::runtime_error(fmt::format("Unknown query operator: '{}'", ft.op));
+    }
+}
 
+Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter>& filters) const {
+    ValidateFilters(filters);
+
+    std::string sql_parts;
+    std::vector<nlohmann::json> params;
+
+    for (const auto& ft : filters) {
         if (!sql_parts.empty()) sql_parts += " AND ";
 
         if (catalog_->compressed_columns.contains(ft.field)) {

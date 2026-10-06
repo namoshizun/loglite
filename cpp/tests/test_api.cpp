@@ -8,6 +8,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fmt/format.h>
@@ -128,6 +129,65 @@ TEST_F(ServerApiTest, ShutdownPersistsExternalIngestion) {
     EXPECT_EQ(PersistedRows(), 1u);
 }
 
+TEST_F(ServerApiTest, PartitionedShutdownPersistsMixedRangesAndRestartContinuesIds) {
+    WriteConfig("partition_interval: daily\ndb_pool_size: 1");
+    Start();
+
+    const auto settings = nlohmann::json::parse(Request("/settings").body())["settings"];
+    const auto interval = std::ranges::find_if(
+        settings, [](const auto& setting) { return setting["key"] == "partition_interval"; });
+    ASSERT_NE(interval, settings.end());
+    EXPECT_EQ((*interval)["value"], "daily");
+    const auto schema = nlohmann::json::parse(Request("/schema").body());
+    EXPECT_EQ(schema["table"], "Log");
+    ASSERT_EQ(schema["columns"].size(), 3u);
+    EXPECT_EQ(schema["columns"][0]["name"], "id");
+    EXPECT_EQ(schema["columns"][1]["name"], "timestamp");
+    EXPECT_EQ(schema["columns"][2]["name"], "message");
+    EXPECT_EQ(Request("/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
+                      "&activity_stats_fields=*&database_stats_fields=*")
+                  .result(),
+              http::status::ok);
+
+    auto query_logs = [&] {
+        const auto response = Request("/logs?fields=id,message&limit=10&offset=0");
+        EXPECT_EQ(response.result(), http::status::ok);
+        return nlohmann::json::parse(response.body());
+    };
+    for (const auto& entry : nlohmann::json::array({
+             {{"timestamp", "2024-01-02T00:00:00Z"}, {"message", "first"}},
+             {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "late"}},
+             {{"timestamp", "2024-02-01T00:00:00Z"}, {"message", "newest"}},
+         })) {
+        PushToBacklog(entry);
+    }
+    EXPECT_EQ(query_logs()["total"], 0);  // The one-hour flush interval leaves these buffered.
+    Stop();
+    for (const auto* file :
+         {"logs-daily-2024-01-01.db", "logs-daily-2024-01-02.db", "logs-daily-2024-02-01.db"}) {
+        SCOPED_TRACE(file);
+        EXPECT_TRUE(fs::exists(tmp_ / file));
+    }
+
+    Start();
+    const auto restored = query_logs();
+    EXPECT_EQ(restored["total"], 3);
+    // Each flush groups rows by partition, so IDs follow the partition order.
+    EXPECT_EQ(restored["results"], nlohmann::json::array({{{"id", 3}, {"message", "newest"}},
+                                                          {{"id", 2}, {"message", "first"}},
+                                                          {{"id", 1}, {"message", "late"}}}));
+    PushToBacklog({{"timestamp", "2023-12-01T00:00:00Z"}, {"message", "after restart"}});
+    Stop();
+
+    Start();
+    const auto continued = query_logs();
+    EXPECT_EQ(continued["total"], 4);
+    ASSERT_EQ(continued["results"].size(), 4u);
+    EXPECT_EQ(continued["results"].back(),
+              (nlohmann::json{{"id", 4}, {"message", "after restart"}}));
+    Stop();
+}
+
 TEST_F(ServerApiTest, ShutdownPersistsHarvesterPartialLine) {
     WriteConfig(fmt::format(R"(harvesters:
   - type: FileHarvester
@@ -189,7 +249,7 @@ TEST_F(ServerApiTest, FinalFlushFailurePropagatesThroughRunServer) {
 }
 
 TEST_F(ServerApiTest, LockedQueryReturns500AndRecoversAfterUnlock) {
-    WriteConfig("db_pool_size: 1");
+    WriteConfig("db_pool_size: 1\nsqlite_params:\n  busy_timeout: 0");
     Start();
     auto cfg = Config::from_file(config_path_);
     sqlite3* raw = nullptr;
@@ -228,6 +288,20 @@ TEST_F(ServerApiTest, StartupFailureClearsExportedPointers) {
     Start();
     PushToBacklog({{"message", "after restart"}});
     Stop();
+    EXPECT_EQ(PersistedRows(), 1u);
+}
+
+TEST_F(ServerApiTest, PartitioningRejectsExistingDatabaseWithLogs) {
+    WriteConfig();
+    Start();
+    PushToBacklog({{"message", "legacy"}});
+    Stop();
+    ASSERT_EQ(PersistedRows(), 1u);
+    WriteConfig("partition_interval: daily");
+    EXPECT_THROW(Rollout(config_path_), std::runtime_error);
+    EXPECT_THROW(Rollback(config_path_, 1, true), std::runtime_error);
+    EXPECT_THROW(RunServer(config_path_), std::runtime_error);
+    StopServer();
     EXPECT_EQ(PersistedRows(), 1u);
 }
 

@@ -122,6 +122,8 @@ export const en = {
   'settingsDesc.auto_rollout':
     'Whether pending migrations are applied automatically on server startup.',
   'settingsDesc.db_pool_size': 'Reader connection pool size',
+  'settingsDesc.partition_interval':
+    'SQLite file time range: none, hourly, daily, weekly, or monthly. Ranges use UTC; weeks start on Monday.',
   'settingsDesc.vacuum_max_days': 'Drop log rows older than this many days during vacuum.',
   'settingsDesc.vacuum_max_size': 'Trigger vacuum when the database file exceeds this size.',
   'settingsDesc.vacuum_target_size':

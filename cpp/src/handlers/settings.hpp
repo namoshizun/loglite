@@ -36,6 +36,9 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
                   "SQLite PRAGMA key/value pairs applied when opening the database.");
 
     AppendSetting(settings, "db_pool_size", cfg.db_pool_size, "Reader connection pool size");
+    AppendSetting(settings, "partition_interval", ToString(cfg.partition_interval),
+                  "SQLite file time range: none, hourly, daily, weekly, or monthly. "
+                  "Ranges use UTC; weeks start on Monday.");
 
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");

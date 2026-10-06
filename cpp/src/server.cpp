@@ -95,6 +95,7 @@ void Server::Run() {
     });
 
     if (ctx_.StopRequested()) Stop();
+
     pool_.join();
     if (failure_) std::rethrow_exception(failure_);
 }

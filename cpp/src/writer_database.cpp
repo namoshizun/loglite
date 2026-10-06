@@ -5,6 +5,7 @@
 #include "utils.hpp"
 
 #include <fmt/format.h>
+#include <algorithm>
 #include <iterator>
 #include <ranges>
 
@@ -13,11 +14,12 @@ namespace loglite {
 WriterDatabase::WriterDatabase(const Config& cfg)
     : Database(cfg, std::make_shared<DatabaseCatalog>(cfg)) {}
 
-void WriterDatabase::Open() {
-    auto path = cfg_.db_path.string();
-    ensure_ok(sqlite3_open(path.c_str(), &db_), "sqlite3_open");
+void WriterDatabase::Open() { Open(cfg_.db_path); }
+
+void WriterDatabase::Open(const std::filesystem::path& path) {
+    ensure_ok(sqlite3_open(path.string().c_str(), &db_), "sqlite3_open");
     apply_params(AccessMode::WRITE);
-    log::DEBUG("Opened writer SQLite connection: {}", path);
+    log::DEBUG("Opened writer SQLite connection: {}", path.string());
 }
 
 void WriterDatabase::CreateInternalTables() {
@@ -32,6 +34,7 @@ void WriterDatabase::CreateInternalTables() {
         value_id INTEGER NOT NULL,
         value    JSON
     ))");
+
     exec_sql(R"(CREATE TABLE IF NOT EXISTS activity_stats (
         id                  INTEGER PRIMARY KEY,
         since               DATETIME NOT NULL,
@@ -51,6 +54,7 @@ void WriterDatabase::CreateInternalTables() {
         sse_session_count   INTEGER,
         http_conn_count     INTEGER
     ))");
+
     exec_sql(R"(CREATE TABLE IF NOT EXISTS database_stats (
         id           INTEGER PRIMARY KEY,
         timestamp    DATETIME,
@@ -60,16 +64,20 @@ void WriterDatabase::CreateInternalTables() {
 }
 
 void WriterDatabase::Initialize() {
+    Initialize(cfg_.auto_rollout ? std::span<const Migration>{cfg_.migrations}
+                                 : std::span<const Migration>{});
+}
+
+void WriterDatabase::Initialize(std::span<const Migration> migrations) {
     CreateInternalTables();
 
-    if (cfg_.auto_rollout) {
-        MigrationManager mgr{*this, cfg_.migrations};
-        while (mgr.ApplyPendingMigrations()) {
-        }
+    MigrationManager mgr{*this, migrations};
+    while (mgr.ApplyPendingMigrations()) {
     }
 
     RefreshColumnInfo();
     LoadColumnDictionary();
+    committed_id_ = catalog_->log_column_info.empty() ? 0 : GetMaxLogId();
 }
 
 void WriterDatabase::LoadColumnDictionary() {
@@ -77,6 +85,7 @@ void WriterDatabase::LoadColumnDictionary() {
     for (const auto& [col, value, id] : GetColumnDictRows()) {
         lut[col][value] = id;
     }
+
     log::INFO("Loaded column dictionary ({} entries)", lut.size());
 
     if (catalog_->col_dict) {
@@ -90,7 +99,7 @@ void WriterDatabase::LoadColumnDictionary() {
         });
 }
 
-int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
+int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t first_id) {
     std::vector<ColumnInfo> cols;
     cols.reserve(catalog_->log_column_info.size());
     std::ranges::copy_if(catalog_->log_column_info, std::back_inserter(cols),
@@ -107,6 +116,11 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
         col_list += cols[i].name;
         placeholders += "?";
     }
+    if (first_id > 0) {
+        col_list = "id," + col_list;
+        placeholders = "?," + placeholders;
+    }
+
     auto sql =
         fmt::format("INSERT INTO {} ({}) VALUES ({})", cfg_.log_table_name, col_list, placeholders);
     Statement stmt{db_, sql};
@@ -114,11 +128,18 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
     exec_sql("BEGIN");
     try {
         int inserted = 0;
+        size_t row_index = 0;
+        int64_t last_id = first_id == 0 ? GetMaxLogId() : committed_id_;
+
         for (const auto& log : logs) {
             sqlite3_reset(stmt);
             sqlite3_clear_bindings(stmt);
 
             bool valid = true;
+            const int64_t assigned_id =
+                first_id > 0 ? first_id + static_cast<int64_t>(row_index++) : 0;
+            if (first_id > 0) bind_param(stmt, 1, assigned_id);
+
             for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
                 const auto& ci = cols[i];
                 auto it = log.find(ci.name);
@@ -136,14 +157,20 @@ int WriterDatabase::Insert(const std::vector<nlohmann::json>& logs) {
                         serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
                     serialized = catalog_->col_dict->GetOrCreate(ci.name, sv);
                 }
-                bind_param(stmt, i + 1, serialized);
+                bind_param(stmt, i + 1 + (first_id > 0 ? 1 : 0), serialized);
             }
 
             if (!valid) continue;
             stmt.Step();
+            last_id = std::max(last_id, first_id > 0
+                                            ? assigned_id
+                                            : static_cast<int64_t>(sqlite3_last_insert_rowid(db_)));
             ++inserted;
         }
+
         exec_sql("COMMIT");
+        // No SQLite work may fail between COMMIT and publishing the committed ID.
+        committed_id_ = last_id;
         return inserted;
     } catch (...) {
         sqlite3_reset(stmt);
@@ -157,9 +184,71 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     auto [where, params] = build_where_clause(filters);
     auto sql = fmt::format("DELETE FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement stmt{db_, sql};
+
     for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(stmt, i + 1, params[i]);
     stmt.Step();
     return sqlite3_changes(db_);
+}
+
+int WriterDatabase::DeleteOldLogs(std::string_view cutoff, int64_t limit) {
+    Statement remove{
+        db_, fmt::format(
+                 "DELETE FROM {} WHERE id IN (SELECT id FROM {} WHERE {} <= ? ORDER BY id LIMIT ?)",
+                 cfg_.log_table_name, cfg_.log_table_name, cfg_.log_timestamp_field)};
+    bind_param(remove, 1, cutoff);
+    bind_param(remove, 2, limit);
+    remove.Step();
+    return sqlite3_changes(db_);
+}
+
+int WriterDatabase::DeleteOldestLogs(int64_t count) {
+    Statement remove{
+        db_, fmt::format("DELETE FROM {} WHERE id IN (SELECT id FROM {} ORDER BY id LIMIT ?)",
+                         cfg_.log_table_name, cfg_.log_table_name)};
+    bind_param(remove, 1, count);
+    remove.Step();
+    return sqlite3_changes(db_);
+}
+
+std::optional<std::string> WriterDatabase::GetPartitionInterval() const {
+    Statement table{
+        db_, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partition_state'"};
+    if (table.Step() != SQLITE_ROW) return std::nullopt;
+
+    Statement state{db_, "SELECT interval FROM partition_state WHERE id = 1"};
+    if (state.Step() != SQLITE_ROW) return std::nullopt;
+    return column_to_json(state, 0).get<std::string>();
+}
+
+void WriterDatabase::InitPartitionState(std::string_view interval) {
+    exec_sql(
+        "CREATE TABLE IF NOT EXISTS partition_state ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), interval TEXT NOT NULL, "
+        "reserved_id INTEGER NOT NULL)");
+    Statement state{db_,
+                    "INSERT INTO partition_state (id, interval, reserved_id) VALUES (1, ?, 0) "
+                    "ON CONFLICT(id) DO NOTHING"};
+    bind_param(state, 1, interval);
+    state.Step();
+}
+
+int64_t WriterDatabase::ReserveLogIds(int64_t count) {
+    Statement reserve{db_,
+                      "UPDATE partition_state SET reserved_id = reserved_id + ? WHERE id = 1 "
+                      "RETURNING reserved_id"};
+    bind_param(reserve, 1, count);
+    if (reserve.Step() != SQLITE_ROW) throw std::runtime_error("Missing partition ID allocator");
+    const int64_t reserved = sqlite3_column_int64(reserve, 0);
+    // Finish the statement so the reservation commits before the caller writes rows.
+    reserve.Step();
+    return reserved - count + 1;
+}
+
+void WriterDatabase::ObserveLogId(int64_t id) {
+    Statement observe{db_,
+                      "UPDATE partition_state SET reserved_id = MAX(reserved_id, ?) WHERE id = 1"};
+    bind_param(observe, 1, id);
+    observe.Step();
 }
 
 void WriterDatabase::SetPragma(std::string_view name, std::string_view value) {
@@ -235,6 +324,7 @@ int WriterDatabase::DeleteStatsBefore(std::string_view cutoff) {
         stmt.Step();
         removed += sqlite3_changes(db_);
     }
+
     return removed;
 }
 
@@ -263,12 +353,15 @@ bool WriterDatabase::ApplyMigration(int version, const std::vector<std::string>&
         sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
         throw;
     }
+
     log::INFO("Applied migration v{}", version);
     RefreshColumnInfo();
     return true;
 }
 
 bool WriterDatabase::RollbackMigration(int version, const std::vector<std::string>& statements) {
+    if (!range_contains(GetAppliedVersions(), version)) return false;
+
     exec_sql("BEGIN");
     try {
         for (const auto& sql : statements) exec_sql(sql);
@@ -280,6 +373,7 @@ bool WriterDatabase::RollbackMigration(int version, const std::vector<std::strin
         sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
         throw;
     }
+
     log::INFO("Rolled back migration v{}", version);
     RefreshColumnInfo();
     return true;
@@ -289,20 +383,26 @@ std::vector<std::tuple<std::string, std::string, ValueId>> WriterDatabase::GetCo
     const {
     Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
     std::vector<std::tuple<std::string, std::string, ValueId>> rows;
+
     while (stmt.Step() == SQLITE_ROW) {
         const auto* col = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         int vid = sqlite3_column_int(stmt, 2);
-        rows.emplace_back(col ? col : "", val ? val : "", vid);
+        rows.emplace_back(col ? std::string{col, static_cast<size_t>(sqlite3_column_bytes(stmt, 0))}
+                              : std::string{},
+                          val ? std::string{val, static_cast<size_t>(sqlite3_column_bytes(stmt, 1))}
+                              : std::string{},
+                          vid);
     }
+
     return rows;
 }
 
 bool WriterDatabase::InsertColumnDictValue(const std::string& col, const std::string& value,
                                            ValueId id) {
     Statement stmt{db_, "INSERT INTO column_dictionary (column, value, value_id) VALUES (?, ?, ?)"};
-    sqlite3_bind_text(stmt, 1, col.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, col.data(), static_cast<int>(col.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, id);
     return stmt.Step() == SQLITE_DONE;
 }

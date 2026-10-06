@@ -1,13 +1,12 @@
 #include "api.hpp"
 
 #include "config.hpp"
-#include "writer_database.hpp"
+#include "log_store.hpp"
 #include "context.hpp"
 #include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
 #include "log.hpp"
 #include "metrics.hpp"
-#include "migrations.hpp"
 #include "server.hpp"
 
 #include <chrono>
@@ -29,14 +28,11 @@ Server* g_server{nullptr};
 
 void FlushPendingBacklog(ServerContext& ctx) {
     // Queue behind in-flight work and keep all access to the writer on its strand.
-    const int count = asio::co_spawn(
-                          ctx.write_strand,
-                          [&ctx]() -> asio::awaitable<int> {
-                              co_return ctx.backlog.Flush(
-                                  [&ctx](const auto& logs) { return ctx.db_write.Insert(logs); });
-                          },
-                          asio::use_future)
-                          .get();
+    const int count =
+        asio::co_spawn(
+            ctx.write_strand, [&ctx]() -> asio::awaitable<int> { co_return ctx.FlushBacklog(); },
+            asio::use_future)
+            .get();
     log::INFO("[Termination] flushed {} pending log(s)", count);
 }
 
@@ -64,18 +60,20 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
 void RunServer(const std::filesystem::path& config_path) {
     // Load config and init database
     auto cfg = Config::from_file(config_path);
+
     log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
-    WriterDatabase db_write{cfg};
+
+    LogStore db_write{cfg};
     db_write.Open();
     db_write.Initialize();
 
-    ReadDatabasePool db_read(cfg, db_write.catalog(), cfg.resolve_pool_size());
+    LogReaderPool db_read(db_write, cfg.resolve_pool_size());
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
     LogNotifier notifier;
-    notifier.Notify(db_write.GetMaxLogId());
+    notifier.Notify(db_write.GetCommittedLogId());
 
     asio::thread_pool db_write_pool{1u};
     asio::thread_pool db_read_pool{cfg.resolve_pool_size()};
@@ -123,6 +121,7 @@ void RunServer(const std::filesystem::path& config_path) {
 
     db_read.Close();
     db_write.Close();
+
     if (failure) {
         std::rethrow_exception(failure);
     }
@@ -142,11 +141,9 @@ void Rollout(const std::filesystem::path& config_path, int start_version) {
     auto cfg = Config::from_file(config_path);
     cfg.auto_rollout = false;
 
-    WriterDatabase db{cfg};
+    LogStore db{cfg};
     db.Open();
-    db.CreateInternalTables();
-    MigrationManager mgr{db, cfg.migrations};
-    if (!mgr.ApplyPendingMigrations(start_version)) {
+    if (!db.Rollout(start_version)) {
         log::INFO("No pending migrations to apply.");
     }
 }
@@ -155,11 +152,9 @@ void Rollback(const std::filesystem::path& config_path, int version, bool force)
     auto cfg = Config::from_file(config_path);
     cfg.auto_rollout = false;
 
-    WriterDatabase db{cfg};
+    LogStore db{cfg};
     db.Open();
-    db.CreateInternalTables();
-    MigrationManager mgr{db, cfg.migrations};
-    mgr.RollbackMigration(version, force);
+    db.Rollback(version, force);
 }
 
 }  // namespace loglite

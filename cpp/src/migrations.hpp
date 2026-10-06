@@ -22,6 +22,9 @@ class MigrationManager {
     // Rollback a specific version. Prompts confirmation unless force=true. Errors throw.
     bool RollbackMigration(int version, bool force = false);
 
+    // Separate the one-time user confirmation from per-file transactional work.
+    static bool ConfirmRollback(int version);
+
    private:
     WriterDatabase& db_;
     std::vector<Migration> migrations_;  // sorted by version asc

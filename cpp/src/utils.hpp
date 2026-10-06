@@ -44,6 +44,7 @@ inline int64_t parse_size_to_bytes(std::string_view s) {
             return n * mults[i];
         }
     }
+
     throw std::invalid_argument(fmt::format("Invalid size string: '{}'", s));
 }
 
@@ -74,6 +75,7 @@ class Timer {
 inline std::string url_decode(std::string_view s) {
     std::string out;
     out.reserve(s.size());
+
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '%' && i + 2 < s.size()) {
             auto hex = std::string(s.substr(i + 1, 2));
@@ -90,6 +92,7 @@ inline std::string url_decode(std::string_view s) {
             out += s[i];
         }
     }
+
     return out;
 }
 
@@ -97,6 +100,7 @@ inline std::string url_decode(std::string_view s) {
 inline std::string_view strip_spaces(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
+
     return s;
 }
 
@@ -135,6 +139,7 @@ inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::s
         "%FT%T%z",
         "%FT%T",
     };
+
     for (const char* fmt : fmts) {
         std::istringstream is(buf);
         parsed = {};
@@ -144,6 +149,7 @@ inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::s
         date::from_stream(is, fmt, parsed);
         if (is.fail()) continue;
 
+        // Only trailing whitespace may follow a successful parse.
         while (is.peek() != std::istringstream::traits_type::eof() &&
                std::isspace(static_cast<unsigned char>(is.peek()))) {
             static_cast<void>(is.get());
@@ -153,6 +159,7 @@ inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::s
         return system_clock::time_point(
             std::chrono::duration_cast<system_clock::duration>(parsed.time_since_epoch()));
     }
+
     return std::nullopt;
 }
 

@@ -1,5 +1,12 @@
 ## Changelog
 
+### [Unreleased]
+
+- feat: time-based partitioning (`partition_interval: hourly | daily | weekly | monthly`), one SQLite file per UTC range.
+  - **breaking**: partitioning requires a fresh `sqlite_dir`.
+- perf: partitioned queries read files newest first, skip files by row count and timestamp filters; retention deletes whole expired files.
+- refactor: set default 5s `busy_timeout` for SQLite connections.
+
 ### 1.3.3
 
 - fix: `AsyncUseConnection` did not properly delegate db operation work to db worker threads.

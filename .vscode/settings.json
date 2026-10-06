@@ -95,7 +95,8 @@
     "algorithm": "cpp",
     "*.ipp": "cpp",
     "__assert": "cpp",
-    "__availability": "cpp"
+    "__availability": "cpp",
+    "ranges": "cpp"
   },
   "search.exclude": {
     "**/build": true,

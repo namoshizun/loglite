@@ -24,6 +24,7 @@ struct Config {
     // ── Database ──────────────────────────────────────────────────────────────
     std::filesystem::path sqlite_dir{"./db"};
     std::filesystem::path db_path;  // derived
+    PartitionInterval partition_interval{PartitionInterval::kNone};
     std::map<std::string, std::string> sqlite_params;
     std::string db_pool_size{"2"};  // "auto" or positive integer, default to a low size to avoid
                                     // unintentional memory bloat
@@ -78,10 +79,11 @@ struct Config {
 // Boost.Describe: every public data member is listed.
 BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
 BOOST_DESCRIBE_STRUCT(Config, (),
-                      (host, port, debug, allow_origin, sqlite_dir, db_path, sqlite_params,
-                       db_pool_size, auto_rollout, log_table_name, log_timestamp_field, sse_limit,
-                       sse_debounce_ms, vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes,
-                       vacuum_target_size, vacuum_target_size_bytes, task_diagnostics_interval,
+                      (host, port, debug, allow_origin, sqlite_dir, db_path, partition_interval,
+                       sqlite_params, db_pool_size, auto_rollout, log_table_name,
+                       log_timestamp_field, sse_limit, sse_debounce_ms, vacuum_max_days,
+                       vacuum_max_size, vacuum_max_size_bytes, vacuum_target_size,
+                       vacuum_target_size_bytes, task_diagnostics_interval,
                        task_backlog_flush_interval, task_backlog_max_size, task_vacuum_interval,
                        task_vacuum_max_size, stats_retention_hours, compression, harvesters,
                        migrations))

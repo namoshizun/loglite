@@ -46,6 +46,7 @@ void LogStore::Maintain() {
 
     const int vacuum_mode = std::stoi(control_.GetPragma("auto_vacuum"));
     const bool incremental = vacuum_mode == 2;
+
     const int64_t pass_bytes = static_cast<int64_t>(cfg_.task_vacuum_max_size) * 1024 * 1024;
     const bool removable = scheme_.partitioned();
 
@@ -97,6 +98,7 @@ void LogStore::Maintain() {
     const auto expiry =
         std::chrono::system_clock::now() - std::chrono::hours{24LL * cfg_.vacuum_max_days};
     const auto cutoff = format_iso_seconds(expiry);
+
     const auto& columns = control_.GetColumnInfo();
     const bool has_timestamp =
         std::ranges::find(columns, cfg_.log_timestamp_field, &ColumnInfo::name) != columns.end();
@@ -153,6 +155,7 @@ void LogStore::Maintain() {
     for (const auto& file : files)
         if (removable && (file.expired || file.entry.rows == 0))
             unlinked.push_back(file.entry.partition.path);
+
     RemoveFiles(unlinked);
 
     if (vacuum_mode == 1) {

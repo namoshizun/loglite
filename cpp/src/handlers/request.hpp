@@ -36,6 +36,7 @@ inline QueryParams ParseQueryString(std::string_view qs) {
 
         std::string key = url_decode(pair.substr(0, eq));
         std::string value = url_decode(pair.substr(eq + 1));
+
         out.emplace(std::move(key), std::move(value));
     }
 

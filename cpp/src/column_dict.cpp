@@ -27,12 +27,9 @@ ValueId ColumnDictionary::GetOrCreate(const std::string& col, const std::string&
         new_id = max_it->second + 1;
     }
 
-    if (persist_) {
-        if (!persist_(col, value, new_id)) {
-            throw std::runtime_error(
-                fmt::format("Failed to update the compression table for column '{}' and value '{}'",
-                            col, value));
-        }
+    if (persist_ && !persist_(col, value, new_id)) {
+        throw std::runtime_error(fmt::format(
+            "Failed to update the compression table for column '{}' and value '{}'", col, value));
     }
 
     col_map[value] = new_id;
@@ -45,7 +42,6 @@ std::string ColumnDictionary::GetValue(const std::string& col, ValueId id) const
     auto col_it = lookup_.find(col);
     if (col_it == lookup_.end())
         throw std::runtime_error(fmt::format("Unknown compressed column: '{}'", col));
-
     for (const auto& [v, vid] : col_it->second) {
         if (vid == id) return v;
     }
@@ -57,10 +53,7 @@ std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter
 
     auto col_it = lookup_.find(filter.field);
     if (col_it == lookup_.end()) return {};
-
     const auto& col_map = col_it->second;
-    std::string fval =
-        filter.value.is_string() ? filter.value.get<std::string>() : filter.value.dump();
 
     const auto value_matches = [](std::string_view op, const std::string& fval_arg,
                                   const std::string& v) -> bool {
@@ -73,6 +66,9 @@ std::vector<ValueId> ColumnDictionary::QueryCandidates(const QueryFilter& filter
         if (op == "<=") return v <= fval_arg;
         return false;
     };
+
+    std::string fval =
+        filter.value.is_string() ? filter.value.get<std::string>() : filter.value.dump();
 
     namespace rv = std::ranges::views;
     auto matched =

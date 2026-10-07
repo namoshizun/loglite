@@ -38,9 +38,11 @@ class LogNotifier {
     void Publish(std::vector<nlohmann::json> rows) {
         if (rows.empty()) return;
         std::lock_guard lock(mtx_);
+
         for (auto& row : rows)
             recent_.push_back(std::make_shared<const nlohmann::json>(std::move(row)));
         published_ += rows.size();
+
         while (recent_.size() > capacity_) recent_.pop_front();
         WakeLocked();
     }
@@ -53,8 +55,10 @@ class LogNotifier {
     // Rows published after `cursor`, oldest first; evicted rows are lost.
     [[nodiscard]] std::vector<Record> Since(uint64_t& cursor) const {
         std::lock_guard lock(mtx_);
+
         const uint64_t first = published_ - recent_.size();
         const auto skip = static_cast<std::ptrdiff_t>(std::max(cursor, first) - first);
+
         std::vector<Record> rows(recent_.begin() + skip, recent_.end());
         cursor = published_;
         return rows;

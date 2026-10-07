@@ -14,17 +14,6 @@
 
 namespace loglite {
 
-namespace {
-
-bool SameSchema(const std::vector<ColumnInfo>& lhs, const std::vector<ColumnInfo>& rhs) {
-    return std::ranges::equal(lhs, rhs, [](const ColumnInfo& a, const ColumnInfo& b) {
-        return a.name == b.name && a.type == b.type && a.not_null == b.not_null &&
-               a.is_pk == b.is_pk;
-    });
-}
-
-}  // namespace
-
 void LogStore::Open() {
     cfg_.validate();
 
@@ -92,6 +81,7 @@ void LogStore::Initialize() {
         registry_.Update(cfg_.db_path, max_id, rows);
     } else {
         ValidateSchema();
+
         const auto versions = control_.GetAppliedVersions();
         VisitPartitionFiles([&](WriterDatabase& file, const Partition& partition) {
             if (file.GetAppliedVersions() != versions)
@@ -99,11 +89,12 @@ void LogStore::Initialize() {
                     "Partition migration versions differ from logs.db; finish rollout or rollback "
                     "before starting LogLite.");
             file.RefreshColumnInfo();
-            if (!SameSchema(file.GetColumnInfo(), control_.GetColumnInfo()))
+            if (file.GetColumnInfo() != control_.GetColumnInfo())
                 throw std::runtime_error("Partition log schema differs from logs.db");
 
             const int64_t file_max = file.GetMaxLogId();
             registry_.Update(partition.path, file_max, file.CountLogRows());
+
             max_id = std::max(max_id, file_max);
         });
         control_.ObserveLogId(max_id);
@@ -121,6 +112,7 @@ void LogStore::Close() {
 void LogStore::ValidateSchema() const {
     const auto& columns = control_.GetColumnInfo();
     const auto id = std::ranges::find(columns, "id", &ColumnInfo::name);
+
     std::string id_type = id == columns.end() ? "" : id->type;
     std::ranges::transform(id_type, id_type.begin(),
                            [](unsigned char c) { return std::toupper(c); });
@@ -203,6 +195,7 @@ WriterDatabase& LogStore::Writer(const Partition& partition) {
     if (writer_ && writer_path_ == partition.path) return *writer_;
 
     writer_.reset();
+
     auto file = std::make_unique<WriterDatabase>(cfg_);
     file->Open(partition.path);
     file->Initialize(ApprovedMigrations());
@@ -212,6 +205,7 @@ WriterDatabase& LogStore::Writer(const Partition& partition) {
     registry_.Add(partition);
     writer_path_ = partition.path;
     writer_ = std::move(file);
+
     return *writer_;
 }
 
@@ -225,10 +219,12 @@ int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& ackno
     placed.reserve(logs.size());
     for (size_t i = 0; i < logs.size(); ++i)
         placed.emplace_back(scheme_.Place(logs[i], ingestion), i);
+
     std::ranges::stable_sort(placed, {}, [](const auto& item) { return item.first.since; });
 
     std::vector<nlohmann::json> ordered(logs.size());
-    for (size_t i = 0; i < logs.size(); ++i) ordered[i] = std::move(logs[placed[i].second]);
+    std::ranges::transform(placed, ordered.begin(),
+                           [&](const auto& item) { return std::move(logs[item.second]); });
     logs.swap(ordered);
 
     // Write one contiguous run of logs per partition.
@@ -248,12 +244,14 @@ int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& ackno
         // publishing or updating the in-memory registry subsequently throws.
         if (acknowledge) acknowledge(end);
         registry_.Update(partition.path, file.GetCommittedLogId(), count);
+
         // Reserved IDs exceed every committed ID. Without reservations SQLite reuses
         // IDs after the newest rows are deleted, and the watermark must follow.
         if (count > 0) committed_id_.store(file.GetCommittedLogId(), std::memory_order_release);
 
         inserted += count;
         if (on_committed && count > 0) on_committed(file, count);
+
         begin = end;
     }
 

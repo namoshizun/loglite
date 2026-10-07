@@ -57,7 +57,6 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
                 int64_t m = db.GetCommittedLogId();
                 return std::make_tuple(c, m, t.elapsed_ms());
             });
-
         if (count == 0) continue;
 
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);

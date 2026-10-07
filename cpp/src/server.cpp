@@ -152,7 +152,6 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
         stream.expires_after(kHttpIdleTimeout);
 
         http::request<http::string_body> raw;
-
         try {
             co_await http::async_read(stream, buf, raw, asio::use_awaitable);
         } catch (...) {

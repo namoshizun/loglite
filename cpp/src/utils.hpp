@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace loglite {
 
@@ -31,18 +32,17 @@ constexpr bool range_contains(R&& r, const T& value) {
 
 inline int64_t parse_size_to_bytes(std::string_view s) {
     // Accepts: "500MB", "1TB", "800GB", "2KB", "4GB"
-    static constexpr std::string_view units[] = {"B", "KB", "MB", "GB", "TB"};
-    static constexpr int64_t mults[] = {
-        1LL, 1024LL, 1024LL * 1024, 1024LL * 1024 * 1024, 1024LL * 1024 * 1024 * 1024,
+    static constexpr std::pair<std::string_view, int64_t> units[] = {
+        {"TB", 1024LL * 1024 * 1024 * 1024},
+        {"GB", 1024LL * 1024 * 1024},
+        {"MB", 1024LL * 1024},
+        {"KB", 1024LL},
+        {"B", 1LL},
     };
 
-    for (int i = 4; i >= 0; --i) {
-        auto unit = units[i];
-        if (s.ends_with(unit)) {
-            auto num_part = s.substr(0, s.size() - unit.size());
-            int64_t n = std::stoll(std::string(num_part));
-            return n * mults[i];
-        }
+    for (const auto& [unit, mult] : units) {
+        if (s.ends_with(unit))
+            return std::stoll(std::string(s.substr(0, s.size() - unit.size()))) * mult;
     }
 
     throw std::invalid_argument(fmt::format("Invalid size string: '{}'", s));
@@ -85,6 +85,7 @@ inline std::string url_decode(std::string_view s) {
             } catch (const std::invalid_argument&) {
             } catch (const std::out_of_range&) {
             }
+
             i += 2;
         } else if (s[i] == '+') {
             out += ' ';
@@ -132,7 +133,6 @@ inline std::optional<std::chrono::system_clock::time_point> parse_iso8601(std::s
 
     const std::string buf{t};
     date::sys_time<std::chrono::nanoseconds> parsed{};
-
     constexpr const char* fmts[] = {
         "%FT%TZ",
         "%FT%T%Ez",

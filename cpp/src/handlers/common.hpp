@@ -64,8 +64,10 @@ inline std::vector<QueryFilter> ParseQueryFilters(std::string_view field, std::s
     for (auto it = begin; it != end; ++it) {
         std::string op = (*it)[1].str();
         std::string val = (*it)[2].str();
+
         // Trim trailing whitespace that might appear after url-decode.
         while (!val.empty() && val.back() == ' ') val.pop_back();
+
         filters.push_back({std::string(field), std::move(op), std::move(val)});
     }
 

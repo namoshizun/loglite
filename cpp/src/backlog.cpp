@@ -28,6 +28,7 @@ void Backlog::Add(nlohmann::json log) {
 std::vector<nlohmann::json> Backlog::Flush() {
     std::lock_guard lk(mtx_);
     is_full_.store(false, std::memory_order_relaxed);
+
     std::vector<nlohmann::json> out(std::make_move_iterator(queue_.begin()),
                                     std::make_move_iterator(queue_.end()));
     queue_.clear();

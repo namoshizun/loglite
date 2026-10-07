@@ -54,6 +54,11 @@ class ReaderDatabase final : public Database {
 
    private:
     void LoadReadDictionary();
+    StatsQueryResult QueryStatsTable(std::string_view table, std::string_view time_column,
+                                     std::string_view since, std::string_view until,
+                                     const std::vector<ColumnInfo>& schema,
+                                     const std::vector<std::string>& fields,
+                                     std::string_view ordering) const;
 };
 
 class ReadDatabasePool {

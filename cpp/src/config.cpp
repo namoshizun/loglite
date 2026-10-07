@@ -96,6 +96,7 @@ StringMap read_env_overrides() {
 
         std::string key(entry.substr(prefix.size(), eq - prefix.size()));
         std::ranges::transform(key, key.begin(), ::tolower);
+
         out[key] = std::string(entry.substr(eq + 1));
     }
     return out;
@@ -246,6 +247,7 @@ unsigned Config::resolve_pool_size() const {
 
     std::string lc{t};
     std::ranges::transform(lc, lc.begin(), [](unsigned char c) { return std::tolower(c); });
+
     if (lc == "auto") {
         return std::max(1u, std::thread::hardware_concurrency());
     }
@@ -268,8 +270,8 @@ Config Config::from_file(const std::filesystem::path& path) {
     // Load config
     YAML::Node yaml = YAML::LoadFile(path.string());
     auto env = read_env_overrides();
-    Config cfg;
 
+    Config cfg;
     load_root_config(cfg, env, yaml);
 
     if (!yaml["migrations"] || !yaml["migrations"].IsSequence()) {
@@ -285,6 +287,7 @@ Config Config::from_file(const std::filesystem::path& path) {
 
     cfg.vacuum_max_size_bytes = parse_size_to_bytes(cfg.vacuum_max_size);
     cfg.vacuum_target_size_bytes = parse_size_to_bytes(cfg.vacuum_target_size);
+
     std::filesystem::create_directories(cfg.sqlite_dir);
     cfg.db_path = cfg.sqlite_dir / "logs.db";
 

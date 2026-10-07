@@ -44,6 +44,7 @@ struct Config {
     int64_t vacuum_max_size_bytes{};  // derived
     std::string vacuum_target_size{"800GB"};
     int64_t vacuum_target_size_bytes{};  // derived
+
     // ── Background tasks ──────────────────────────────────────────────────────
     int task_diagnostics_interval{60};   // seconds
     int task_backlog_flush_interval{5};  // seconds

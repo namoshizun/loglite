@@ -32,6 +32,7 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     for (const auto& [k, v] : cfg.sqlite_params) {
         sqlite_params[k] = v;
     }
+
     AppendSetting(settings, "sqlite_params", sqlite_params,
                   "SQLite PRAGMA key/value pairs applied when opening the database.");
 
@@ -75,6 +76,7 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     for (const auto& h : cfg.harvesters) {
         harvester_types.push_back(h.type);
     }
+
     AppendSetting(settings, "harvester_types", harvester_types,
                   "Harvester implementation types configured for this instance.");
 

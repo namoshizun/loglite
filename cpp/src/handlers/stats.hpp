@@ -25,6 +25,7 @@ inline asio::awaitable<http::response<http::string_body>> HandleStats(const Requ
 
     const auto since_str = *req.Param("since");
     const auto until_str = *req.Param("until");
+
     const auto ordering = req.Param("ordering").value_or("desc");
     if (ordering != "asc" && ordering != "desc")
         co_return MakeFailResp(400, "Parameter 'ordering' must be 'asc' or 'desc'", req,
@@ -33,14 +34,11 @@ inline asio::awaitable<http::response<http::string_body>> HandleStats(const Requ
     // ── Parse timestamps, validate window ≤ 1 day ────────────────────────────
     auto since_tp = loglite::parse_iso8601(since_str);
     auto until_tp = loglite::parse_iso8601(until_str);
-
     if (!since_tp || !until_tp)
         co_return MakeFailResp(400, "'since' and 'until' must be ISO-8601 timestamps", req,
                                ctx.config.allow_origin);
-
     if (*until_tp <= *since_tp)
         co_return MakeFailResp(400, "'until' must be after 'since'", req, ctx.config.allow_origin);
-
     if (*until_tp - *since_tp > 24h)
         co_return MakeFailResp(400, "Time window must not exceed 1 day", req,
                                ctx.config.allow_origin);

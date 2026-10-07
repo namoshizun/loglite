@@ -79,9 +79,11 @@ struct ServerContext {
                     auto newest = file.ReadLogs(
                         ResolveLogFields(file.catalog()->log_column_info, {"*"}), {},
                         Database::LogOrder::kIdDescending, std::min(inserted, config.sse_limit), 0);
+
                     std::vector<nlohmann::json> rows;
                     for (auto& row : newest | std::views::reverse)
                         rows.push_back(std::move(row.values));
+
                     notifier.Publish(std::move(rows));
                 });
         });

@@ -60,9 +60,9 @@ LogIdQueryResult LogReader::QueryLogIdRange(const std::vector<std::string>& fiel
                                             int64_t since_exclusive, int64_t until_inclusive,
                                             int limit) const {
     const auto resolved = connection_.ResolveFields(fields);
-
     const std::vector<QueryFilter> range{{"id", ">", since_exclusive},
                                          {"id", "<=", until_inclusive}};
+
     std::vector<Database::LogRow> rows;
     {
         const auto lease = store_.ReadLease();
@@ -81,7 +81,8 @@ LogIdQueryResult LogReader::QueryLogIdRange(const std::vector<std::string>& fiel
 
     LogIdQueryResult result{rows.empty() ? since_exclusive : rows.back().id, {}};
     result.results.reserve(rows.size());
-    for (auto& row : rows) result.results.push_back(std::move(row.values));
+    std::ranges::transform(rows, std::back_inserter(result.results),
+                           [](auto& row) { return std::move(row.values); });
     return result;
 }
 

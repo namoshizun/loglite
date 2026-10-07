@@ -24,7 +24,6 @@ inline std::string NormalizeColumnKind(std::string_view sqlite_type, bool compre
     std::string token(sqlite_type.substr(0, end));
     std::ranges::transform(token, token.begin(),
                            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-
     if (token.starts_with("INT")) return "integer";
     if (token == "REAL" || token == "FLOAT" || token == "DOUBLE" || token == "NUMERIC" ||
         token == "DECIMAL")

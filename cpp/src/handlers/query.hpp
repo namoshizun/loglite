@@ -9,6 +9,8 @@
 
 #include <fmt/ranges.h>
 
+#include <algorithm>
+#include <iterator>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -26,7 +28,6 @@ inline asio::awaitable<http::response<http::string_body>> HandleQuery(const Requ
     }
 
     // ── Extract pagination / field selection ──────────────────────────────────
-    const auto fields = *req.ListParam("fields");
     const auto limit_opt = req.IntParam("limit");
     const auto offset_opt = req.IntParam("offset");
 
@@ -47,6 +48,8 @@ inline asio::awaitable<http::response<http::string_body>> HandleQuery(const Requ
         co_return MakeFailResp(400, "'offset' must be a non-negative integer", req,
                                ctx.config.allow_origin);
 
+    const auto fields = *req.ListParam("fields");
+
     // ── Build filters from remaining params ───────────────────────────────────
     static const std::unordered_set<std::string> reserved{"fields", "limit", "offset"};
     std::vector<QueryFilter> filters;
@@ -58,7 +61,7 @@ inline asio::awaitable<http::response<http::string_body>> HandleQuery(const Requ
             co_return MakeFailResp(400,
                                    fmt::format("Invalid filter expression for field '{}'", key),
                                    req, ctx.config.allow_origin);
-        for (auto& f : key_filters) filters.push_back(std::move(f));
+        std::ranges::move(key_filters, std::back_inserter(filters));
     }
 
     if (ctx.config.debug)

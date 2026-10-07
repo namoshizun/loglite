@@ -562,23 +562,11 @@ in your config:
 Architecture
 ------------
 
-LogLite has two pieces:
 
-- **C++ core** — the server itself. HTTP + SSE (Boost.Asio + Beast), SQLite
-  read/write, migrations, vacuuming, the in-memory backlog, the native file
-  harvester, and column compression. Distributed as a single statically-linked
-  binary, also embedded into the Python wheel via pybind11.
+.. image:: architecture.svg
+   :alt: LogLite C++ core architecture
+   :width: 100%
 
-- **Python package (**``pip install loglite``**)** — a thin convenience layer:
-  the ``loglite`` CLI, a ``Harvester[T]`` plugin base class, and a few built-in
-  harvesters (``FileHarvester``, ``SocketHarvester``, ``ZMQHarvester``).
-  Custom Python harvesters call ``self.ingest(log)``, which pushes the entry
-  directly into the C++ backlog **in the same process** — no extra socket
-  hop. The Python package adds zero server-side overhead.
-
-If you don't need custom Python harvesters, you can also run the standalone
-C++ binary directly. The config file and database are identical in both modes;
-switching is a binary swap.
 
 .. _runtime-memory-rss:
 

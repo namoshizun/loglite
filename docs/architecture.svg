@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>LogLite C++ core architecture</title>
+  <defs>
+    <marker id="arrow-ingest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e8860c"/></marker>
+    <marker id="arrow-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f6fdb"/></marker>
+    <marker id="arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0f9d76"/></marker>
+    <marker id="arrow-maint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6b7280"/></marker>
+
+    <style>
+      .title   { font-size: 14px; font-weight: 700; fill: #1f2937; }
+      .sub     { font-size: 11.5px; fill: #4b5563; }
+      .col     { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; fill: #9ca3af; }
+      .note    { font-size: 11px; font-style: italic; fill: #6b7280; }
+      .group   { font-size: 12px; font-weight: 700; fill: #374151; }
+      .ingest  { fill: #fff3df; stroke: #e8860c; stroke-width: 1.5; }
+      .read    { fill: #e8f1ff; stroke: #2f6fdb; stroke-width: 1.5; }
+      .live    { fill: #e4f6ef; stroke: #0f9d76; stroke-width: 1.5; }
+      .maint   { fill: #f1f2f4; stroke: #6b7280; stroke-width: 1.5; }
+      .store   { fill: #ece9f8; stroke: #6d5bd0; stroke-width: 1.5; }
+      .chip    { fill: #ffffff; stroke: #c9ced6; stroke-width: 1; }
+      .frame   { fill: #fafbfc; stroke: #c9ced6; stroke-width: 1.2; stroke-dasharray: 6 4; }
+      .e-ingest { stroke: #e8860c; stroke-width: 2; fill: none; marker-end: url(#arrow-ingest); }
+      .e-read   { stroke: #2f6fdb; stroke-width: 2; fill: none; marker-end: url(#arrow-read); }
+      .e-live   { stroke: #0f9d76; stroke-width: 2; fill: none; marker-end: url(#arrow-live); }
+      .e-maint  { stroke: #6b7280; stroke-width: 2; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow-maint); }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="798" rx="14" fill="#ffffff" stroke="#e2e5ea" stroke-width="2"/>
+
+  <!-- Column headers -->
+  <text class="col" x="30" y="44">CLIENTS</text>
+  <text class="col" x="270" y="44">NETWORK</text>
+  <text class="col" x="570" y="44">BUFFER &amp; WRITE PATH</text>
+  <text class="col" x="920" y="44">BACKGROUND TASKS &amp; STORAGE</text>
+
+  <!-- Clients -->
+  <rect class="ingest" x="30" y="190" width="190" height="70" rx="8"/>
+  <text class="title" x="125" y="219" text-anchor="middle">Log producers</text>
+  <text class="sub" x="125" y="238" text-anchor="middle">POST /logs (JSON)</text>
+
+  <rect class="read" x="30" y="590" width="190" height="160" rx="8"/>
+  <text class="title" x="125" y="640" text-anchor="middle">Dashboards</text>
+  <text class="title" x="125" y="660" text-anchor="middle">&amp; API clients</text>
+  <text class="sub" x="125" y="684" text-anchor="middle">GET /logs &#183; /stats</text>
+  <text class="sub" x="125" y="700" text-anchor="middle">GET /logs/sse (stream)</text>
+
+  <!-- Legend -->
+  <g transform="translate(30 320)">
+    <text class="group" x="0" y="0">Legend</text>
+    <line x1="0" y1="24" x2="34" y2="24" class="e-ingest"/>
+    <text class="sub" x="44" y="28">Ingest path</text>
+    <line x1="0" y1="50" x2="34" y2="50" class="e-read"/>
+    <text class="sub" x="44" y="54">Query path</text>
+    <line x1="0" y1="76" x2="34" y2="76" class="e-live"/>
+    <text class="sub" x="44" y="80">Live tail (SSE) path</text>
+    <line x1="0" y1="102" x2="34" y2="102" class="e-maint"/>
+    <text class="sub" x="44" y="106">Background tasks (timer-driven)</text>
+  </g>
+
+  <!-- HTTP server -->
+  <rect class="frame" x="270" y="60" width="240" height="710" rx="12"/>
+  <text class="group" x="290" y="86">HTTP server</text>
+  <text class="sub" x="290" y="104">Boost.Asio + Beast coroutines</text>
+  <text class="sub" x="290" y="120">Accept loop &#8594; per-connection &#8594; Router</text>
+
+  <rect class="ingest" x="295" y="190" width="190" height="70" rx="8"/>
+  <text class="title" x="390" y="219" text-anchor="middle">HandleInsert</text>
+  <text class="sub" x="390" y="238" text-anchor="middle">parse JSON &#8594; Backlog.Add()</text>
+
+  <rect class="live" x="295" y="590" width="190" height="60" rx="8"/>
+  <text class="title" x="390" y="617" text-anchor="middle">HandleSSE</text>
+  <text class="sub" x="390" y="635" text-anchor="middle">debounce + heartbeat</text>
+
+  <rect class="read" x="295" y="690" width="190" height="60" rx="8"/>
+  <text class="title" x="390" y="717" text-anchor="middle">HandleQuery</text>
+  <text class="sub" x="390" y="735" text-anchor="middle">filters &#183; paging &#183; stats</text>
+
+  <!-- Buffer & write path -->
+  <rect class="ingest" x="570" y="80" width="280" height="60" rx="8"/>
+  <text class="title" x="710" y="107" text-anchor="middle">Harvesters</text>
+  <text class="sub" x="710" y="125" text-anchor="middle">FileHarvester &#183; tails files on dedicated threads</text>
+
+  <rect class="ingest" x="570" y="190" width="280" height="70" rx="8"/>
+  <text class="title" x="710" y="219" text-anchor="middle">Backlog</text>
+  <text class="sub" x="710" y="238" text-anchor="middle">thread-safe bounded queue &#183; drops oldest when full</text>
+
+  <rect class="frame" x="570" y="380" width="280" height="180" rx="12"/>
+  <text class="group" x="586" y="410">Write strand &#183; single writer thread</text>
+  <rect class="ingest" x="585" y="420" width="250" height="130" rx="8"/>
+  <text class="title" x="710" y="442" text-anchor="middle">LogStore</text>
+  <rect class="chip" x="598" y="462" width="224" height="22" rx="5"/>
+  <text class="sub" x="710" y="477" text-anchor="middle">PartitionScheme &#183; route by timestamp</text>
+  <rect class="chip" x="598" y="489" width="224" height="22" rx="5"/>
+  <text class="sub" x="710" y="504" text-anchor="middle">ColumnDictionary &#183; encode columns</text>
+  <rect class="chip" x="598" y="516" width="224" height="22" rx="5"/>
+  <text class="sub" x="710" y="531" text-anchor="middle">WriterDatabase &#183; one batch per file</text>
+
+  <rect class="live" x="570" y="590" width="280" height="60" rx="8"/>
+  <text class="title" x="710" y="617" text-anchor="middle">LogNotifier</text>
+  <text class="sub" x="710" y="635" text-anchor="middle">ring of recently committed rows</text>
+
+  <rect class="read" x="570" y="690" width="280" height="60" rx="8"/>
+  <text class="title" x="710" y="717" text-anchor="middle">LogReaderPool</text>
+  <text class="sub" x="710" y="735" text-anchor="middle">N read-only connections &#183; reader thread pool</text>
+
+  <!-- Maintenance & storage -->
+  <rect class="maint" x="920" y="80" width="250" height="60" rx="8"/>
+  <text class="title" x="1045" y="107" text-anchor="middle">FlushBacklogTask</text>
+  <text class="sub" x="1045" y="125" text-anchor="middle">drains Backlog every tick, or early at ~95% full</text>
+
+  <rect class="maint" x="920" y="170" width="250" height="60" rx="8"/>
+  <text class="title" x="1045" y="197" text-anchor="middle">VacuumTask</text>
+  <text class="sub" x="1045" y="215" text-anchor="middle">retention &#183; size limits &#183; vacuum</text>
+
+  <rect class="maint" x="920" y="260" width="250" height="60" rx="8"/>
+  <text class="title" x="1045" y="287" text-anchor="middle">DiagnosticsTask</text>
+  <text class="sub" x="1045" y="305" text-anchor="middle">metrics snapshot &#8594; stats tables</text>
+
+  <rect class="frame" x="920" y="410" width="250" height="150" rx="12"/>
+  <text class="group" x="936" y="430">SQLite storage</text>
+  <rect class="store" x="935" y="440" width="220" height="50" rx="8"/>
+  <text class="title" x="1045" y="462" text-anchor="middle">Partition files</text>
+  <text class="sub" x="1045" y="478" text-anchor="middle">time-ranged log rows</text>
+  <rect class="store" x="935" y="500" width="220" height="50" rx="8"/>
+  <text class="title" x="1045" y="522" text-anchor="middle">Control DB (logs.db)</text>
+  <text class="sub" x="1045" y="538" text-anchor="middle">migrations &#183; stats &#183; dictionary</text>
+
+  <!-- Edges -->
+  <!-- Ingest -->
+  <path class="e-ingest" d="M220 225 H295"/>
+  <path class="e-ingest" d="M485 225 H570"/>
+  <text class="note" x="527" y="217" text-anchor="middle">Add()</text>
+  <path class="e-ingest" d="M710 140 V190"/>
+  <text class="note" x="720" y="168">Add()</text>
+  <path class="e-ingest" d="M920 100 H868 V225 H850" style="marker-end:none; marker-start:url(#arrow-ingest)"/>
+  <path class="e-ingest" d="M920 125 H885 V425 H850"/>
+  <path class="e-ingest" d="M850 466 H935"/>
+  <path class="e-ingest" d="M850 525 H935"/>
+
+  <!-- Live tail -->
+  <path class="e-live" d="M710 560 V590"/>
+  <text class="note" x="720" y="579">Publish(committed rows)</text>
+  <path class="e-live" d="M570 620 H485"/>
+  <text class="note" x="527" y="612" text-anchor="middle">wake</text>
+  <path class="e-live" d="M295 620 H220"/>
+
+  <!-- Query -->
+  <path class="e-read" d="M220 720 H295"/>
+  <path class="e-read" d="M485 720 H570"/>
+  <path class="e-read" d="M850 720 H1045 V560"/>
+  <text class="note" x="1055" y="650">SELECT</text>
+  <text class="note" x="1055" y="664">(decode via dictionary)</text>
+
+  <!-- Maintenance -->
+  <path class="e-maint" d="M920 200 H905 V450 H850"/>
+  <path class="e-maint" d="M920 290 H905" style="marker-end:none"/>
+</svg>

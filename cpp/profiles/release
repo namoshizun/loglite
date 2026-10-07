@@ -1,0 +1,9 @@
+# Overlay the host profile for standalone Release builds, including C dependencies.
+{% set release_flags = "-Oz -DNDEBUG -ffunction-sections -fdata-sections" %}
+
+[conf]
+tools.cmake.cmaketoolchain:extra_variables={"CMAKE_C_FLAGS_RELEASE": "{{ release_flags }}", "CMAKE_CXX_FLAGS_RELEASE": "{{ release_flags }}", "CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE": True}
+# Older dependency projects (date-tz) otherwise ignore the IPO setting.
+tools.cmake:configure_args+=["-DCMAKE_POLICY_DEFAULT_CMP0069=NEW"]
+# Keep size-optimized dependencies separate from ordinary Release packages.
+tools.info.package_id:confs+=["tools.cmake.cmaketoolchain:extra_variables", "tools.cmake:configure_args"]

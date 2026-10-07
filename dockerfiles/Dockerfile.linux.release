@@ -17,6 +17,7 @@ RUN apk add --no-cache \
 
 COPY conanfile.py ./
 COPY cmake/toolchains/ ./cmake/toolchains/
+COPY profiles/ ./profiles/
 
 ARG TARGETARCH
 
@@ -29,6 +30,8 @@ RUN set -eux; \
     conan profile detect --force; \
     conan install . \
         --output-folder="build/linux-musl-${LOG_ARCH}/release" \
+        --profile:h default \
+        --profile:h profiles/release \
         --settings:h os=Linux \
         --settings:h "arch=${CONAN_ARCH}" \
         --settings:h build_type=Release \

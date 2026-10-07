@@ -80,7 +80,7 @@ if [[ $RELEASE -eq 1 ]]; then
     BUILD_TYPE=Release
     BUILD_FLAVOR=release
     RELEASE_FLAGS=(-DLOGLITE_LTO=ON -DLOGLITE_STRIP=ON -DLOGLITE_SIZE_OPT=ON)
-    MODE_LABEL="Mode: RELEASE  (-Oz/-Os · LTO · stripped · hidden symbols · dead-code elimination)"
+    MODE_LABEL="Mode: RELEASE  (-Oz · LTO · stripped · hidden symbols · dead-code elimination)"
 else
     BUILD_TYPE=Debug
     BUILD_FLAVOR=debug
@@ -129,6 +129,10 @@ CONAN_ARGS=(
 
 if [[ -n "$TARGET_TOOLCHAIN" ]]; then
     CONAN_ARGS+=(--conf "tools.cmake.cmaketoolchain:user_toolchain+=$TARGET_TOOLCHAIN")
+fi
+
+if [[ $RELEASE -eq 1 ]]; then
+    CONAN_ARGS+=(--profile:h default --profile:h "$SCRIPT_DIR/profiles/release")
 fi
 
 conan install "${CONAN_ARGS[@]}"

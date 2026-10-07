@@ -2,15 +2,9 @@ cmake_minimum_required(VERSION 3.25)
 project(loglite VERSION 1.4.0 LANGUAGES CXX)
 
 # Release defaults to -O3; for the standalone server, size usually matters more than peak CPU.
-option(LOGLITE_SIZE_OPT "Release: -Oz (Clang) / -Os (GCC) instead of -O3" ON)
+option(LOGLITE_SIZE_OPT "Release: -Oz instead of -O3" ON)
 if(CMAKE_BUILD_TYPE STREQUAL "Release" AND LOGLITE_SIZE_OPT)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
-        set(_loglite_release_opt -Oz)
-    else()
-        set(_loglite_release_opt -Os)
-    endif()
-    set(CMAKE_CXX_FLAGS_RELEASE "${_loglite_release_opt} -DNDEBUG"
-        CACHE STRING "Flags used by the CXX compiler during RELEASE builds." FORCE)
+    set(CMAKE_CXX_FLAGS_RELEASE "-Oz -DNDEBUG")
     message(STATUS "Release CXX flags: ${CMAKE_CXX_FLAGS_RELEASE}")
 endif()
 

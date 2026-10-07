@@ -21,9 +21,8 @@
 - **Edge & appliances** — gateway, robot, or box that collects logs from nearby services or devices over HTTP.
 - **Low ops, low RAM** — no JVM, single process, low memory footprint; backup is copying a `.sqlite` file.
 
-## Not built for
 
-**Multi-node aggregation, sharding, or enterprise SIEM.** If you need Loki, Elastic, Splunk, or ClickHouse-scale search across a fleet, use those tools. LogLite does not federate peers or isolate tenants.
+> **Not** built for multi-node aggregation, sharding, or enterprise SIEM. If you need Loki, Elastic, Splunk, or ClickHouse-scale search across a fleet, use those tools. LogLite does not federate peers or isolate tenants.
 
 ## What you get
 

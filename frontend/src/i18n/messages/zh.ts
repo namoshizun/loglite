@@ -118,6 +118,7 @@ export const zh: Record<MessageKey, string> = {
   'settingsDesc.log_timestamp_field': '用于按时间保留和清理的时间戳字段（ISO-8601 时间戳）',
   'settingsDesc.sse_limit': '共享实时窗口容量及每次 SSE 事件的最大日志数（默认 50）',
   'settingsDesc.sse_debounce_ms': '两次 SSE 数据发送的最小间隔（毫秒，默认 500）',
+  'settingsDesc.sse_heartbeat_ms': 'SSE 无数据发送时, 确保间隔多久发送心跳（毫秒，默认 10000）',
   'settingsDesc.sqlite_params': 'SQLite PRAGMA 配置键值对',
   'settingsDesc.auto_rollout': '启动时是否执行数据库迁移',
   'settingsDesc.task_diagnostics_interval': '统计数据采集间隔（秒）',

@@ -235,6 +235,10 @@ void Config::validate() const {
         throw std::runtime_error("'sse_debounce_ms' must be at least 1");
     }
 
+    if (sse_heartbeat_ms < 1) {
+        throw std::runtime_error("'sse_heartbeat_ms' must be at least 1");
+    }
+
     (void)resolve_pool_size();
 }
 

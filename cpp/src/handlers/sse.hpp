@@ -74,7 +74,7 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, S
     };
 
     const auto debounce = cfg.sse_debounce_ms * 1ms;
-    const auto heartbeat_interval = 15s;
+    const auto heartbeat_interval = cfg.sse_heartbeat_ms * 1ms;
     uint64_t cursor = ctx.notifier.Subscribe(timer);
 
     while (!ctx.StopRequested()) {

@@ -37,6 +37,7 @@ struct Config {
     // ── SSE ───────────────────────────────────────────────────────────────────
     int sse_limit{50};  // Shared live window capacity and maximum rows per event.
     int sse_debounce_ms{500};
+    int sse_heartbeat_ms{10000};
 
     // ── Vacuum ────────────────────────────────────────────────────────────────
     int vacuum_max_days{3650};
@@ -82,8 +83,8 @@ BOOST_DESCRIBE_STRUCT(Config::HarvesterDef, (), (type, name, config))
 BOOST_DESCRIBE_STRUCT(Config, (),
                       (host, port, debug, allow_origin, sqlite_dir, db_path, partition_interval,
                        sqlite_params, db_pool_size, auto_rollout, log_table_name,
-                       log_timestamp_field, sse_limit, sse_debounce_ms, vacuum_max_days,
-                       vacuum_max_size, vacuum_max_size_bytes, vacuum_target_size,
+                       log_timestamp_field, sse_limit, sse_debounce_ms, sse_heartbeat_ms,
+                       vacuum_max_days, vacuum_max_size, vacuum_max_size_bytes, vacuum_target_size,
                        vacuum_target_size_bytes, task_diagnostics_interval,
                        task_backlog_flush_interval, task_backlog_max_size, task_vacuum_interval,
                        task_vacuum_max_size, stats_retention_hours, compression, harvesters,

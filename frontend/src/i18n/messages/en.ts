@@ -121,6 +121,8 @@ export const en = {
   'settingsDesc.sse_limit':
     'Shared live window capacity and maximum logs per SSE event (default 50).',
   'settingsDesc.sse_debounce_ms': 'Minimum milliseconds between SSE data writes (default 500).',
+  'settingsDesc.sse_heartbeat_ms':
+    'Milliseconds without an SSE write before sending a heartbeat (default 10000).',
   'settingsDesc.sqlite_params': 'SQLite PRAGMA key/value pairs applied when opening the database.',
   'settingsDesc.auto_rollout':
     'Whether pending migrations are applied automatically on server startup.',

@@ -121,12 +121,10 @@ class SSEClient {
     }
 
     bool AwaitHeartbeat() {
-        return test::WaitUntil(
-            [&] {
-                ReadAvailable();
-                return pending_.find(":\r\n\r\n") != std::string::npos;
-            },
-            std::chrono::seconds{17});
+        return test::WaitUntil([&] {
+            ReadAvailable();
+            return pending_.find(":\r\n\r\n") != std::string::npos;
+        });
     }
 
     void Disconnect() {
@@ -366,24 +364,23 @@ TEST_F(ServerTest, FatalBackgroundFailureIsRethrownAndRestoresBatch) {
 }
 
 TEST_F(ServerTest, ShutdownWaitsForInFlightDatabaseWork) {
-    std::promise<void> entered;
-    auto entered_future = entered.get_future();
-    std::promise<void> release;
-    auto gate = release.get_future().share();
-    asio::post(ctx_->write_strand, [&] {
-        entered.set_value();
-        gate.wait();
-    });
-    EXPECT_EQ(entered_future.wait_for(std::chrono::seconds{2}), std::future_status::ready);
-    // Fill to the watermark so the flush task queues behind the blocked writer.
+    sqlite3* connection{};
+    const auto opened = sqlite3_open(cfg_.db_path.c_str(), &connection);
+    const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> lock{connection, sqlite3_close};
+    ASSERT_EQ(opened, SQLITE_OK);
+    ASSERT_EQ(
+        sqlite3_exec(lock.get(), "BEGIN; SELECT COUNT(*) FROM TestLog", nullptr, nullptr, nullptr),
+        SQLITE_OK);
+
+    // The read transaction blocks COMMIT, keeping the flush in flight after it drains the backlog.
     for (int i = 0; i < 190; ++i) {
         backlog_->Add(
             {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "pending"}, {"level", "INFO"}});
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    ASSERT_TRUE(test::WaitUntil([&] { return backlog_->Size() == 0; }));
     server_->Stop();
     const auto before_release = server_finished_.wait_for(std::chrono::milliseconds{100});
-    release.set_value();
+    ASSERT_EQ(sqlite3_exec(lock.get(), "COMMIT", nullptr, nullptr, nullptr), SQLITE_OK);
     EXPECT_EQ(before_release, std::future_status::timeout);
     EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
     server_thread_.join();
@@ -514,10 +511,12 @@ TEST_F(ServerTest, SSERejectsInvalidProjectionBeforeSendingEventStreamHeaders) {
 }
 
 TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutReaderWorkers) {
+    cfg_.sse_debounce_ms = 10;
     SSEClient all{cfg_};
     SSEClient star{cfg_, "/logs/sse?fields=*"};
     SSEClient projected{cfg_, "/logs/sse?fields=message,service"};
-    ASSERT_EQ(notifier_->SubscriberCount(), 3u);
+    // Receiving headers does not guarantee that subscription registration has finished.
+    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 3; }));
 
     // Occupy every reader worker and every connection. An SSE database query
     // would remain queued or block on a lease until the gate is released.
@@ -583,6 +582,7 @@ TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutRea
 TEST_F(ServerTest, SSEDebounceCoalescesRapidCommitsBetweenSuccessfulPushes) {
     cfg_.sse_debounce_ms = 1000;
     SSEClient client{cfg_, "/logs/sse?fields=message"};
+    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
     ASSERT_EQ(
         FlushLogs(
             {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),
@@ -607,23 +607,21 @@ TEST_F(ServerTest, SSEDebounceCoalescesRapidCommitsBetweenSuccessfulPushes) {
 }
 
 TEST_F(ServerTest, SSEHeartbeatDetectsIdleClientDisconnectAndUnsubscribes) {
+    cfg_.sse_heartbeat_ms = 100;
     SSEClient client{cfg_};
     ASSERT_TRUE(client.AwaitHeartbeat());
     EXPECT_TRUE(client.events.empty());
     client.Disconnect();
-    // Force a write so disconnect cleanup need not wait for another heartbeat.
-    for (const auto* timestamp : {"2024-01-01T00:00:00Z", "2024-01-01T00:00:01Z"}) {
-        ASSERT_EQ(
-            FlushLogs({{{"timestamp", timestamp}, {"message", "disconnect"}, {"level", "INFO"}}}),
-            1);
-    }
+    // The next heartbeat detects the disconnect without any log traffic.
     EXPECT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 0; }));
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
 }
 
 TEST_F(ServerTest, SSEHeartbeatIsNotDelayedByLongDebounceAfterData) {
     cfg_.sse_debounce_ms = 60000;
+    cfg_.sse_heartbeat_ms = 100;
     SSEClient client{cfg_};
+    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
     ASSERT_EQ(
         FlushLogs(
             {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),

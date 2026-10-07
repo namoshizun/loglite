@@ -6,6 +6,8 @@
   - **breaking**: partitioning requires a fresh `sqlite_dir`.
 - perf: partitioned queries read files newest first, skip files by row count and timestamp filters; retention deletes whole expired files.
 - perf: SSE connections share a bounded live window published after commits, avoiding per-connection database queries.
+- feat: configurable SSE heartbeat interval (`sse_heartbeat_ms`, default 10000 ms).
+- fix: capture the file harvester's initial EOF before returning from `Start()` and drain unread bytes on shutdown.
 - refactor: set default 5s `busy_timeout` for SQLite connections.
 
 ### 1.3.3

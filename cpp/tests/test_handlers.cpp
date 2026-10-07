@@ -100,6 +100,7 @@ TEST_F(HandlersTest, HealthReturnsStatusAndCorsHeaders) {
 TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     cfg_.log_table_name = "MyLogs";
     cfg_.db_pool_size = "8";
+    cfg_.sse_heartbeat_ms = 250;
     cfg_.compression.enabled = true;
     cfg_.harvesters.push_back(Config::HarvesterDef{
         .type = "loglite.harvesters.FileHarvester",
@@ -142,6 +143,11 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     ASSERT_FALSE(sse_debounce.is_null());
     EXPECT_EQ(sse_debounce["value"], cfg_.sse_debounce_ms);
     EXPECT_TRUE(sse_debounce["description"].is_string());
+
+    auto sse_heartbeat = find_key("sse_heartbeat_ms");
+    ASSERT_FALSE(sse_heartbeat.is_null());
+    EXPECT_EQ(sse_heartbeat["value"], 250);
+    EXPECT_TRUE(sse_heartbeat["description"].is_string());
 
     auto compression = find_key("compression_enabled");
     ASSERT_FALSE(compression.is_null());

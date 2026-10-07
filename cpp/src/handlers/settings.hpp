@@ -45,6 +45,8 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
                   "Shared live window capacity and maximum logs per SSE event (default 50).");
     AppendSetting(settings, "sse_debounce_ms", cfg.sse_debounce_ms,
                   "Minimum milliseconds between SSE data writes (default 500).");
+    AppendSetting(settings, "sse_heartbeat_ms", cfg.sse_heartbeat_ms,
+                  "Milliseconds without an SSE write before sending a heartbeat (default 10000).");
 
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");

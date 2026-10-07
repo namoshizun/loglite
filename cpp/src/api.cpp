@@ -46,6 +46,7 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
                 log::WARN("FileHarvester '{}': missing 'path' config", hdef.name);
                 continue;
             }
+
             harvesters.push_back(
                 std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
         } else {
@@ -72,11 +73,11 @@ void RunServer(const std::filesystem::path& config_path) {
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
-    LogNotifier notifier;
-    notifier.Notify(db_write.GetCommittedLogId());
+    LogNotifier notifier{static_cast<size_t>(cfg.sse_limit)};
 
     asio::thread_pool db_write_pool{1u};
     asio::thread_pool db_read_pool{cfg.resolve_pool_size()};
+
     const auto server_started_at = std::chrono::steady_clock::now();
     ServerContext ctx{cfg,
                       db_write,
@@ -87,11 +88,11 @@ void RunServer(const std::filesystem::path& config_path) {
                       db_read_pool.get_executor(),
                       server_started_at};
 
-    // Start harvesters
-    auto native = BuildNativeHarvesters(cfg, backlog);
     Server server{ctx};
     g_backlog = &backlog;
     g_server = &server;
+
+    auto native = BuildNativeHarvesters(cfg, backlog);
 
     std::exception_ptr failure;
     try {
@@ -105,6 +106,7 @@ void RunServer(const std::filesystem::path& config_path) {
     // Teardown
     g_server = nullptr;
     g_backlog = nullptr;
+
     for (const auto& harvester : native) harvester->Stop();
 
     // All producers have stopped, including harvesters that emit a partial line in Stop().
@@ -116,6 +118,7 @@ void RunServer(const std::filesystem::path& config_path) {
             failure = std::current_exception();
         }
     }
+
     db_write_pool.join();
     db_read_pool.join();
 

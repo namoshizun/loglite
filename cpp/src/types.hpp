@@ -34,6 +34,8 @@ struct ColumnInfo {
     std::string type;
     bool not_null{false};
     bool is_pk{false};
+
+    bool operator==(const ColumnInfo&) const = default;
 };
 
 // ── Migrations ────────────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ struct PaginatedQueryResult {
         obj["offset"] = offset;
         obj["limit"] = limit;
         obj["results"] = std::move(results);
+
         return obj;
     }
 };

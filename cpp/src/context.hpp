@@ -7,9 +7,11 @@
 #include "log_reader.hpp"
 #include "log_store.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <ranges>
 #include <vector>
 
 #include <boost/asio.hpp>
@@ -60,22 +62,30 @@ struct ServerContext {
         for (const auto& weak : shutdown_timers) {
             if (auto timer = weak.lock()) timer->cancel();
         }
+        notifier.Wake();
     }
 
     [[nodiscard]] bool StopRequested() const noexcept {
         return stopping.load(std::memory_order_acquire);
     }
 
-    // Notify committed IDs even if a later file fails;
-    // FlushCommitted restores only the uncommitted suffix of the batch.
+    // Each committed file is acknowledged and published before the next one;
+    // FlushCommitted restores only the uncommitted suffix on failure.
     int FlushBacklog() {
-        struct NotifyCommitted {
-            ServerContext& ctx;
-            ~NotifyCommitted() { ctx.notifier.Notify(ctx.db_write.GetCommittedLogId()); }
-        } notify{*this};
-
         return backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
-            return db_write.Insert(entries, acknowledge);
+            // The newest IDs in a file are exactly the rows it has just committed.
+            return db_write.Insert(
+                entries, acknowledge, [&](const WriterDatabase& file, int inserted) {
+                    auto newest = file.ReadLogs(
+                        ResolveLogFields(file.catalog()->log_column_info, {"*"}), {},
+                        Database::LogOrder::kIdDescending, std::min(inserted, config.sse_limit), 0);
+
+                    std::vector<nlohmann::json> rows;
+                    for (auto& row : newest | std::views::reverse)
+                        rows.push_back(std::move(row.values));
+
+                    notifier.Publish(std::move(rows));
+                });
         });
     }
 };

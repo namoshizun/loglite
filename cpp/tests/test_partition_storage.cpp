@@ -321,7 +321,7 @@ TEST_F(PartitionStorageTest, PartialFailureAcknowledgesCommittedPrefixAndNotifie
     backlog.Add(Log("2024-01-01T00:00:00Z", "accepted"));
     backlog.Add(Log("2024-01-02T00:00:00Z", "reject"));
     backlog.Add(Log("2024-01-03T00:00:00Z", "following"));
-    LogNotifier notifier;
+    LogNotifier notifier{static_cast<size_t>(cfg_.sse_limit)};
     asio::thread_pool executor{1};
     ServerContext context{cfg_,
                           *db_,
@@ -334,12 +334,18 @@ TEST_F(PartitionStorageTest, PartialFailureAcknowledgesCommittedPrefixAndNotifie
     EXPECT_EQ(backlog.Size(), 2u);
     EXPECT_EQ(db_->EstimateLogRowCount(), 1);
     EXPECT_EQ(db_->GetCommittedLogId(), 1);
-    EXPECT_EQ(notifier.GetLastId(), 1);
+    uint64_t cursor = 0;
+    auto published = notifier.Since(cursor);
+    ASSERT_EQ(published.size(), 1u);
+    EXPECT_EQ((*published[0])["message"], "accepted");
+    EXPECT_EQ(cursor, 1u);
     EXPECT_EQ(ReservedId(), 2);
     EXPECT_TRUE(db_->Rollback(2, true));
     EXPECT_EQ(context.FlushBacklog(), 2);
     EXPECT_EQ(backlog.Size(), 0u);
-    EXPECT_EQ(notifier.GetLastId(), 4);
+    auto rest = notifier.Since(cursor);
+    EXPECT_EQ(rest.size(), 2u);
+    EXPECT_EQ(cursor, 3u);
     EXPECT_EQ(Query({"*"}, {}, 10, 0).total, 3);
     executor.join();
 }
@@ -651,7 +657,7 @@ TEST_F(CompressedPartitionStorageTest, RetryReloadsDictionaryAfterOnePartitionCo
     auto following = Log("2024-01-02T01:00:00Z", "following");
     following["level"] = "ERROR";
     for (const auto& row : {accepted, rejected, following}) backlog.Add(row);
-    LogNotifier notifier;
+    LogNotifier notifier{static_cast<size_t>(cfg_.sse_limit)};
     asio::thread_pool executor{1};
     ServerContext context{cfg_,
                           *db_,
@@ -662,7 +668,11 @@ TEST_F(CompressedPartitionStorageTest, RetryReloadsDictionaryAfterOnePartitionCo
                           executor.get_executor()};
     EXPECT_THROW(context.FlushBacklog(), std::runtime_error);
     EXPECT_EQ(backlog.Size(), 2u);
-    EXPECT_EQ(notifier.GetLastId(), 1);
+    uint64_t cursor = 0;
+    auto published = notifier.Since(cursor);
+    ASSERT_EQ(published.size(), 1u);
+    EXPECT_EQ((*published[0])["message"], "accepted");
+    EXPECT_EQ(cursor, 1u);
     EXPECT_EQ(Query({"level"}, {}, 10, 0).results,
               (std::vector<nlohmann::json>{{{"level", "INFO"}}}));
     ASSERT_TRUE(db_->Rollback(2, true));

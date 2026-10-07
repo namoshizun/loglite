@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <array>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <ranges>
 #include <stdexcept>
+#include <vector>
 
 namespace loglite {
 
@@ -21,6 +23,21 @@ int normalize_vacuum_mode(std::string_view value) {
 }
 
 }  // namespace
+
+std::vector<std::string> ResolveLogFields(std::span<const ColumnInfo> schema,
+                                          const std::vector<std::string>& fields) {
+    if (fields.size() == 1 && fields.front() == "*") {
+        auto names = schema | std::views::transform(&ColumnInfo::name);
+        return {std::ranges::begin(names), std::ranges::end(names)};
+    }
+    for (const auto& field : fields) {
+        if (!std::ranges::any_of(schema,
+                                 [&](const ColumnInfo& column) { return column.name == field; })) {
+            throw std::runtime_error(fmt::format("Unknown field name: '{}'", field));
+        }
+    }
+    return fields;
+}
 
 Statement::Statement(sqlite3* db, std::string_view sql) {
     if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw, nullptr) !=
@@ -63,6 +80,7 @@ void Database::ensure_ok(int rc, std::string_view ctx) const {
 void Database::exec_sql(std::string_view sql) const {
     char* errmsg{};
     int rc = sqlite3_exec(db_, std::string(sql).c_str(), nullptr, nullptr, &errmsg);
+
     if (rc != SQLITE_OK) {
         std::string msg = errmsg ? errmsg : "unknown error";
         sqlite3_free(errmsg);
@@ -75,13 +93,13 @@ void Database::set_pragma(std::string_view name, std::string_view value) {
 }
 
 void Database::apply_params(AccessMode mode) {
-    constexpr auto kWriterOnlyPragmas =
-        std::to_array<std::string_view>({"auto_vacuum", "journal_mode", "synchronous"});
     // Partition connections are short-lived, so WAL recovery and close-time
     // checkpoints routinely lock a file briefly. A configured busy_timeout wins.
     constexpr int kDefaultBusyTimeoutMs = 5000;
     sqlite3_busy_timeout(db_, kDefaultBusyTimeoutMs);
 
+    constexpr auto kWriterOnlyPragmas =
+        std::to_array<std::string_view>({"auto_vacuum", "journal_mode", "synchronous"});
     for (const auto& [k, v] : cfg_.sqlite_params) {
         if (mode == AccessMode::READ && range_contains(kWriterOnlyPragmas, k)) {
             // Read-only connection cannot set pragmas that require write access.
@@ -128,6 +146,7 @@ nlohmann::json Database::column_to_json(sqlite3_stmt* stmt, int col) {
     case SQLITE_TEXT: {
         const auto* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
         if (!txt) return std::string{};
+
         int bytes = sqlite3_column_bytes(stmt, col);
         return std::string(txt, bytes);
     }
@@ -136,6 +155,21 @@ nlohmann::json Database::column_to_json(sqlite3_stmt* stmt, int col) {
     default:
         return nullptr;
     }
+}
+
+nlohmann::json Database::DecodeRow(sqlite3_stmt* stmt,
+                                   const std::vector<std::string>& fields) const {
+    auto row = nlohmann::json::object();
+    for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
+        const auto& field = fields[column];
+        auto value = column_to_json(stmt, column);
+
+        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
+            value = catalog_->col_dict->GetValue(field, value.get<int>());
+
+        row[field] = std::move(value);
+    }
+    return row;
 }
 
 nlohmann::json Database::serialize_value(const nlohmann::json& v) {
@@ -153,17 +187,15 @@ std::vector<std::string> Database::pluck_column_names(const std::vector<ColumnIn
 }
 
 std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name) const {
-    std::vector<ColumnInfo> out;
     auto sql = fmt::format("PRAGMA table_info({})", table_name);
     Statement stmt{db_, sql};
 
+    std::vector<ColumnInfo> out;
     while (stmt.Step() == SQLITE_ROW) {
-        ColumnInfo ci;
-        ci.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        ci.type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        ci.not_null = sqlite3_column_int(stmt, 3) != 0;
-        ci.is_pk = sqlite3_column_int(stmt, 5) != 0;
-        out.push_back(std::move(ci));
+        out.push_back({.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
+                       .type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)),
+                       .not_null = sqlite3_column_int(stmt, 3) != 0,
+                       .is_pk = sqlite3_column_int(stmt, 5) != 0});
     }
 
     return out;
@@ -209,7 +241,6 @@ int64_t Database::GetSizeBytes() const {
     int64_t page_count = std::stoll(GetPragma("page_count"));
     int64_t page_size = std::stoll(GetPragma("page_size"));
     int64_t freelist = std::stoll(GetPragma("freelist_count"));
-
     return (page_count - freelist) * page_size;
 }
 
@@ -268,14 +299,13 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
             auto ids = catalog_->col_dict->QueryCandidates(ft);
             if (ids.empty()) return {"1=0", {}};
 
-            sql_parts += ft.field + " IN (";
-            for (size_t i = 0; i < ids.size(); ++i) {
-                sql_parts += (i ? ",?" : "?");
-                params.push_back(ids[i]);
-            }
-            sql_parts += ")";
+            sql_parts +=
+                fmt::format("{} IN ({})", ft.field,
+                            fmt::join(std::vector<std::string_view>(ids.size(), "?"), ","));
+            params.insert(params.end(), ids.begin(), ids.end());
         } else if (ft.op == "~=") {
             sql_parts += ft.field + " LIKE ?";
+
             std::string fval = ft.value.is_string() ? ft.value.get<std::string>() : ft.value.dump();
             params.push_back("%" + fval + "%");
         } else {
@@ -285,6 +315,35 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
     }
 
     return {sql_parts.empty() ? "1=1" : sql_parts, std::move(params)};
+}
+
+std::vector<Database::LogRow> Database::ReadLogs(const std::vector<std::string>& fields,
+                                                 const std::vector<QueryFilter>& filters,
+                                                 LogOrder order, int limit, int offset) const {
+    auto [where, params] = build_where_clause(filters);
+
+    const auto ordering = order == LogOrder::kIdAscending ? std::string{"id ASC"}
+                          : order == LogOrder::kIdDescending
+                              ? std::string{"id DESC"}
+                              : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
+    Statement stmt{db_, fmt::format("SELECT {}, id FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
+                                    fmt::join(fields, ","), cfg_.log_table_name, where, ordering)};
+
+    int parameter = 1;
+    for (const auto& value : params) bind_param(stmt, parameter++, value);
+    bind_param(stmt, parameter++, limit);
+    bind_param(stmt, parameter, offset);
+
+    // Cap the reservation so a huge `limit` cannot OOM before any row is read;
+    // the vector grows if the result set is larger.
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
+
+    const auto id_column = static_cast<int>(fields.size());
+    while (stmt.Step() == SQLITE_ROW)
+        rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
+
+    return rows;
 }
 
 }  // namespace loglite

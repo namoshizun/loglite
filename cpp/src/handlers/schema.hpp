@@ -24,7 +24,6 @@ inline std::string NormalizeColumnKind(std::string_view sqlite_type, bool compre
     std::string token(sqlite_type.substr(0, end));
     std::ranges::transform(token, token.begin(),
                            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-
     if (token.starts_with("INT")) return "integer";
     if (token == "REAL" || token == "FLOAT" || token == "DOUBLE" || token == "NUMERIC" ||
         token == "DECIMAL")
@@ -58,9 +57,8 @@ inline nlohmann::json BuildSchemaPayload(const ServerContext& ctx) {
     return {{"table", cfg.log_table_name}, {"columns", std::move(out_columns)}};
 }
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleSchema(const http::request<Body>& req,
-                                                                ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleSchema(const Request& req,
+                                                                       ServerContext& ctx) {
     co_return MakeOKResp(BuildSchemaPayload(ctx), req, ctx.config.allow_origin);
 }
 

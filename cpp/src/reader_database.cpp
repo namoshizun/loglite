@@ -4,23 +4,11 @@
 
 #include <algorithm>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <ranges>
 #include <stdexcept>
 
 namespace loglite {
-
-namespace {
-
-std::string JoinFields(const std::vector<std::string>& fields) {
-    std::string joined;
-    for (const auto& field : fields) {
-        if (!joined.empty()) joined += ',';
-        joined += field;
-    }
-    return joined;
-}
-
-}  // namespace
 
 ReaderDatabase::ReaderDatabase(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
     : Database(cfg, std::move(catalog)) {}
@@ -37,36 +25,15 @@ void ReaderDatabase::Open(const std::filesystem::path& path) {
 
 std::vector<std::string> ReaderDatabase::ResolveFields(
     const std::vector<std::string>& fields) const {
-    std::vector<std::string> effective_fields;
-    if (fields.size() == 1 && fields[0] == "*") {
-        for (const auto& ci : catalog_->log_column_info) effective_fields.push_back(ci.name);
-    } else {
-        effective_fields.assign(fields.begin(), fields.end());
-        for (const auto& f : effective_fields) validate_field(f);
-    }
-    return effective_fields;
-}
-
-nlohmann::json ReaderDatabase::DecodeRow(sqlite3_stmt* stmt,
-                                         const std::vector<std::string>& fields) const {
-    auto row = nlohmann::json::object();
-
-    for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
-        const auto& field = fields[column];
-        auto value = column_to_json(stmt, column);
-        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
-            value = catalog_->col_dict->GetValue(field, value.get<int>());
-        row[field] = std::move(value);
-    }
-
-    return row;
+    return ResolveLogFields(catalog_->log_column_info, fields);
 }
 
 int64_t ReaderDatabase::CountLogs(const std::vector<QueryFilter>& filters) const {
     auto [where, params] = build_where_clause(filters);
     Statement count{db_,
                     fmt::format("SELECT COUNT(*) FROM {} WHERE {}", cfg_.log_table_name, where)};
-    for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(count, i + 1, params[i]);
+
+    for (int i = 1; const auto& value : params) bind_param(count, i++, value);
     return count.Step() == SQLITE_ROW ? sqlite3_column_int64(count, 0) : 0;
 }
 
@@ -76,6 +43,7 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     const auto resolved = ResolveFields(fields);
     // Use a quick estimate of the total when no filters are applied.
     const int64_t total = filters.empty() ? EstimateLogRowCount() : CountLogs(filters);
+
     PaginatedQueryResult result{total, offset, limit, {}};
     if (total == 0) return result;
 
@@ -84,44 +52,18 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     return result;
 }
 
-std::vector<ReaderDatabase::LogRow> ReaderDatabase::ReadLogs(
-    const std::vector<std::string>& fields, const std::vector<QueryFilter>& filters, LogOrder order,
-    int limit, int offset) const {
-    auto [where, params] = build_where_clause(filters);
-
-    const auto ordering = order == LogOrder::kIdAscending
-                              ? std::string{"id ASC"}
-                              : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
-    Statement stmt{db_, fmt::format("SELECT {}, id FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
-                                    JoinFields(fields), cfg_.log_table_name, where, ordering)};
-    int parameter = 1;
-    for (const auto& value : params) bind_param(stmt, parameter++, value);
-    bind_param(stmt, parameter++, limit);
-    bind_param(stmt, parameter, offset);
-
-    // Cap the reservation so a huge `limit` cannot OOM before any row is read;
-    // the vector grows if the result set is larger.
-    std::vector<LogRow> rows;
-    rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
-    const auto id_column = static_cast<int>(fields.size());
-
-    while (stmt.Step() == SQLITE_ROW)
-        rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
-
-    return rows;
-}
-
 void ReaderDatabase::LoadReadDictionary() {
     if (catalog_->compressed_columns.empty()) return;
 
-    LookupTable lookup;
     Statement stmt{db_, "SELECT column, value, value_id FROM column_dictionary"};
 
+    LookupTable lookup;
     while (stmt.Step() == SQLITE_ROW) {
         auto column = column_to_json(stmt, 0).get<std::string>();
         const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         auto text = value ? std::string{value, static_cast<size_t>(sqlite3_column_bytes(stmt, 1))}
                           : std::string{};
+
         lookup[column][std::move(text)] = sqlite3_column_int(stmt, 2);
     }
 
@@ -145,70 +87,33 @@ std::unique_ptr<ReaderDatabase> ReaderDatabase::OpenFile(const std::filesystem::
 StatsQueryResult ReaderDatabase::QueryActivityStats(std::string_view since, std::string_view until,
                                                     const std::vector<std::string>& fields,
                                                     std::string_view ordering) const {
-    const auto known = pluck_column_names(catalog_->activity_stats_column_info);
-    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
-    const auto resolved = query_all_fields ? known : fields;
-
-    for (const auto& f : resolved)
-        if (std::ranges::find(known, f) == known.end())
-            throw std::runtime_error(fmt::format("Unknown activity_stats field: '{}'", f));
-
-    std::string col_list;
-    col_list.reserve(resolved.size() * 16);
-    for (size_t i = 0; i < resolved.size(); ++i) {
-        if (i) col_list += ", ";
-        col_list += resolved[i];
-    }
-
-    std::string order = "DESC";
-    if (ordering == "asc") order = "ASC";
-
-    auto sql = fmt::format(
-        "SELECT {} FROM activity_stats WHERE until >= ? AND until <= ? ORDER BY until {}", col_list,
-        order);
-    Statement stmt{db_, sql};
-    sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
-
-    StatsQueryResult result;
-    result.fields = resolved;
-    while (stmt.Step() == SQLITE_ROW) {
-        std::vector<nlohmann::json> row;
-        row.reserve(resolved.size());
-        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
-            row.push_back(column_to_json(stmt, c));
-        }
-        result.data.push_back(std::move(row));
-    }
-    return result;
+    return QueryStatsTable("activity_stats", "until", since, until,
+                           catalog_->activity_stats_column_info, fields, ordering);
 }
 
 StatsQueryResult ReaderDatabase::QueryDatabaseStats(std::string_view since, std::string_view until,
                                                     const std::vector<std::string>& fields,
                                                     std::string_view ordering) const {
-    const auto known = pluck_column_names(catalog_->db_stats_column_info);
-    const auto query_all_fields = fields.empty() || (fields.size() == 1 && fields[0] == "*");
-    const auto resolved = query_all_fields ? known : fields;
+    return QueryStatsTable("database_stats", "timestamp", since, until,
+                           catalog_->db_stats_column_info, fields, ordering);
+}
 
+StatsQueryResult ReaderDatabase::QueryStatsTable(std::string_view table,
+                                                 std::string_view time_column,
+                                                 std::string_view since, std::string_view until,
+                                                 const std::vector<ColumnInfo>& schema,
+                                                 const std::vector<std::string>& fields,
+                                                 std::string_view ordering) const {
+    const auto known = pluck_column_names(schema);
+    const auto resolved =
+        fields.empty() || (fields.size() == 1 && fields[0] == "*") ? known : fields;
     for (const auto& f : resolved)
         if (std::ranges::find(known, f) == known.end())
-            throw std::runtime_error(fmt::format("Unknown database_stats field: '{}'", f));
+            throw std::runtime_error(fmt::format("Unknown {} field: '{}'", table, f));
 
-    std::string col_list;
-    col_list.reserve(resolved.size() * 16);
-    for (size_t i = 0; i < resolved.size(); ++i) {
-        if (i) col_list += ", ";
-        col_list += resolved[i];
-    }
-
-    std::string order = "DESC";
-    if (ordering == "asc") order = "ASC";
-
-    auto sql = fmt::format(
-        "SELECT {} FROM database_stats WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp "
-        "{}",
-        col_list, order);
-    Statement stmt{db_, sql};
+    Statement stmt{db_, fmt::format("SELECT {} FROM {} WHERE {} >= ? AND {} <= ? ORDER BY {} {}",
+                                    fmt::join(resolved, ", "), table, time_column, time_column,
+                                    time_column, ordering == "asc" ? "ASC" : "DESC")};
     sqlite3_bind_text(stmt, 1, since.data(), static_cast<int>(since.size()), SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, until.data(), static_cast<int>(until.size()), SQLITE_TRANSIENT);
 
@@ -217,9 +122,8 @@ StatsQueryResult ReaderDatabase::QueryDatabaseStats(std::string_view since, std:
     while (stmt.Step() == SQLITE_ROW) {
         std::vector<nlohmann::json> row;
         row.reserve(resolved.size());
-        for (int c = 0; c < static_cast<int>(resolved.size()); ++c) {
+        for (int c = 0; c < static_cast<int>(resolved.size()); ++c)
             row.push_back(column_to_json(stmt, c));
-        }
         result.data.push_back(std::move(row));
     }
     return result;
@@ -264,6 +168,7 @@ ReaderDatabase& ReadDatabasePool::acquire() {
     cv_.wait(lock, [this] { return closed_ || !available_.empty(); });
 
     if (closed_) throw std::runtime_error("read database pool is closed");
+
     ReaderDatabase* db = available_.front();
     available_.pop();
     return *db;

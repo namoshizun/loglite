@@ -23,7 +23,7 @@ log_table_name: Log
 log_timestamp_field: timestamp   # Column used for age-based vacuum
 
 # ── SSE ──────────────────────────────────────────────────
-sse_limit: 1000          # Max logs per SSE event payload
+sse_limit: 50            # Live window size / max logs per SSE event
 sse_debounce_ms: 500     # Coalesce bursts faster than this window
 
 # ── Vacuum ───────────────────────────────────────────────

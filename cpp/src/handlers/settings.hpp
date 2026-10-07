@@ -32,6 +32,7 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     for (const auto& [k, v] : cfg.sqlite_params) {
         sqlite_params[k] = v;
     }
+
     AppendSetting(settings, "sqlite_params", sqlite_params,
                   "SQLite PRAGMA key/value pairs applied when opening the database.");
 
@@ -39,6 +40,13 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     AppendSetting(settings, "partition_interval", ToString(cfg.partition_interval),
                   "SQLite file time range: none, hourly, daily, weekly, or monthly. "
                   "Ranges use UTC; weeks start on Monday.");
+
+    AppendSetting(settings, "sse_limit", cfg.sse_limit,
+                  "Shared live window capacity and maximum logs per SSE event (default 50).");
+    AppendSetting(settings, "sse_debounce_ms", cfg.sse_debounce_ms,
+                  "Minimum milliseconds between SSE data writes (default 500).");
+    AppendSetting(settings, "sse_heartbeat_ms", cfg.sse_heartbeat_ms,
+                  "Milliseconds without an SSE write before sending a heartbeat (default 10000).");
 
     AppendSetting(settings, "auto_rollout", cfg.auto_rollout,
                   "Whether pending migrations are applied automatically on server startup.");
@@ -70,15 +78,15 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
     for (const auto& h : cfg.harvesters) {
         harvester_types.push_back(h.type);
     }
+
     AppendSetting(settings, "harvester_types", harvester_types,
                   "Harvester implementation types configured for this instance.");
 
     return {{"settings", settings}};
 }
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleSettings(const http::request<Body>& req,
-                                                                  ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleSettings(const Request& req,
+                                                                         ServerContext& ctx) {
     co_return MakeOKResp(BuildSettingsPayload(ctx.config), req, ctx.config.allow_origin);
 }
 

@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 // (or when Backlog signals the high watermark via IsFull()), it:
 //   1. Dispatches to the write strand to drain the backlog and INSERT into SQLite.
 //   2. Restores the drained batch if the transaction fails.
-//   3. Reads max_log_id and notifies SSE subscribers.
+//   3. Publishes newly committed rows to SSE subscribers.
 
 inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
     auto ex = co_await asio::this_coro::executor;
@@ -57,7 +57,6 @@ inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
                 int64_t m = db.GetCommittedLogId();
                 return std::make_tuple(c, m, t.elapsed_ms());
             });
-
         if (count == 0) continue;
 
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);

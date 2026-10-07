@@ -1,13 +1,17 @@
 ## General coding style
 
 - Prefer iteration and modularization over code duplication. Implementation must be elegant, intuitive and Pythonic.
-- Follow the "let it crash" principle: avoid excessive error handling and edge-case checks, especially for explorative development. Do not obscure the main intent with defensive boilerplate.
+- Follow the "let it crash" principle: avoid excessive error handling and edge-case checks, especially for exploratory development. Do not obscure the main intent with defensive boilerplate.
 - When asked to review the code, GO BY THE BOOK! Be thoughtful, critical and brutally honest.
 - Don't assume. Don't hide confusion. Surface tradeoffs.
-- Your code is for human to read and maintain. Keep readability and maintainability in mind. DO NOT SHOTGUN SLOPS OF LITTLE FUNCTIONS.
+- Your code is for human to read and maintain. Keep readability and maintainability in mind.
+  - DO NOT SHOTGUN SLOPS OF LITTLE FUNCTIONS.
+  - Variables should be declared as close to their usage as possible.
+  - Use blank lines to separate different concepts in your code
 - **Important**:
   1. Fix problems at their root cause, not their symptoms.
   2. If a bug reveals a deeper design flaw or incomplete design, propose fixing the design instead.
+
 
 ## Python dev
 

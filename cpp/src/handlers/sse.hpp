@@ -5,177 +5,115 @@
 #include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
-#include "../utils.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/http/chunk_encode.hpp>
 
+#include <algorithm>
 #include <chrono>
-#include <sstream>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 namespace http = beast::http;
-namespace net = boost::asio;
 
 namespace loglite::handlers {
 
 using namespace std::chrono_literals;
 
-// ── SSE handler ────────────────────────────────────────────────────────────────
-//
-// Long-running coroutine using the connection's TCP stream. It:
-//   1. Sends HTTP 200 headers with Transfer-Encoding: chunked.
-//   2. Registers a subscription timer with LogNotifier.
-//   3. Arms the timer to expire after sse_debounce_ms.
-//      - If notify() cancels the timer early → new logs available.
-//      - If timer fires normally → check for any logs missed during processing.
-//   4. Queries id > pushed_id AND id <= current_id in GET /logs order
-//      (timestamp descending, then ID descending) and sends one chunk.
-//   5. On write error (client disconnect), returns.
-
-inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream,
-                                       http::request<http::string_body> req, ServerContext& ctx) {
-    auto ex = co_await asio::this_coro::executor;
-    auto& cfg = ctx.config;
-    auto origin = cfg.allow_origin;
-    auto debounce = cfg.sse_debounce_ms * 1ms;
-
-    // ── Parse fields param ────────────────────────────────────────────────────
-    auto [path, qs] = SplitURLTarget(req.target());
-    auto params = ParseQueryString(qs);
-
-    std::vector<std::string> fields;
-    if (auto it = params.find("fields"); it != params.end() && it->second != "*") {
-        for (auto sv : std::views::split(it->second, ','))
-            fields.emplace_back(sv.begin(), sv.end());
-    } else {
-        fields = {"*"};
-    }
-
-    // ── Send response headers ─────────────────────────────────────────────────
-    stream.expires_never();
-
-    http::response<http::empty_body> res{http::status::ok, req.version()};
-    res.set(http::field::content_type, "text/event-stream");
-    res.set(http::field::cache_control, "no-cache");
-    res.set(http::field::connection, "keep-alive");
-    res.set("X-Accel-Buffering", "no");
-    res.set(http::field::access_control_allow_origin, origin);
-    res.chunked(true);
-
-    http::response_serializer<http::empty_body> sr{res};
+inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, ServerContext& ctx) {
+    const auto& cfg = ctx.config;
+    auto fields = req.ListParam("fields").value_or(std::vector<std::string>{"*"});
+    std::string field_error;
     try {
-        co_await http::async_write_header(stream, sr, asio::use_awaitable);
-    } catch (...) {
+        fields = ResolveLogFields(ctx.db_write.catalog()->log_column_info, fields);
+    } catch (const std::runtime_error& error) {
+        field_error = error.what();
+    }
+    if (!field_error.empty()) {
+        auto response = MakeFailResp(400, field_error, req, cfg.allow_origin);
+        co_await http::async_write(stream, response, asio::as_tuple(asio::use_awaitable));
         co_return;
     }
 
+    auto timer = std::make_shared<asio::steady_timer>(co_await asio::this_coro::executor);
+    struct SubscriptionGuard {
+        LogNotifier& _notifier;
+        std::shared_ptr<asio::steady_timer> _timer;
+        ~SubscriptionGuard() { _notifier.Unsubscribe(_timer); }
+    } unsubscribe{ctx.notifier, timer};
+
+    stream.expires_never();
+
+    http::response<http::empty_body> response{http::status::ok, req.version()};
+    response.set(http::field::content_type, "text/event-stream");
+    response.set(http::field::cache_control, "no-cache");
+    response.set(http::field::connection, "keep-alive");
+    response.set("X-Accel-Buffering", "no");
+    response.set(http::field::access_control_allow_origin, cfg.allow_origin);
+    response.chunked(true);
+    http::response_serializer<http::empty_body> serializer{response};
+    const auto [header_error, header_bytes] =
+        co_await http::async_write_header(stream, serializer, asio::as_tuple(asio::use_awaitable));
+
+    if (header_error) co_return;
+
     metrics::GaugeGuard sse_session{metrics::kSseSession};
 
-    // ── Subscribe ─────────────────────────────────────────────────────────────
-    auto sub = ctx.notifier.Subscribe(ex);
-    ctx.RegisterShutdownTimer(sub->timer);
-    auto unsub = std::unique_ptr<LogNotifier, std::function<void(LogNotifier*)>>(
-        &ctx.notifier, [&sub](LogNotifier* n) { n->Unsubscribe(sub); });
+    auto last_write = std::chrono::steady_clock::now();
+    auto next_push = std::chrono::steady_clock::time_point{};
 
-    int64_t pushed_id = ctx.notifier.GetLastId();
-    auto last_push_tp = std::chrono::steady_clock::time_point{};
-    auto last_write_tp = std::chrono::steady_clock::now();
-
-    auto subscriber_id = reinterpret_cast<uintptr_t>(sub.get());
+    const auto subscriber_id = reinterpret_cast<uintptr_t>(timer.get());
     log::INFO("SSE subscriber {} connected (subscribers={})", subscriber_id,
               ctx.notifier.SubscriberCount());
 
-    // ── Event loop ────────────────────────────────────────────────────────────
+    auto send = [&](std::string_view payload) -> asio::awaitable<bool> {
+        const auto [error, bytes] = co_await asio::async_write(
+            stream, http::make_chunk(asio::buffer(payload)), asio::as_tuple(asio::use_awaitable));
+        co_return !error;
+    };
+
+    const auto debounce = cfg.sse_debounce_ms * 1ms;
+    const auto heartbeat_interval = cfg.sse_heartbeat_ms * 1ms;
+    uint64_t cursor = ctx.notifier.Subscribe(timer);
+
     while (!ctx.StopRequested()) {
-        // Arm the subscription timer.  notify() cancels it early when new logs arrive.
-        sub->timer->expires_after(debounce);
-        co_await sub->timer->async_wait(asio::as_tuple(asio::use_awaitable));
-
-        if (ctx.StopRequested()) break;
-        // ec == success        → timer fired (timeout, still check for anything missed)
-        // ec == operation_aborted → cancelled by notify() (new logs available)
-
-        int64_t current_id = ctx.notifier.GetLastId();
-        if (current_id <= pushed_id) {
-            // Keep-alive: send an empty comment chunk every 15s to keep proxy/client connection
-            // open and force socket write to detect disconnects.
-            auto now = std::chrono::steady_clock::now();
-            if (now - last_write_tp >= 15s) {
-                auto chunk = http::make_chunk(net::buffer(std::string_view(":\r\n\r\n")));
-                try {
-                    co_await net::async_write(stream, chunk, asio::use_awaitable);
-                    last_write_tp = now;
-                } catch (...) {
-                    break;  // write failed -> client disconnected
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= next_push) {
+            if (auto rows = ctx.notifier.Since(cursor); !rows.empty()) {
+                auto payload = nlohmann::json::array();
+                for (const auto& row : rows | std::views::reverse) {
+                    auto projected = nlohmann::json::object();
+                    for (const auto& field : fields) projected[field] = row->at(field);
+                    payload.push_back(std::move(projected));
                 }
+
+                const std::string event = "data: " + payload.dump() + "\r\n\r\n";
+                if (!co_await send(event)) break;
+
+                last_write = std::chrono::steady_clock::now();
+                next_push = last_write + debounce;
+                log::DEBUG("SSE {} pushed {} log(s)", subscriber_id, rows.size());
+
+                // Recheck publications that arrived while a write was in flight.
+                continue;
             }
-            continue;  // nothing new
         }
 
-        // Apply debounce: do not push more than once per debounce window.
-        auto now = std::chrono::steady_clock::now();
-        if (last_push_tp.time_since_epoch().count() != 0 && (now - last_push_tp) < debounce)
-            continue;
-
-        // ── Query new logs ─────────────────────────────────────────────
-        // Same order as GET /logs. A burst larger than sse_limit keeps the
-        // newest page
-        std::vector<QueryFilter> id_filters{
-            {"id", ">", pushed_id},
-            {"id", "<=", current_id},
-        };
-
-        PaginatedQueryResult result;
-        try {
-            result = co_await ctx.db_read.AsyncUseConnection(
-                ctx.reader_executor,
-                [&](LogReader& r) { return r.Query(fields, id_filters, cfg.sse_limit, 0); });
-        } catch (const std::exception& e) {
-            log::ERROR("SSE query error: {}", e.what());
+        if (now - last_write >= heartbeat_interval) {
+            if (!co_await send(":\r\n\r\n")) break;
+            last_write = std::chrono::steady_clock::now();
             continue;
         }
 
-        if (result.results.empty()) {
-            pushed_id = current_id;
-            continue;
-        }
-
-        // ── Write SSE event chunk ─────────────────────────────────────────────
-        std::ostringstream payload;
-        payload << "data: [";
-        for (size_t i = 0; i < result.results.size(); ++i) {
-            if (i != 0) payload << ',';
-            payload << result.results[i];
-        }
-        payload << "]\r\n\r\n";
-
-        std::string event = std::move(payload).str();
-        auto chunk = http::make_chunk(net::buffer(event));
-
-        try {
-            co_await net::async_write(stream, chunk, asio::use_awaitable);
-        } catch (...) {
-            break;  // client disconnected
-        }
-
-        pushed_id = current_id;
-        last_push_tp = now;
-        last_write_tp = now;
-
-        log::DEBUG("SSE {} pushed {} log(s)", subscriber_id, result.results.size());
+        const auto next_beat = last_write + heartbeat_interval;
+        timer->expires_at(now < next_push ? std::min(next_push, next_beat) : next_beat);
+        co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
     }
 
-    // Send chunked terminator (best-effort; client may already be gone).
-    try {
-        co_await net::async_write(stream, http::make_chunk_last(), asio::use_awaitable);
-    } catch (...) {
-    }
-
-    log::INFO("SSE subscriber {} disconnected (subscribers={})", subscriber_id,
-              ctx.notifier.SubscriberCount());
+    co_await asio::async_write(stream, http::make_chunk_last(),
+                               asio::as_tuple(asio::use_awaitable));
+    log::INFO("SSE subscriber {} disconnected", subscriber_id);
 }
 
 }  // namespace loglite::handlers

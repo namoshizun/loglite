@@ -18,7 +18,6 @@ MigrationManager::MigrationManager(WriterDatabase& db, std::span<const Migration
 
 bool MigrationManager::ApplyPendingMigrations(int start_version) {
     auto applied = db_.GetAppliedVersions();
-
     for (const auto& mg : migrations_) {
         if (mg.version <= start_version) continue;
         if (range_contains(applied, mg.version)) continue;
@@ -46,6 +45,7 @@ bool MigrationManager::ConfirmRollback(int version) {
 
     std::string ans;
     std::getline(std::cin, ans);
+
     if (ans == "y" || ans == "Y") return true;
     log::INFO("Rollback cancelled.");
     return false;

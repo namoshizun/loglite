@@ -96,7 +96,8 @@
     "*.ipp": "cpp",
     "__assert": "cpp",
     "__availability": "cpp",
-    "ranges": "cpp"
+    "ranges": "cpp",
+    "typeindex": "cpp"
   },
   "search.exclude": {
     "**/build": true,

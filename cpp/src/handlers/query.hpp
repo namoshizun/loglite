@@ -7,30 +7,29 @@
 #include "../metrics.hpp"
 #include "../utils.hpp"
 
+#include <fmt/ranges.h>
+
+#include <algorithm>
+#include <iterator>
 #include <stdexcept>
 #include <unordered_set>
 
 namespace loglite::handlers {
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleQuery(const http::request<Body>& req,
-                                                               ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleQuery(const Request& req,
+                                                                      ServerContext& ctx) {
     metrics::ObservationTimer request_timer{metrics::kQueryRequest};
-
-    auto [path, qs] = SplitURLTarget(req.target());
-    auto params = ParseQueryString(qs);
 
     // ── Validate required params ──────────────────────────────────────────────
     for (const auto* p : {"fields", "limit", "offset"}) {
-        if (!params.contains(p))
+        if (!req.HasParam(p))
             co_return MakeFailResp(400, fmt::format("Required parameter '{}' is missing", p), req,
                                    ctx.config.allow_origin);
     }
 
     // ── Extract pagination / field selection ──────────────────────────────────
-    auto fields_str = params.find("fields")->second;
-    auto limit_opt = ParseIntParam(params.find("limit")->second);
-    auto offset_opt = ParseIntParam(params.find("offset")->second);
+    const auto limit_opt = req.IntParam("limit");
+    const auto offset_opt = req.IntParam("offset");
 
     if (!limit_opt || !offset_opt)
         co_return MakeFailResp(400, "Parameters 'limit' and 'offset' must be integers", req,
@@ -49,32 +48,25 @@ asio::awaitable<http::response<http::string_body>> HandleQuery(const http::reque
         co_return MakeFailResp(400, "'offset' must be a non-negative integer", req,
                                ctx.config.allow_origin);
 
-    std::vector<std::string> fields;
-    if (fields_str == "*") {
-        fields = {"*"};
-    } else {
-        for (auto sv : std::views::split(fields_str, ',')) {
-            fields.emplace_back(sv.begin(), sv.end());
-        }
-    }
+    const auto fields = *req.ListParam("fields");
 
     // ── Build filters from remaining params ───────────────────────────────────
     static const std::unordered_set<std::string> reserved{"fields", "limit", "offset"};
     std::vector<QueryFilter> filters;
 
-    for (const auto& [key, value] : params) {
+    for (const auto& [key, value] : req.params()) {
         if (reserved.contains(key)) continue;
         auto key_filters = ParseQueryFilters(key, value);
         if (key_filters.empty())
             co_return MakeFailResp(400,
                                    fmt::format("Invalid filter expression for field '{}'", key),
                                    req, ctx.config.allow_origin);
-        for (auto& f : key_filters) filters.push_back(std::move(f));
+        std::ranges::move(key_filters, std::back_inserter(filters));
     }
 
     if (ctx.config.debug)
-        log::DEBUG("Query fields={} limit={} offset={} filters={}", fields_str, limit, offset,
-                   filters.size());
+        log::DEBUG("Query fields={} limit={} offset={} filters={}", fmt::join(fields, ","), limit,
+                   offset, filters.size());
 
     // ── Execute ───────────────────────────────────────────────────────────────
     try {

@@ -50,7 +50,6 @@ std::vector<Observation> MetricsRegistry::Flush() {
     std::vector<Observation> out(std::make_move_iterator(observations_.begin()),
                                  std::make_move_iterator(observations_.end()));
     observations_.clear();
-
     return out;
 }
 

@@ -198,27 +198,21 @@ TEST_F(ServerApiTest, ShutdownPersistsHarvesterPartialLine) {
                             file_path_.string()),
                 "", 1);
     Start();
-    std::this_thread::sleep_for(600ms);  // let the harvester open the initial file at EOF
     {
         std::ofstream out{file_path_, std::ios::app};
         out << R"({"message":"complete"})" << '\n';
     }
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
-    bool harvested = false;
-    while (std::chrono::steady_clock::now() < deadline) {
-        auto body = nlohmann::json::parse(Request("/logs?fields=*&limit=10&offset=0").body());
-        if (body["total"] == 1) {
-            harvested = true;
-            break;
-        }
-        std::this_thread::sleep_for(50ms);
-    }
-    ASSERT_TRUE(harvested);
+    ASSERT_TRUE(test::WaitUntil(
+        [&] {
+            const auto body =
+                nlohmann::json::parse(Request("/logs?fields=*&limit=10&offset=0").body());
+            return body["total"] == 1;
+        },
+        5s));
     {
         std::ofstream out{file_path_, std::ios::app};
         out << R"({"message":"partial"})";  // no trailing newline
     }
-    std::this_thread::sleep_for(700ms);  // let the harvester buffer the partial line
     Stop();
     EXPECT_EQ(PersistedRows(), 2u);
 }

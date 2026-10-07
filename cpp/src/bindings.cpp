@@ -57,12 +57,14 @@ const DateTimeTypes& DatetimeTypes() {
     if (py::isinstance<py::dict>(obj)) {
         nlohmann::json out = nlohmann::json::object();
         const py::dict d = py::reinterpret_borrow<py::dict>(obj);
+
         for (auto kv : d) {
             const py::handle k = kv.first;
             if (!py::isinstance<py::str>(k)) {
                 throw std::runtime_error(
                     "loglite._core: dict keys must be str for JSON conversion");
             }
+
             const std::string key = py::reinterpret_borrow<py::str>(k).cast<std::string>();
             out[key] = PyObjectToJson(kv.second);
         }
@@ -73,6 +75,7 @@ const DateTimeTypes& DatetimeTypes() {
         const py::sequence seq = py::reinterpret_borrow<py::sequence>(obj);
         const Py_ssize_t n = py::len(seq);
         arr.get_ref<nlohmann::json::array_t&>().reserve(static_cast<size_t>(n));
+
         for (Py_ssize_t i = 0; i < n; ++i) {
             arr.push_back(PyObjectToJson(seq[i]));
         }

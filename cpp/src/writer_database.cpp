@@ -5,9 +5,11 @@
 #include "utils.hpp"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <algorithm>
 #include <iterator>
 #include <ranges>
+#include <vector>
 
 namespace loglite {
 
@@ -77,6 +79,7 @@ void WriterDatabase::Initialize(std::span<const Migration> migrations) {
 
     RefreshColumnInfo();
     LoadColumnDictionary();
+
     committed_id_ = catalog_->log_column_info.empty() ? 0 : GetMaxLogId();
 }
 
@@ -107,15 +110,9 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
 
     if (cols.empty() || logs.empty()) return 0;
 
-    std::string col_list, placeholders;
-    for (size_t i = 0; i < cols.size(); ++i) {
-        if (i) {
-            col_list += ",";
-            placeholders += ",";
-        }
-        col_list += cols[i].name;
-        placeholders += "?";
-    }
+    auto col_list = fmt::to_string(fmt::join(cols | std::views::transform(&ColumnInfo::name), ","));
+    auto placeholders =
+        fmt::to_string(fmt::join(std::vector<std::string_view>(cols.size(), "?"), ","));
     if (first_id > 0) {
         col_list = "id," + col_list;
         placeholders = "?," + placeholders;
@@ -157,10 +154,12 @@ int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t fir
                         serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
                     serialized = catalog_->col_dict->GetOrCreate(ci.name, sv);
                 }
+
                 bind_param(stmt, i + 1 + (first_id > 0 ? 1 : 0), serialized);
             }
 
             if (!valid) continue;
+
             stmt.Step();
             last_id = std::max(last_id, first_id > 0
                                             ? assigned_id
@@ -185,8 +184,9 @@ int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {
     auto sql = fmt::format("DELETE FROM {} WHERE {}", cfg_.log_table_name, where);
     Statement stmt{db_, sql};
 
-    for (int i = 0; i < static_cast<int>(params.size()); ++i) bind_param(stmt, i + 1, params[i]);
+    for (int i = 1; const auto& value : params) bind_param(stmt, i++, value);
     stmt.Step();
+
     return sqlite3_changes(db_);
 }
 
@@ -238,9 +238,11 @@ int64_t WriterDatabase::ReserveLogIds(int64_t count) {
                       "RETURNING reserved_id"};
     bind_param(reserve, 1, count);
     if (reserve.Step() != SQLITE_ROW) throw std::runtime_error("Missing partition ID allocator");
+
     const int64_t reserved = sqlite3_column_int64(reserve, 0);
     // Finish the statement so the reservation commits before the caller writes rows.
     reserve.Step();
+
     return reserved - count + 1;
 }
 
@@ -310,26 +312,20 @@ bool WriterDatabase::InsertDatabaseStats(const DatabaseStatsRow& row) {
 
 int WriterDatabase::DeleteStatsBefore(std::string_view cutoff) {
     int removed = 0;
-    {
-        Statement stmt{db_, "DELETE FROM activity_stats WHERE until < ?"};
+    for (const auto* sql : {"DELETE FROM activity_stats WHERE until < ?",
+                            "DELETE FROM database_stats WHERE timestamp < ?"}) {
+        Statement stmt{db_, sql};
         sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
                           SQLITE_TRANSIENT);
         stmt.Step();
         removed += sqlite3_changes(db_);
     }
-    {
-        Statement stmt{db_, "DELETE FROM database_stats WHERE timestamp < ?"};
-        sqlite3_bind_text(stmt, 1, cutoff.data(), static_cast<int>(cutoff.size()),
-                          SQLITE_TRANSIENT);
-        stmt.Step();
-        removed += sqlite3_changes(db_);
-    }
-
     return removed;
 }
 
 std::vector<int> WriterDatabase::GetAppliedVersions() const {
     Statement stmt{db_, "SELECT version FROM versions ORDER BY version"};
+
     std::vector<int> out;
     while (stmt.Step() == SQLITE_ROW) out.push_back(sqlite3_column_int(stmt, 0));
     return out;
@@ -388,6 +384,7 @@ std::vector<std::tuple<std::string, std::string, ValueId>> WriterDatabase::GetCo
         const auto* col = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         int vid = sqlite3_column_int(stmt, 2);
+
         rows.emplace_back(col ? std::string{col, static_cast<size_t>(sqlite3_column_bytes(stmt, 0))}
                               : std::string{},
                           val ? std::string{val, static_cast<size_t>(sqlite3_column_bytes(stmt, 1))}

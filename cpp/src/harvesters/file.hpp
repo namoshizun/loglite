@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -85,7 +86,12 @@ class FileHarvester final : public Harvester {
             return;
         }
 
-        thread_ = std::jthread{[this](std::stop_token st) noexcept { run_safely(st); }};
+        // Capture the initial EOF before returning, so appends after Start() are not skipped.
+        auto current = open_file(options_.start_at_end);
+        thread_ =
+            std::jthread{[this, current = std::move(current)](std::stop_token st) mutable noexcept {
+                run_safely(st, std::move(current));
+            }};
 
         log::INFO("FileHarvester '{}' started: tailing {}", name_, path_.string());
     }
@@ -108,6 +114,13 @@ class FileHarvester final : public Harvester {
         thread_.join();
 
         log::INFO("FileHarvester '{}' stopped", name_);
+    }
+
+    // Current read position, including buffered partial lines and any skipped initial content.
+    // No value means there is no open file. A rotation resets this offset.
+    [[nodiscard]] std::optional<std::uintmax_t> ReadOffset() const {
+        const auto offset = read_offset_.load();
+        return offset == kClosedOffset ? std::nullopt : std::optional{offset};
     }
 
    private:
@@ -147,19 +160,19 @@ class FileHarvester final : public Harvester {
         return options;
     }
 
-    void run_safely(std::stop_token st) noexcept {
+    void run_safely(std::stop_token st, std::optional<OpenFile> current) noexcept {
         try {
-            run(st);
+            run(st, std::move(current));
         } catch (const std::exception& e) {
             log::ERROR("FileHarvester '{}': worker terminated unexpectedly: {}", name_, e.what());
         } catch (...) {
             log::ERROR("FileHarvester '{}': worker terminated due to unknown exception", name_);
         }
+        read_offset_.store(kClosedOffset);
     }
 
-    void run(std::stop_token st) {
-        std::optional<OpenFile> current;
-        bool first_open = true;
+    void run(std::stop_token st, std::optional<OpenFile> current) {
+        bool first_open = !current.has_value();
 
         std::vector<char> buffer(options_.read_buffer_size);
 
@@ -176,9 +189,6 @@ class FileHarvester final : public Harvester {
                 }
 
                 first_open = false;
-
-                log::INFO("FileHarvester '{}': opened {} at offset {}", name_, path_.string(),
-                          current->offset);
             }
 
             const auto bytes_read = read_available(*current, buffer, st);
@@ -227,6 +237,7 @@ class FileHarvester final : public Harvester {
 
                 current->stream.clear();
                 current->stream.seekg(0, std::ios::beg);
+                read_offset_.store(0);
             }
 
             if (bytes_read == 0) {
@@ -235,6 +246,13 @@ class FileHarvester final : public Harvester {
         }
 
         if (current.has_value()) {
+            // Drain only the bytes present at shutdown, even if a writer keeps appending.
+            current->stream.clear();
+            current->stream.seekg(0, std::ios::end);
+            const auto end = current->stream.tellg();
+            if (end >= 0) {
+                read_available(*current, buffer, {}, static_cast<std::uintmax_t>(end));
+            }
             close_file(*current, "shutdown");
         }
     }
@@ -284,10 +302,14 @@ class FileHarvester final : public Harvester {
         opened.identity = *identity_after_open;
         opened.offset = offset;
 
+        read_offset_.store(offset);
+        log::INFO("FileHarvester '{}': opened {} at offset {}", name_, path_.string(), offset);
+
         return opened;
     }
 
-    std::size_t read_available(OpenFile& file, std::vector<char>& buffer, std::stop_token st) {
+    std::size_t read_available(OpenFile& file, std::vector<char>& buffer, std::stop_token st,
+                               std::uintmax_t end_offset = kClosedOffset) {
         std::size_t total_read = 0;
 
         if (!file.stream.is_open()) {
@@ -299,8 +321,10 @@ class FileHarvester final : public Harvester {
             return 0;
         }
 
-        while (!st.stop_requested()) {
-            file.stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        while (!st.stop_requested() && file.offset < end_offset) {
+            const auto read_size =
+                std::min<std::uintmax_t>(buffer.size(), end_offset - file.offset);
+            file.stream.read(buffer.data(), static_cast<std::streamsize>(read_size));
             const auto n = file.stream.gcount();
 
             if (n <= 0) {
@@ -312,8 +336,9 @@ class FileHarvester final : public Harvester {
             file.offset += static_cast<std::uintmax_t>(bytes);
 
             consume_bytes(file, std::string_view{buffer.data(), bytes});
+            read_offset_.store(file.offset);
 
-            if (bytes < buffer.size()) {
+            if (bytes < read_size) {
                 break;
             }
         }
@@ -388,6 +413,7 @@ class FileHarvester final : public Harvester {
         if (file.stream.is_open()) {
             file.stream.close();
         }
+        read_offset_.store(kClosedOffset);
     }
 
     void flush_or_drop_pending_line(OpenFile& file, std::string_view reason) {
@@ -555,6 +581,8 @@ class FileHarvester final : public Harvester {
     Options options_{};
 
     std::mutex lifecycle_mutex_;
+    static constexpr auto kClosedOffset = std::numeric_limits<std::uintmax_t>::max();
+    std::atomic<std::uintmax_t> read_offset_{kClosedOffset};
     std::jthread thread_;
 };
 

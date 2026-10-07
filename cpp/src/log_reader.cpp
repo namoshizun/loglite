@@ -44,9 +44,8 @@ PaginatedQueryResult LogReader::Query(const std::vector<std::string>& fields,
                 return;
             }
             const int remaining = limit < 0 ? -1 : limit - static_cast<int>(result.results.size());
-            for (auto& row :
-                 db.ReadLogs(resolved, normalized, ReaderDatabase::LogOrder::kNewestFirst,
-                             remaining, static_cast<int>(skip)))
+            for (auto& row : db.ReadLogs(resolved, normalized, Database::LogOrder::kNewestFirst,
+                                         remaining, static_cast<int>(skip)))
                 result.results.push_back(std::move(row.values));
             skip = 0;
         });
@@ -61,28 +60,29 @@ LogIdQueryResult LogReader::QueryLogIdRange(const std::vector<std::string>& fiel
                                             int64_t since_exclusive, int64_t until_inclusive,
                                             int limit) const {
     const auto resolved = connection_.ResolveFields(fields);
-
     const std::vector<QueryFilter> range{{"id", ">", since_exclusive},
                                          {"id", "<=", until_inclusive}};
-    std::vector<ReaderDatabase::LogRow> rows;
+
+    std::vector<Database::LogRow> rows;
     {
         const auto lease = store_.ReadLease();
         for (const auto& file : store_.Partitions()) {
             if (file.id_upper_bound <= since_exclusive) continue;
             UseFile(file.partition.path, [&](const ReaderDatabase& db) {
                 std::ranges::move(
-                    db.ReadLogs(resolved, range, ReaderDatabase::LogOrder::kIdAscending, limit, 0),
+                    db.ReadLogs(resolved, range, Database::LogOrder::kIdAscending, limit, 0),
                     std::back_inserter(rows));
             });
         }
     }
 
-    std::ranges::sort(rows, {}, &ReaderDatabase::LogRow::id);
+    std::ranges::sort(rows, {}, &Database::LogRow::id);
     if (limit >= 0 && rows.size() > static_cast<size_t>(limit)) rows.resize(limit);
 
     LogIdQueryResult result{rows.empty() ? since_exclusive : rows.back().id, {}};
     result.results.reserve(rows.size());
-    for (auto& row : rows) result.results.push_back(std::move(row.values));
+    std::ranges::transform(rows, std::back_inserter(result.results),
+                           [](auto& row) { return std::move(row.values); });
     return result;
 }
 

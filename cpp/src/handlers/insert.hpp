@@ -13,9 +13,8 @@ namespace asio = boost::asio;
 
 namespace loglite::handlers {
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleInsert(const http::request<Body>& req,
-                                                                ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleInsert(const Request& req,
+                                                                       ServerContext& ctx) {
     metrics::MetricsRegistry::Instance().Collect(metrics::kIngestRequest,
                                                  static_cast<double>(req.body().size()));
 

@@ -151,17 +151,15 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
         // Per-request idle timeout: re-arm each keep-alive iteration (not once at accept).
         stream.expires_after(kHttpIdleTimeout);
 
-        http::request<http::string_body> req;
-
+        http::request<http::string_body> raw;
         try {
-            co_await http::async_read(stream, buf, req, asio::use_awaitable);
+            co_await http::async_read(stream, buf, raw, asio::use_awaitable);
         } catch (...) {
             co_return;
         }
 
-        auto target = std::string(req.target());
-        auto [path, _] = handlers::SplitURLTarget(target);
-        auto method = req.method();
+        handlers::Request req{std::move(raw)};
+        const auto method = req.method();
 
         // ── CORS preflight ────────────────────────────────────────────────────
         if (method == http::verb::options) {
@@ -185,12 +183,12 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
         }
 
         // ── Route dispatch ────────────────────────────────────────────────────
-        if (path == "/logs/sse" && method == http::verb::get) {
+        if (req.path() == "/logs/sse" && method == http::verb::get) {
             co_await handlers::HandleSSE(stream, std::move(req), ctx_);
             co_return;
         }
 
-        auto routed = co_await handlers::Dispatch(path, method, req, ctx_);
+        auto routed = co_await handlers::Dispatch(req, ctx_);
         http::response<http::string_body> res =
             routed ? std::move(*routed)
                    : handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);

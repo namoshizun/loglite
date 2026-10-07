@@ -8,12 +8,17 @@
 #include <memory>
 #include <sqlite3.h>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 namespace loglite {
+
+// Expand and validate a projection using only the immutable in-memory schema.
+[[nodiscard]] std::vector<std::string> ResolveLogFields(std::span<const ColumnInfo> schema,
+                                                        const std::vector<std::string>& fields);
 
 // Shared schema + column dictionary across writer and read-pool connections.
 // Populated by the writer during Initialize(); immutable schema for server lifetime.
@@ -75,6 +80,18 @@ class Database {
     [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const;
     void ValidateFilters(const std::vector<QueryFilter>& filters) const;
 
+    enum class LogOrder { kNewestFirst, kIdAscending, kIdDescending };
+
+    struct LogRow {
+        int64_t id{};
+        nlohmann::json values;
+    };
+
+    // `fields` must be resolved. Negative limits follow SQLite: no limit.
+    [[nodiscard]] std::vector<LogRow> ReadLogs(const std::vector<std::string>& fields,
+                                               const std::vector<QueryFilter>& filters,
+                                               LogOrder order, int limit, int offset) const;
+
    protected:
     struct WhereClause {
         std::string sql;
@@ -103,6 +120,8 @@ class Database {
     void ensure_ok(int rc, std::string_view ctx) const;
     static void bind_param(sqlite3_stmt* stmt, int idx, const nlohmann::json& v);
     [[nodiscard]] static nlohmann::json column_to_json(sqlite3_stmt* stmt, int col);
+    [[nodiscard]] nlohmann::json DecodeRow(sqlite3_stmt* stmt,
+                                           const std::vector<std::string>& fields) const;
     [[nodiscard]] static nlohmann::json serialize_value(const nlohmann::json& v);
     [[nodiscard]] static std::vector<std::string> pluck_column_names(
         const std::vector<ColumnInfo>& infos);

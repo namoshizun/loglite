@@ -59,7 +59,6 @@ std::optional<CalendarRange> FromFilename(PartitionInterval interval, std::strin
     timestamp += interval == PartitionInterval::kHourly    ? ":00:00Z"
                  : interval == PartitionInterval::kMonthly ? "-01T00:00:00Z"
                                                            : "T00:00:00Z";
-
     const auto parsed = parse_iso8601(timestamp);
     if (!parsed) return std::nullopt;
 
@@ -82,12 +81,12 @@ Partition PartitionScheme::Place(nlohmann::json& entry, TimePoint ingestion) con
     auto timestamp = ingestion;
     auto& value = entry[cfg_.log_timestamp_field];
     if (value.is_string())
-        if (const auto parsed = parse_iso8601(value.get_ref<const std::string&>()))
-            timestamp = *parsed;
+        timestamp = parse_iso8601(value.get_ref<const std::string&>()).value_or(timestamp);
 
     // Route the instant the stored text denotes, so the file range invariant holds.
     timestamp = std::chrono::floor<std::chrono::milliseconds>(timestamp);
     value = format_utc(timestamp);
+
     return Route(timestamp);
 }
 

@@ -131,12 +131,13 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         auto window_until = std::chrono::system_clock::now();
         auto samples = metrics::MetricsRegistry::Instance().Flush();
+
         auto row = detail::build_activity_stats(loglite::format_utc(window_since),
                                                 loglite::format_utc(window_until), samples);
-        auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
         window_since = window_until;
 
         // Persist the snapshot and prune expired rows in one write-strand hop.
+        auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
         int pruned = co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](LogStore& db) {
             db.InsertActivityStats(row);
             db.InsertDatabaseStats({

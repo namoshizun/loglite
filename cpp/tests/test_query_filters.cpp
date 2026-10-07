@@ -35,8 +35,9 @@ TEST(FilterParseTest, MultipleOperatorsKeepTheirOwnValues) {
 TEST(ResponseHelperTest, JSONResponsesPreserveStatusHeadersBodyAndConnectionPolicy) {
     for (bool keep_alive : {false, true}) {
         SCOPED_TRACE(keep_alive);
-        http::request<http::string_body> req{http::verb::get, "/test", 11};
-        req.keep_alive(keep_alive);
+        http::request<http::string_body> raw{http::verb::get, "/test", 11};
+        raw.keep_alive(keep_alive);
+        const Request req{std::move(raw)};
         const auto verify = [&](const auto& response, http::status status,
                                 const nlohmann::json& body) {
             EXPECT_EQ(response.result(), status);

@@ -2,63 +2,80 @@
 #define LOGLITE_NOTIFIER_HPP_
 
 #include <algorithm>
-#include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <vector>
 
 #include <boost/asio.hpp>
+#include <nlohmann/json.hpp>
 
 namespace asio = boost::asio;
 
 namespace loglite {
 
-// Pub-sub hub for SSE subscribers.  Each SSE handler registers a shared_ptr to
-// an asio::steady_timer.  When new logs are flushed, notify() atomically updates
-// last_id and cancels all subscriber timers.
-//
-// asio::steady_timer::cancel() is documented thread-safe (it posts through the
-// io_context), so it's correct to call from the flush task's thread.
-
+// In-process ring of recently committed rows, ordered by commit (oldest first).
 class LogNotifier {
    public:
-    struct Subscription {
-        // Shared so the notifier can cancel safely even if the handler is gone.
-        std::shared_ptr<asio::steady_timer> timer;
-    };
+    using Record = std::shared_ptr<const nlohmann::json>;
 
-    [[nodiscard]] std::shared_ptr<Subscription> Subscribe(asio::any_io_executor ex) {
-        auto sub =
-            std::make_shared<Subscription>(std::make_shared<asio::steady_timer>(std::move(ex)));
-        std::lock_guard lk(mtx_);
-        subs_.push_back(sub);
-        return sub;
+    explicit LogNotifier(size_t capacity) : capacity_(capacity) {}
+
+    // Returns the cursor at registration: only later publications are delivered.
+    [[nodiscard]] uint64_t Subscribe(std::shared_ptr<asio::steady_timer> timer) {
+        std::lock_guard lock(mtx_);
+        timers_.push_back(std::move(timer));
+        return published_;
     }
 
-    void Unsubscribe(const std::shared_ptr<Subscription>& sub) {
-        std::lock_guard lk(mtx_);
-        std::erase(subs_, sub);
+    void Unsubscribe(const std::shared_ptr<asio::steady_timer>& timer) {
+        std::lock_guard lock(mtx_);
+        std::erase(timers_, timer);
     }
 
-    void Notify(int64_t id) {
-        last_id_.store(id, std::memory_order_release);
-        std::lock_guard lk(mtx_);
-        for (auto& sub : subs_)
-            sub->timer->cancel();  // posts cancellation through io_context – thread-safe
+    void Publish(std::vector<nlohmann::json> rows) {
+        if (rows.empty()) return;
+        std::lock_guard lock(mtx_);
+        for (auto& row : rows)
+            recent_.push_back(std::make_shared<const nlohmann::json>(std::move(row)));
+        published_ += rows.size();
+        while (recent_.size() > capacity_) recent_.pop_front();
+        WakeLocked();
     }
 
-    int64_t GetLastId() const noexcept { return last_id_.load(std::memory_order_acquire); }
+    void Wake() {
+        std::lock_guard lock(mtx_);
+        WakeLocked();
+    }
 
-    size_t SubscriberCount() const {
-        std::lock_guard lk(mtx_);
-        return subs_.size();
+    // Rows published after `cursor`, oldest first; evicted rows are lost.
+    [[nodiscard]] std::vector<Record> Since(uint64_t& cursor) const {
+        std::lock_guard lock(mtx_);
+        const uint64_t first = published_ - recent_.size();
+        const auto skip = static_cast<std::ptrdiff_t>(std::max(cursor, first) - first);
+        std::vector<Record> rows(recent_.begin() + skip, recent_.end());
+        cursor = published_;
+        return rows;
+    }
+
+    [[nodiscard]] size_t SubscriberCount() const {
+        std::lock_guard lock(mtx_);
+        return timers_.size();
     }
 
    private:
-    std::atomic<int64_t> last_id_{0};
+    void WakeLocked() {
+        for (const auto& timer : timers_)
+            asio::post(timer->get_executor(), [timer] { timer->cancel(); });
+    }
+
+    const size_t capacity_;
     mutable std::mutex mtx_;
-    std::vector<std::shared_ptr<Subscription>> subs_;
+    std::deque<Record> recent_;
+    uint64_t published_{0};
+    std::vector<std::shared_ptr<asio::steady_timer>> timers_;
 };
 
 }  // namespace loglite

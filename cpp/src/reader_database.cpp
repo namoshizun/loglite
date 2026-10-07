@@ -9,19 +9,6 @@
 
 namespace loglite {
 
-namespace {
-
-std::string JoinFields(const std::vector<std::string>& fields) {
-    std::string joined;
-    for (const auto& field : fields) {
-        if (!joined.empty()) joined += ',';
-        joined += field;
-    }
-    return joined;
-}
-
-}  // namespace
-
 ReaderDatabase::ReaderDatabase(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog)
     : Database(cfg, std::move(catalog)) {}
 
@@ -37,29 +24,7 @@ void ReaderDatabase::Open(const std::filesystem::path& path) {
 
 std::vector<std::string> ReaderDatabase::ResolveFields(
     const std::vector<std::string>& fields) const {
-    std::vector<std::string> effective_fields;
-    if (fields.size() == 1 && fields[0] == "*") {
-        for (const auto& ci : catalog_->log_column_info) effective_fields.push_back(ci.name);
-    } else {
-        effective_fields.assign(fields.begin(), fields.end());
-        for (const auto& f : effective_fields) validate_field(f);
-    }
-    return effective_fields;
-}
-
-nlohmann::json ReaderDatabase::DecodeRow(sqlite3_stmt* stmt,
-                                         const std::vector<std::string>& fields) const {
-    auto row = nlohmann::json::object();
-
-    for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
-        const auto& field = fields[column];
-        auto value = column_to_json(stmt, column);
-        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
-            value = catalog_->col_dict->GetValue(field, value.get<int>());
-        row[field] = std::move(value);
-    }
-
-    return row;
+    return ResolveLogFields(catalog_->log_column_info, fields);
 }
 
 int64_t ReaderDatabase::CountLogs(const std::vector<QueryFilter>& filters) const {
@@ -82,33 +47,6 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
     for (auto& row : ReadLogs(resolved, filters, LogOrder::kNewestFirst, limit, offset))
         result.results.push_back(std::move(row.values));
     return result;
-}
-
-std::vector<ReaderDatabase::LogRow> ReaderDatabase::ReadLogs(
-    const std::vector<std::string>& fields, const std::vector<QueryFilter>& filters, LogOrder order,
-    int limit, int offset) const {
-    auto [where, params] = build_where_clause(filters);
-
-    const auto ordering = order == LogOrder::kIdAscending
-                              ? std::string{"id ASC"}
-                              : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
-    Statement stmt{db_, fmt::format("SELECT {}, id FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
-                                    JoinFields(fields), cfg_.log_table_name, where, ordering)};
-    int parameter = 1;
-    for (const auto& value : params) bind_param(stmt, parameter++, value);
-    bind_param(stmt, parameter++, limit);
-    bind_param(stmt, parameter, offset);
-
-    // Cap the reservation so a huge `limit` cannot OOM before any row is read;
-    // the vector grows if the result set is larger.
-    std::vector<LogRow> rows;
-    rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
-    const auto id_column = static_cast<int>(fields.size());
-
-    while (stmt.Step() == SQLITE_ROW)
-        rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
-
-    return rows;
 }
 
 void ReaderDatabase::LoadReadDictionary() {

@@ -42,7 +42,7 @@ class HandlersTest : public ::testing::Test {
         db_->Initialize();
 
         backlog_ = std::make_unique<Backlog>(200);
-        notifier_ = std::make_unique<LogNotifier>();
+        notifier_ = std::make_unique<LogNotifier>(cfg_.sse_limit);
 
         db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
         reader_pool_ = std::make_unique<asio::thread_pool>(1u);
@@ -66,15 +66,14 @@ class HandlersTest : public ::testing::Test {
         metrics::MetricsRegistry::Instance().Reset();
     }
 
-    http::request<http::string_body> MakeRequest(http::verb method, std::string target,
-                                                 std::string body = "") {
+    handlers::Request MakeRequest(http::verb method, std::string target, std::string body = "") {
         http::request<http::string_body> req{method, target, 11};
         req.set(http::field::host, "127.0.0.1");
         if (!body.empty()) {
             req.body() = std::move(body);
             req.prepare_payload();
         }
-        return req;
+        return handlers::Request{std::move(req)};
     }
 
     test::TempDirectory directory_;
@@ -133,6 +132,16 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
     ASSERT_FALSE(pool.is_null());
     EXPECT_EQ(pool["value"], "8");
     EXPECT_TRUE(pool["description"].is_string());
+
+    auto sse_limit = find_key("sse_limit");
+    ASSERT_FALSE(sse_limit.is_null());
+    EXPECT_EQ(sse_limit["value"], cfg_.sse_limit);
+    EXPECT_TRUE(sse_limit["description"].is_string());
+
+    auto sse_debounce = find_key("sse_debounce_ms");
+    ASSERT_FALSE(sse_debounce.is_null());
+    EXPECT_EQ(sse_debounce["value"], cfg_.sse_debounce_ms);
+    EXPECT_TRUE(sse_debounce["description"].is_string());
 
     auto compression = find_key("compression_enabled");
     ASSERT_FALSE(compression.is_null());

@@ -6,9 +6,8 @@
 
 namespace loglite::handlers {
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleHealth(const http::request<Body>& req,
-                                                                ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleHealth(const Request& req,
+                                                                       ServerContext& ctx) {
     bool ok_flag = co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor,
                                                            [&](LogReader& r) { return r.Ping(); });
 

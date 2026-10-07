@@ -22,6 +22,23 @@ int normalize_vacuum_mode(std::string_view value) {
 
 }  // namespace
 
+std::vector<std::string> ResolveLogFields(std::span<const ColumnInfo> schema,
+                                          const std::vector<std::string>& fields) {
+    if (fields.size() == 1 && fields.front() == "*") {
+        std::vector<std::string> resolved;
+        resolved.reserve(schema.size());
+        for (const auto& column : schema) resolved.push_back(column.name);
+        return resolved;
+    }
+    for (const auto& field : fields) {
+        if (!std::ranges::any_of(schema,
+                                 [&](const ColumnInfo& column) { return column.name == field; })) {
+            throw std::runtime_error(fmt::format("Unknown field name: '{}'", field));
+        }
+    }
+    return fields;
+}
+
 Statement::Statement(sqlite3* db, std::string_view sql) {
     if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw, nullptr) !=
         SQLITE_OK)
@@ -136,6 +153,19 @@ nlohmann::json Database::column_to_json(sqlite3_stmt* stmt, int col) {
     default:
         return nullptr;
     }
+}
+
+nlohmann::json Database::DecodeRow(sqlite3_stmt* stmt,
+                                   const std::vector<std::string>& fields) const {
+    auto row = nlohmann::json::object();
+    for (int column = 0; column < static_cast<int>(fields.size()); ++column) {
+        const auto& field = fields[column];
+        auto value = column_to_json(stmt, column);
+        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
+            value = catalog_->col_dict->GetValue(field, value.get<int>());
+        row[field] = std::move(value);
+    }
+    return row;
 }
 
 nlohmann::json Database::serialize_value(const nlohmann::json& v) {
@@ -285,6 +315,39 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
     }
 
     return {sql_parts.empty() ? "1=1" : sql_parts, std::move(params)};
+}
+
+std::vector<Database::LogRow> Database::ReadLogs(const std::vector<std::string>& fields,
+                                                 const std::vector<QueryFilter>& filters,
+                                                 LogOrder order, int limit, int offset) const {
+    auto [where, params] = build_where_clause(filters);
+
+    std::string projection;
+    for (const auto& field : fields) {
+        if (!projection.empty()) projection += ',';
+        projection += field;
+    }
+    const auto ordering = order == LogOrder::kIdAscending ? std::string{"id ASC"}
+                          : order == LogOrder::kIdDescending
+                              ? std::string{"id DESC"}
+                              : fmt::format("{} DESC, id DESC", cfg_.log_timestamp_field);
+    Statement stmt{db_, fmt::format("SELECT {}, id FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
+                                    projection, cfg_.log_table_name, where, ordering)};
+    int parameter = 1;
+    for (const auto& value : params) bind_param(stmt, parameter++, value);
+    bind_param(stmt, parameter++, limit);
+    bind_param(stmt, parameter, offset);
+
+    // Cap the reservation so a huge `limit` cannot OOM before any row is read;
+    // the vector grows if the result set is larger.
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(std::clamp(limit, 0, 1024)));
+    const auto id_column = static_cast<int>(fields.size());
+
+    while (stmt.Step() == SQLITE_ROW)
+        rows.push_back({sqlite3_column_int64(stmt, id_column), DecodeRow(stmt, fields)});
+
+    return rows;
 }
 
 }  // namespace loglite

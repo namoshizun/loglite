@@ -25,13 +25,6 @@ namespace loglite {
 
 class ReaderDatabase final : public Database {
    public:
-    enum class LogOrder { kNewestFirst, kIdAscending };
-
-    struct LogRow {
-        int64_t id{};
-        nlohmann::json values;
-    };
-
     ReaderDatabase(const Config& cfg, std::shared_ptr<DatabaseCatalog> catalog);
 
     void Open();
@@ -49,10 +42,6 @@ class ReaderDatabase final : public Database {
     [[nodiscard]] std::vector<std::string> ResolveFields(
         const std::vector<std::string>& fields) const;
     [[nodiscard]] int64_t CountLogs(const std::vector<QueryFilter>& filters) const;
-    // `fields` must be resolved. Negative limits follow SQLite: no limit.
-    [[nodiscard]] std::vector<LogRow> ReadLogs(const std::vector<std::string>& fields,
-                                               const std::vector<QueryFilter>& filters,
-                                               LogOrder order, int limit, int offset) const;
 
     StatsQueryResult QueryActivityStats(std::string_view since, std::string_view until,
                                         const std::vector<std::string>& fields,
@@ -64,7 +53,6 @@ class ReaderDatabase final : public Database {
     bool Ping() const;
 
    private:
-    nlohmann::json DecodeRow(sqlite3_stmt* stmt, const std::vector<std::string>& fields) const;
     void LoadReadDictionary();
 };
 

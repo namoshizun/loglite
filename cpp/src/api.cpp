@@ -72,8 +72,7 @@ void RunServer(const std::filesystem::path& config_path) {
 
     // Init server context
     Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
-    LogNotifier notifier;
-    notifier.Notify(db_write.GetCommittedLogId());
+    LogNotifier notifier{static_cast<size_t>(cfg.sse_limit)};
 
     asio::thread_pool db_write_pool{1u};
     asio::thread_pool db_read_pool{cfg.resolve_pool_size()};

@@ -4,7 +4,7 @@ debug: true
 auto_rollout: true
 log_table_name: Log
 log_timestamp_field: timestamp
-sse_limit: 1000
+sse_limit: 50
 sse_debounce_ms: 500
 vacuum_max_days: 7
 vacuum_max_size: 500MB

@@ -12,6 +12,7 @@
 
 #include <fmt/format.h>
 #include <future>
+#include <latch>
 #include <thread>
 
 namespace asio = boost::asio;
@@ -88,6 +89,76 @@ static std::vector<http::response<http::string_body>> http_req_keep_alive(
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
+// Reads SSE framing without depending on individual TCP read boundaries.
+class SSEClient {
+   public:
+    SSEClient(const Config& cfg, std::string_view target = "/logs/sse") : socket_(io_) {
+        socket_.connect({asio::ip::make_address(cfg.host), cfg.port});
+        http::request<http::empty_body> request{http::verb::get, std::string(target), 11};
+        request.set(http::field::host, cfg.host);
+        request.set("Last-Event-ID", "0");  // reconnections still start at registration
+        http::write(socket_, request);
+        beast::flat_buffer buffer;
+        http::response_parser<http::empty_body> parser;
+        http::read_header(socket_, buffer, parser);
+        EXPECT_EQ(parser.get().result(), http::status::ok);
+        EXPECT_EQ(parser.get()[http::field::content_type], "text/event-stream");
+        EXPECT_EQ(parser.get()[http::field::cache_control], "no-cache");
+        EXPECT_EQ(parser.get()[http::field::access_control_allow_origin], cfg.allow_origin);
+        EXPECT_EQ(parser.get()["X-Accel-Buffering"], "no");
+        EXPECT_TRUE(parser.get().chunked());
+        pending_ = beast::buffers_to_string(buffer.data());
+        socket_.non_blocking(true);
+    }
+
+    bool AwaitEvents(size_t count, std::chrono::milliseconds timeout = std::chrono::seconds{3}) {
+        return test::WaitUntil(
+            [&] {
+                ReadAvailable();
+                return events.size() >= count;
+            },
+            timeout);
+    }
+
+    bool AwaitHeartbeat() {
+        return test::WaitUntil(
+            [&] {
+                ReadAvailable();
+                return pending_.find(":\r\n\r\n") != std::string::npos;
+            },
+            std::chrono::seconds{17});
+    }
+
+    void Disconnect() {
+        socket_.set_option(asio::socket_base::linger{true, 0});
+        socket_.close();
+    }
+
+    std::vector<nlohmann::json> events;
+
+   private:
+    void ReadAvailable() {
+        char bytes[4096];
+        boost::system::error_code error;
+        const auto count = socket_.read_some(asio::buffer(bytes), error);
+        if (error && error != asio::error::would_block && error != asio::error::try_again)
+            throw boost::system::system_error(error);
+        pending_.append(bytes, count);
+        for (;;) {
+            const auto start = pending_.find("data: ");
+            if (start == std::string::npos) break;
+            const auto end = pending_.find("\r\n\r\n", start);
+            if (end == std::string::npos) break;
+            events.push_back(nlohmann::json::parse(pending_.substr(start + 6, end - start - 6)));
+            pending_.erase(0, end + 4);
+        }
+    }
+
+    asio::io_context io_;
+    tcp::socket socket_;
+    std::string pending_;
+};
+
 class ServerTest : public ::testing::Test {
    protected:
     void SetUp() override {
@@ -111,8 +182,7 @@ class ServerTest : public ::testing::Test {
         reader_pool_ = std::make_unique<asio::thread_pool>(2u);
 
         backlog_ = std::make_unique<Backlog>(200);
-        notifier_ = std::make_unique<LogNotifier>();
-        notifier_->Notify(db_->GetCommittedLogId());
+        notifier_ = std::make_unique<LogNotifier>(cfg_.sse_limit);
 
         db_read_ = std::make_unique<LogReaderPool>(*db_, 2u);
 
@@ -147,6 +217,15 @@ class ServerTest : public ::testing::Test {
             << "Server did not become ready";
         ASSERT_NE(server_finished_.wait_for(std::chrono::seconds{0}), std::future_status::ready)
             << "Server exited during startup";
+    }
+
+    int FlushLogs(const std::vector<nlohmann::json>& logs) {
+        for (const auto& row : logs) backlog_->Add(row);
+        return asio::co_spawn(
+                   ctx_->write_strand,
+                   [this]() -> asio::awaitable<int> { co_return ctx_->FlushBacklog(); },
+                   asio::use_future)
+            .get();
     }
 
     void TearDown() override {
@@ -391,87 +470,167 @@ class PartitionedServerTest : public ServerTest {
     }
 };
 
-TEST_F(PartitionedServerTest, SSESendsNewestPageInQueryOrder) {
-    auto insert_and_notify = [&](std::vector<nlohmann::json> logs) {
-        const auto last_id = asio::co_spawn(
-                                 ctx_->write_strand,
-                                 [&]() -> asio::awaitable<int64_t> {
-                                     db_->Insert(logs);
-                                     co_return db_->GetCommittedLogId();
-                                 },
-                                 asio::use_future)
-                                 .get();
-        notifier_->Notify(last_id);
-    };
-    insert_and_notify({{{"timestamp", "2024-01-05T00:00:00Z"},
-                        {"message", "before subscription"},
-                        {"level", "INFO"}}});
+TEST_F(PartitionedServerTest, SSEUsesCommitOrderWindowAndNeverReplaysBeforeSubscription) {
+    ASSERT_EQ(FlushLogs({{{"timestamp", "2023-12-01T00:00:00Z"},
+                          {"message", "before subscription"},
+                          {"level", "INFO"}}}),
+              1);
+    SSEClient client{cfg_, "/logs/sse?fields=message"};
+    EXPECT_FALSE(client.AwaitEvents(1, std::chrono::milliseconds{100}));
 
-    asio::io_context io;
-    tcp::socket socket{io};
-    socket.connect({asio::ip::make_address(cfg_.host), cfg_.port});
-    http::request<http::empty_body> req{http::verb::get, "/logs/sse?fields=message", 11};
-    req.set(http::field::host, cfg_.host);
-    http::write(socket, req);
-    beast::flat_buffer buffer;
-    http::response_parser<http::empty_body> parser;
-    http::read_header(socket, buffer, parser);
-    ASSERT_EQ(parser.get().result(), http::status::ok);
-    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
-    socket.non_blocking(true);
+    ASSERT_EQ(FlushLogs({
+                  {{"timestamp", "2024-01-04T04:00:00Z"}, {"message", "first"}, {"level", "INFO"}},
+                  {{"timestamp", "2024-01-04T01:00:00Z"}, {"message", "late"}, {"level", "INFO"}},
+                  {{"timestamp", "2024-01-04T03:00:00Z"}, {"message", "third"}, {"level", "INFO"}},
+                  {{"timestamp", "2024-01-04T02:00:00Z"}, {"message", "fourth"}, {"level", "INFO"}},
+                  {{"timestamp", "2024-01-04T04:00:01Z"}, {"message", "fifth"}, {"level", "INFO"}},
+              }),
+              5);
+    ASSERT_TRUE(client.AwaitEvents(1));
+    EXPECT_EQ(client.events.front(),
+              nlohmann::json::array({{{"message", "fifth"}}, {{"message", "fourth"}}}));
 
-    std::string pending = beast::buffers_to_string(buffer.data());
-    std::vector<nlohmann::json> events;
-    auto await_events = [&](size_t expected) {
-        return test::WaitUntil(
-            [&] {
-                char bytes[4096];
-                boost::system::error_code ec;
-                const auto count = socket.read_some(asio::buffer(bytes), ec);
-                if (ec != asio::error::would_block && ec != asio::error::try_again && ec) {
-                    throw boost::system::system_error(ec);
-                }
-                pending.append(bytes, count);
-                for (;;) {
-                    const auto start = pending.find("data: ");
-                    if (start == std::string::npos) break;
-                    const auto end = pending.find("\r\n\r\n", start);
-                    if (end == std::string::npos) break;
-                    events.push_back(
-                        nlohmann::json::parse(pending.substr(start + 6, end - start - 6)));
-                    pending.erase(0, end + 4);
-                }
-                return events.size() >= expected;
-            },
-            std::chrono::seconds{3});
-    };
+    ASSERT_EQ(FlushLogs({{{"timestamp", "2023-12-01T00:00:00Z"},
+                          {"message", "older-timestamp"},
+                          {"level", "INFO"}}}),
+              1);
+    ASSERT_TRUE(client.AwaitEvents(2));
+    EXPECT_EQ(client.events.back(), nlohmann::json::array({{{"message", "older-timestamp"}}}));
+    EXPECT_EQ(client.events.size(), 2u);
+}
 
-    insert_and_notify({
-        {{"timestamp", "2024-01-04T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}},
-        {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "late"}, {"level", "INFO"}},
-        {{"timestamp", "2024-01-03T00:00:00Z"}, {"message", "third"}, {"level", "INFO"}},
-        {{"timestamp", "2024-01-02T00:00:00Z"}, {"message", "fourth"}, {"level", "INFO"}},
-        {{"timestamp", "2024-01-04T00:00:01Z"}, {"message", "fifth"}, {"level", "INFO"}},
-    });
-    // Same order as GET /logs. sse_limit keeps the newest page and the cursor
-    // advances to the high watermark, so the older rows of this burst are not replayed.
-    ASSERT_TRUE(await_events(1));
-    EXPECT_EQ(events, (std::vector<nlohmann::json>{
-                          nlohmann::json::array({{{"message", "fifth"}}, {{"message", "first"}}}),
-                      }));
+TEST_F(ServerTest, SSERejectsInvalidProjectionBeforeSendingEventStreamHeaders) {
+    for (const auto* fields :
+         {"", "unknown", "message,", ",message", "message,,level", "%20message"}) {
+        SCOPED_TRACE(fields);
+        const auto response = http_req(cfg_.host, cfg_.port, http::verb::get,
+                                       fmt::format("/logs/sse?fields={}", fields));
+        EXPECT_EQ(response.result(), http::status::bad_request);
+        EXPECT_EQ(response[http::field::content_type], "application/json");
+        EXPECT_TRUE(nlohmann::json::parse(response.body()).contains("error"));
+    }
+    EXPECT_EQ(notifier_->SubscriberCount(), 0u);
+    EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
+}
 
-    insert_and_notify({
-        {{"timestamp", "2023-12-01T00:00:00Z"}, {"message", "sixth"}, {"level", "INFO"}},
-        {{"timestamp", "2023-12-02T00:00:00Z"}, {"message", "seventh"}, {"level", "INFO"}},
-    });
-    ASSERT_TRUE(await_events(2));
-    EXPECT_EQ(events.back(),
-              nlohmann::json::array({{{"message", "seventh"}}, {{"message", "sixth"}}}));
+TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutReaderWorkers) {
+    SSEClient all{cfg_};
+    SSEClient star{cfg_, "/logs/sse?fields=*"};
+    SSEClient projected{cfg_, "/logs/sse?fields=message,service"};
+    ASSERT_EQ(notifier_->SubscriberCount(), 3u);
 
-    insert_and_notify(
-        {{{"timestamp", "2023-11-01T00:00:00Z"}, {"message", "later arrival"}, {"level", "INFO"}}});
-    ASSERT_TRUE(await_events(3));
-    EXPECT_EQ(events.back(), nlohmann::json::array({{{"message", "later arrival"}}}));
+    // Occupy every reader worker and every connection. An SSE database query
+    // would remain queued or block on a lease until the gate is released.
+    std::latch entered{2};
+    std::latch finished{2};
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    struct ReleaseGuard {
+        std::promise<void>& release;
+        std::latch& finished;
+        ~ReleaseGuard() {
+            release.set_value();
+            EXPECT_TRUE(test::WaitUntil([&] { return finished.try_wait(); }));
+        }
+    } release_on_exit{release, finished};
+    for (int i = 0; i < 2; ++i) {
+        asio::post(reader_pool_->get_executor(), [&, gate] {
+            db_read_->UseConnection([&](LogReader&) {
+                entered.count_down();
+                gate.wait();
+            });
+            finished.count_down();
+        });
+    }
+    ASSERT_TRUE(test::WaitUntil([&] { return entered.try_wait(); }));
+
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_TRUE(all.AwaitEvents(1));
+    ASSERT_TRUE(star.AwaitEvents(1));
+    ASSERT_TRUE(projected.AwaitEvents(1));
+    const auto persisted = nlohmann::json::array({{{"id", 1},
+                                                   {"timestamp", "2024-01-01T00:00:00Z"},
+                                                   {"message", "first"},
+                                                   {"level", "INFO"},
+                                                   {"service", nullptr}}});
+    EXPECT_EQ(all.events.front(), persisted);
+    EXPECT_EQ(star.events.front(), persisted);
+    EXPECT_EQ(projected.events.front(),
+              nlohmann::json::array({{{"message", "first"}, {"service", nullptr}}}));
+
+    all.Disconnect();
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_TRUE(star.AwaitEvents(2));
+    ASSERT_TRUE(projected.AwaitEvents(2));
+    EXPECT_EQ(projected.events.back(),
+              nlohmann::json::array({{{"message", "second"}, {"service", nullptr}}}));
+
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_TRUE(star.AwaitEvents(3));
+    ASSERT_TRUE(projected.AwaitEvents(3));
+    EXPECT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 2; }));
+}
+
+TEST_F(ServerTest, SSEDebounceCoalescesRapidCommitsBetweenSuccessfulPushes) {
+    cfg_.sse_debounce_ms = 1000;
+    SSEClient client{cfg_, "/logs/sse?fields=message"};
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_TRUE(client.AwaitEvents(1));
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "INFO"}}}),
+        1);
+
+    // A conservative fraction of the configured one-second interval avoids
+    // depending on small scheduler or socket timing differences in CI.
+    EXPECT_FALSE(client.AwaitEvents(2, std::chrono::milliseconds{100}));
+    ASSERT_TRUE(client.AwaitEvents(2));
+    EXPECT_EQ(client.events.back(),
+              nlohmann::json::array({{{"message", "third"}}, {{"message", "second"}}}));
+    EXPECT_EQ(client.events.size(), 2u);
+}
+
+TEST_F(ServerTest, SSEHeartbeatDetectsIdleClientDisconnectAndUnsubscribes) {
+    SSEClient client{cfg_};
+    ASSERT_TRUE(client.AwaitHeartbeat());
+    EXPECT_TRUE(client.events.empty());
+    client.Disconnect();
+    // Force a write so disconnect cleanup need not wait for another heartbeat.
+    for (const auto* timestamp : {"2024-01-01T00:00:00Z", "2024-01-01T00:00:01Z"}) {
+        ASSERT_EQ(
+            FlushLogs({{{"timestamp", timestamp}, {"message", "disconnect"}, {"level", "INFO"}}}),
+            1);
+    }
+    EXPECT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 0; }));
+    EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
+}
+
+TEST_F(ServerTest, SSEHeartbeatIsNotDelayedByLongDebounceAfterData) {
+    cfg_.sse_debounce_ms = 60000;
+    SSEClient client{cfg_};
+    ASSERT_EQ(
+        FlushLogs(
+            {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),
+        1);
+    ASSERT_TRUE(client.AwaitEvents(1));
+    ASSERT_TRUE(client.AwaitHeartbeat());
+    EXPECT_EQ(client.events.size(), 1u);
 }
 
 // ── Handle connection error ─────────────────────────────────────────────────

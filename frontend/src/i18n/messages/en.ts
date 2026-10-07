@@ -118,6 +118,9 @@ export const en = {
   'settingsDesc.log_table_name': 'SQLite table name used to store log records.',
   'settingsDesc.log_timestamp_field':
     'Column used for time-based retention and vacuum (ISO-8601 timestamps).',
+  'settingsDesc.sse_limit':
+    'Shared live window capacity and maximum logs per SSE event (default 50).',
+  'settingsDesc.sse_debounce_ms': 'Minimum milliseconds between SSE data writes (default 500).',
   'settingsDesc.sqlite_params': 'SQLite PRAGMA key/value pairs applied when opening the database.',
   'settingsDesc.auto_rollout':
     'Whether pending migrations are applied automatically on server startup.',

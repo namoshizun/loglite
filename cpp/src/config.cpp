@@ -226,6 +226,14 @@ void Config::validate() const {
         throw std::runtime_error("'task_backlog_max_size' must be at least 1");
     }
 
+    if (sse_limit < 1) {
+        throw std::runtime_error("'sse_limit' must be at least 1");
+    }
+
+    if (sse_debounce_ms < 1) {
+        throw std::runtime_error("'sse_debounce_ms' must be at least 1");
+    }
+
     (void)resolve_pool_size();
 }
 

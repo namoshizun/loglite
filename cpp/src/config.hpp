@@ -35,7 +35,7 @@ struct Config {
     std::string log_timestamp_field{"timestamp"};
 
     // ── SSE ───────────────────────────────────────────────────────────────────
-    int sse_limit{1000};
+    int sse_limit{50};  // Shared live window capacity and maximum rows per event.
     int sse_debounce_ms{500};
 
     // ── Vacuum ────────────────────────────────────────────────────────────────

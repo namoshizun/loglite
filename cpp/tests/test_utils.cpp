@@ -127,3 +127,27 @@ TEST(UtilsTest, QueryStringPreservesRepeatedKeysAndDecodesValues) {
     EXPECT_FALSE(params.contains("bareword"));
     EXPECT_TRUE(ParseQueryString("").empty());
 }
+
+// ── Request ────────────────────────────────────────────────────────────────────
+
+TEST(RequestTest, ParsesTargetOnceAndExposesTypedParams) {
+    http::request<http::string_body> raw{http::verb::get,
+                                         "/logs?fields=%20a%2C%20b,c&limit=10&offset=x&empty=", 11};
+    const Request req{std::move(raw)};
+
+    EXPECT_EQ(req.path(), "/logs");
+    EXPECT_EQ(req.method(), http::verb::get);
+    EXPECT_TRUE(req.HasParam("limit"));
+    EXPECT_FALSE(req.HasParam("missing"));
+    EXPECT_EQ(req.Param("limit"), "10");
+    EXPECT_EQ(req.Param("missing"), std::nullopt);
+    EXPECT_EQ(req.IntParam("limit"), 10);
+    EXPECT_EQ(req.IntParam("offset"), std::nullopt);
+    EXPECT_EQ(req.IntParam("missing"), std::nullopt);
+    EXPECT_EQ(req.ListParam("fields"), (std::vector<std::string>{" a", " b", "c"}));
+    EXPECT_EQ(req.ListParam("fields", /*strip_items=*/true),
+              (std::vector<std::string>{"a", "b", "c"}));
+    EXPECT_EQ(req.ListParam("empty"), (std::vector<std::string>{""}));
+    EXPECT_EQ(req.ListParam("empty", /*strip_items=*/true), (std::vector<std::string>{""}));
+    EXPECT_EQ(req.ListParam("missing"), std::nullopt);
+}

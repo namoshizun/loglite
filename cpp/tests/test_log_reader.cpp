@@ -57,22 +57,15 @@ TEST(LogReaderTest, SingleFileWatermarkTracksRowIdsReusedAfterDeletion) {
         store.Insert({Log("2024-01-01T00:00:00Z", "first"), Log("2024-01-02T00:00:00Z", "second"),
                       Log("2024-01-03T00:00:00Z", "third")}),
         3);
-    LogNotifier notifier;
-    notifier.Notify(store.GetCommittedLogId());
     const nlohmann::json invalid{{"timestamp", "2024-01-04T00:00:00Z"}};
     test::ExecuteFile(config.db_path, "DELETE FROM TestLog WHERE id >= 2");
     ASSERT_EQ(store.Insert({Log("2024-01-04T00:00:00Z", "reused two"), invalid}), 1);
     EXPECT_EQ(store.GetCommittedLogId(), 2);
-    notifier.Notify(store.GetCommittedLogId());
-    // New SSE subscribers take their starting cursor from this value.
-    EXPECT_EQ(notifier.GetLastId(), 2);
     test::ExecuteFile(config.db_path, "DELETE FROM TestLog");
     ASSERT_EQ(store.Insert({invalid}), 0);
     EXPECT_EQ(store.GetCommittedLogId(), 2);  // nothing new was committed
     ASSERT_EQ(store.Insert({invalid, Log("2024-01-05T00:00:00Z", "reused one")}), 1);
     EXPECT_EQ(store.GetCommittedLogId(), 1);
-    notifier.Notify(store.GetCommittedLogId());
-    EXPECT_EQ(notifier.GetLastId(), 1);
 }
 
 TEST(LogReaderTest, AsyncViewsKeepMoveOnlyCallbacksAndReleaseConnectionsAfterFailure) {

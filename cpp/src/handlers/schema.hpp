@@ -58,9 +58,8 @@ inline nlohmann::json BuildSchemaPayload(const ServerContext& ctx) {
     return {{"table", cfg.log_table_name}, {"columns", std::move(out_columns)}};
 }
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleSchema(const http::request<Body>& req,
-                                                                ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleSchema(const Request& req,
+                                                                       ServerContext& ctx) {
     co_return MakeOKResp(BuildSchemaPayload(ctx), req, ctx.config.allow_origin);
 }
 

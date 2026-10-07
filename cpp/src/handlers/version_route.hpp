@@ -11,9 +11,8 @@ namespace asio = boost::asio;
 
 namespace loglite::handlers {
 
-template <class Body>
-asio::awaitable<http::response<http::string_body>> HandleVersion(const http::request<Body>& req,
-                                                                 ServerContext& ctx) {
+inline asio::awaitable<http::response<http::string_body>> HandleVersion(const Request& req,
+                                                                        ServerContext& ctx) {
     co_return MakeOKResp({{"version", std::string{kVersion}}}, req, ctx.config.allow_origin);
 }
 

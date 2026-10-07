@@ -83,7 +83,7 @@ TEST_F(ConfigTest, LoadsYamlDefaultsAndDerivedPaths) {
     EXPECT_EQ(cfg.migrations[0].version, 1);
     EXPECT_EQ(cfg.migrations[0].rollout.size(), 1u);
     EXPECT_EQ(cfg.migrations[0].rollback.size(), 1u);
-    EXPECT_EQ(cfg.sse_limit, 1000);
+    EXPECT_EQ(cfg.sse_limit, 50);
     EXPECT_EQ(cfg.sse_debounce_ms, 500);
     EXPECT_EQ(cfg.vacuum_max_days, 3650);
     EXPECT_FALSE(cfg.debug);
@@ -195,6 +195,10 @@ TEST_F(ConfigTest, DirectValidationChecksConfigurationInvariants) {
     const Case cases[]{
         {"empty migrations", [](Config& c) { c.migrations.clear(); }},
         {"zero backlog", [](Config& c) { c.task_backlog_max_size = 0; }},
+        {"zero SSE limit", [](Config& c) { c.sse_limit = 0; }},
+        {"negative SSE limit", [](Config& c) { c.sse_limit = -1; }},
+        {"zero SSE debounce", [](Config& c) { c.sse_debounce_ms = 0; }},
+        {"negative SSE debounce", [](Config& c) { c.sse_debounce_ms = -1; }},
         {"short diagnostics interval", [](Config& c) { c.task_diagnostics_interval = 29; }},
         {"missing harvester type", [](Config& c) { c.harvesters.push_back({"", "app", {}}); }},
         {"missing harvester name",
@@ -206,6 +210,31 @@ TEST_F(ConfigTest, DirectValidationChecksConfigurationInvariants) {
         auto cfg = valid;
         c.invalidate(cfg);
         EXPECT_THROW(cfg.validate(), std::runtime_error);
+    }
+}
+
+TEST_F(ConfigTest, SseSettingsRequirePositiveValuesAndKeepExplicitLimits) {
+    for (const auto* key : {"sse_limit", "sse_debounce_ms"}) {
+        SCOPED_TRACE(key);
+        for (const int value : {0, -1}) {
+            EXPECT_THROW(Load(fmt::format("{}: {}\n", key, value)), std::runtime_error);
+        }
+        EXPECT_NO_THROW(Load(fmt::format("{}: 1\n", key)));
+    }
+    EXPECT_EQ(Load("sse_limit: 10000\n").sse_limit, 10000);
+
+    const ScopedEnvironment override{{"LOGLITE_SSE_LIMIT", "75"},
+                                     {"LOGLITE_SSE_DEBOUNCE_MS", "25"}};
+    const auto cfg = Load("sse_limit: 80\nsse_debounce_ms: 30\n");
+    EXPECT_EQ(cfg.sse_limit, 75);
+    EXPECT_EQ(cfg.sse_debounce_ms, 25);
+}
+
+TEST_F(ConfigTest, SseEnvironmentOverridesAreValidated) {
+    for (const auto* key : {"LOGLITE_SSE_LIMIT", "LOGLITE_SSE_DEBOUNCE_MS"}) {
+        SCOPED_TRACE(key);
+        const ScopedEnvironment override{{key, "0"}};
+        EXPECT_THROW(Load(), std::runtime_error);
     }
 }
 

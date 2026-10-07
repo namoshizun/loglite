@@ -22,9 +22,8 @@ namespace asio = boost::asio;
 
 namespace loglite::handlers {
 
-using StringRequest = http::request<http::string_body>;
 using StringResponse = http::response<http::string_body>;
-using RouteHandler = asio::awaitable<StringResponse> (*)(const StringRequest&, ServerContext&);
+using RouteHandler = asio::awaitable<StringResponse> (*)(const Request&, ServerContext&);
 
 struct RouteEntry {
     std::string_view path;
@@ -33,21 +32,19 @@ struct RouteEntry {
 };
 
 constexpr std::array kRoutes{
-    RouteEntry{"/logs", http::verb::post, &HandleInsert<http::string_body>},
-    RouteEntry{"/logs", http::verb::get, &HandleQuery<http::string_body>},
-    RouteEntry{"/health", http::verb::get, &HandleHealth<http::string_body>},
-    RouteEntry{"/version", http::verb::get, &HandleVersion<http::string_body>},
-    RouteEntry{"/stats", http::verb::get, &HandleStats<http::string_body>},
-    RouteEntry{"/settings", http::verb::get, &HandleSettings<http::string_body>},
-    RouteEntry{"/schema", http::verb::get, &HandleSchema<http::string_body>},
+    RouteEntry{"/logs", http::verb::post, &HandleInsert},
+    RouteEntry{"/logs", http::verb::get, &HandleQuery},
+    RouteEntry{"/health", http::verb::get, &HandleHealth},
+    RouteEntry{"/version", http::verb::get, &HandleVersion},
+    RouteEntry{"/stats", http::verb::get, &HandleStats},
+    RouteEntry{"/settings", http::verb::get, &HandleSettings},
+    RouteEntry{"/schema", http::verb::get, &HandleSchema},
 };
 
-inline asio::awaitable<std::optional<StringResponse>> Dispatch(std::string_view path,
-                                                               http::verb method,
-                                                               const StringRequest& req,
+inline asio::awaitable<std::optional<StringResponse>> Dispatch(const Request& req,
                                                                ServerContext& ctx) {
     for (const auto& route : kRoutes) {
-        if (path == route.path && method == route.method) {
+        if (req.path() == route.path && req.method() == route.method) {
             co_return co_await route.handler(req, ctx);
         }
     }

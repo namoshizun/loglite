@@ -20,6 +20,7 @@ namespace loglite {
 class LogStore {
    public:
     using Acknowledge = std::function<void(size_t)>;
+    using OnCommitted = std::function<void(const WriterDatabase&, int inserted)>;
 
     explicit LogStore(const Config& cfg) : cfg_(cfg), scheme_(cfg), control_(cfg) {}
 
@@ -29,7 +30,8 @@ class LogStore {
 
     // Normalizes, routes and reorders `logs` in place so each file commits once.
     // After each file commits, `acknowledge` receives the committed prefix of `logs`.
-    int Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge = {});
+    int Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge = {},
+               const OnCommitted& on_committed = {});
     int Insert(std::vector<nlohmann::json>&& logs) { return Insert(logs); }
     void Maintain();
 

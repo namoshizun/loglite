@@ -215,7 +215,8 @@ WriterDatabase& LogStore::Writer(const Partition& partition) {
     return *writer_;
 }
 
-int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge) {
+int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge,
+                     const OnCommitted& on_committed) {
     const auto ingestion = std::chrono::system_clock::now();
 
     // Route and sort indices before moving entries: a failure must leave the
@@ -243,13 +244,16 @@ int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& ackno
             scheme_.partitioned() ? control_.ReserveLogIds(static_cast<int64_t>(group.size())) : 0;
         const int count = file.InsertRows(group, first_id);
 
+        // Once committed, this prefix must never return to the backlog, even if
+        // publishing or updating the in-memory registry subsequently throws.
+        if (acknowledge) acknowledge(end);
         registry_.Update(partition.path, file.GetCommittedLogId(), count);
         // Reserved IDs exceed every committed ID. Without reservations SQLite reuses
         // IDs after the newest rows are deleted, and the watermark must follow.
         if (count > 0) committed_id_.store(file.GetCommittedLogId(), std::memory_order_release);
 
         inserted += count;
-        if (acknowledge) acknowledge(end);
+        if (on_committed && count > 0) on_committed(file, count);
         begin = end;
     }
 

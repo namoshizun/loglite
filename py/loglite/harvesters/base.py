@@ -56,6 +56,8 @@ class Harvester(ABC, Generic[T]):
     async def start(self):
         if self._running:
             return
+        capture = getattr(_core, "capture_submission", None)
+        self._submission = capture() if capture else None
         self._running = True
         self._task = asyncio.create_task(self.run())
 
@@ -73,4 +75,9 @@ class Harvester(ABC, Generic[T]):
         self._task = None
 
     def ingest(self, log: dict[str, Any]):
-        _core.push_to_backlog(log)
+        submission = getattr(self, "_submission", None)
+        bound = getattr(submission, "bound", None)
+        if submission is not None and callable(bound) and bound():
+            submission.push(log)
+        else:
+            _core.push_to_backlog(log)

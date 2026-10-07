@@ -50,7 +50,7 @@ TEST_F(DatabaseTest, InsertRoundTripsValidRowsAndSkipsMissingRequiredFields) {
     EXPECT_EQ(result.results, (std::vector<nlohmann::json>{second, first}));
 }
 
-TEST_F(DatabaseTest, FailedInsertRollsBackEntireBatchAndRestoresBacklog) {
+TEST_F(DatabaseTest, ConstraintFailureRejectsTheRowAndKeepsValidPeers) {
     db_->ApplyMigration(0, {"ALTER TABLE TestLog DROP COLUMN service",
                             "ALTER TABLE TestLog ADD COLUMN service INTEGER"});
     cfg_.compression = {true, {"service"}};
@@ -59,24 +59,24 @@ TEST_F(DatabaseTest, FailedInsertRollsBackEntireBatchAndRestoresBacklog) {
         2, {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog WHEN NEW.message = 'reject' "
             "BEGIN SELECT RAISE(ABORT, 'injected write failure'); END"});
 
-    Backlog backlog{10};
-    for (const auto* message : {"accepted", "reject"}) {
-        backlog.Add({{"timestamp", "2024-01-01T00:00:00Z"},
-                     {"message", message},
-                     {"level", "INFO"},
-                     {"service", "new-service"}});
-    }
-    auto persist = [&](const auto& entries) { return db_->Insert(entries); };
-    EXPECT_THROW(backlog.Flush(persist), std::runtime_error);
-    EXPECT_EQ(backlog.Size(), 2u);
-    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
-    EXPECT_TRUE(db_->GetColumnDictRows().empty());
+    EXPECT_EQ(db_->Insert({{{"timestamp", "2024-01-01T00:00:00Z"},
+                            {"message", "accepted"},
+                            {"level", "INFO"},
+                            {"service", "new-service"}},
+                           {{"timestamp", "2024-01-01T00:00:00Z"},
+                            {"message", "reject"},
+                            {"level", "INFO"},
+                            {"service", "new-service"}}}),
+              1);
+    EXPECT_EQ(db_->EstimateLogRowCount(), 1);
+    EXPECT_EQ(db_->GetColumnDictRows().size(), 1u);
 
     db_->RollbackMigration(2, {"DROP TRIGGER reject_log"});
-    EXPECT_EQ(backlog.Flush(persist), 2);
-    EXPECT_EQ(backlog.Size(), 0u);
-    EXPECT_EQ(db_->GetColumnDictRows().size(), 1u);
-    // Reopening must decode from the persisted dictionary, not stale cache entries.
+    EXPECT_EQ(db_->Insert({{{"timestamp", "2024-01-01T00:00:01Z"},
+                            {"message", "later"},
+                            {"level", "INFO"},
+                            {"service", "new-service"}}}),
+              1);
     reader_.reset();
     db_->Initialize();
     reader_ = std::make_unique<ReaderDatabase>(cfg_, db_->catalog());
@@ -90,15 +90,12 @@ TEST_F(DatabaseTest, FailedCommitRestoresBacklogAndCanBeRetried) {
     auto peer = OpenPeer();
     Statement{peer.get(), "BEGIN"}.Step();
     Statement{peer.get(), "SELECT * FROM TestLog"}.Step();
-    Backlog backlog{10};
-    backlog.Add({{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "retry"}, {"level", "INFO"}});
-    auto persist = [&](const auto& entries) { return db_->Insert(entries); };
-
-    EXPECT_THROW(backlog.Flush(persist), std::runtime_error);
-    EXPECT_EQ(backlog.Size(), 1u);
+    const nlohmann::json entry{
+        {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "retry"}, {"level", "INFO"}};
+    EXPECT_THROW(db_->Insert({entry}), std::runtime_error);
     EXPECT_EQ(db_->EstimateLogRowCount(), 0);
     Statement{peer.get(), "COMMIT"}.Step();
-    EXPECT_EQ(backlog.Flush(persist), 1);
+    EXPECT_EQ(db_->Insert({entry}), 1);
     EXPECT_EQ(reader_->Query({"*"}, {}, 10, 0).results.size(), 1u);
 }
 

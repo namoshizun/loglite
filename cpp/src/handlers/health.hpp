@@ -2,18 +2,17 @@
 #define LOGLITE_HANDLERS_HEALTH_HPP_
 
 #include "common.hpp"
-#include "../context.hpp"
+#include "../access.hpp"
 
 namespace loglite::handlers {
 
 inline asio::awaitable<http::response<http::string_body>> HandleHealth(const Request& req,
-                                                                       ServerContext& ctx) {
-    bool ok_flag = co_await ctx.db_read.AsyncUseConnection(ctx.reader_executor,
-                                                           [&](LogReader& r) { return r.Ping(); });
+                                                                       HttpAccess http) {
+    bool ok_flag = co_await http.queries.Ping();
     if (ok_flag) {
-        co_return MakeOKResp({{"status", "ok"}}, req, ctx.config.allow_origin);
+        co_return MakeOKResp({{"status", "ok"}}, req, http.config.allow_origin);
     } else {
-        co_return MakeNotAvailableResp({{"status", "error"}}, req, ctx.config.allow_origin);
+        co_return MakeNotAvailableResp({{"status", "error"}}, req, http.config.allow_origin);
     }
 }
 

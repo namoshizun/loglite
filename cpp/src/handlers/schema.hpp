@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_SCHEMA_HPP_
 
 #include "common.hpp"
-#include "../context.hpp"
+#include "../access.hpp"
 
 #include <boost/asio.hpp>
 #include <algorithm>
@@ -37,29 +37,25 @@ inline std::string NormalizeColumnKind(std::string_view sqlite_type, bool compre
     return "text";
 }
 
-inline nlohmann::json BuildSchemaPayload(const ServerContext& ctx) {
-    const auto& cfg = ctx.config;
-    const auto& columns = ctx.db_write.GetColumnInfo();
-    const auto& compressed = ctx.db_write.catalog()->compressed_columns;
-
+inline nlohmann::json BuildSchemaPayload(const Config& cfg, const LogSchema& schema) {
     nlohmann::json out_columns = nlohmann::json::array();
 
-    for (const auto& ci : columns) {
-        const bool is_compressed = cfg.compression.enabled && compressed.contains(ci.name);
-        out_columns.push_back({{"name", ci.name},
-                               {"kind", NormalizeColumnKind(ci.type, is_compressed)},
-                               {"sqlite_type", ci.type},
-                               {"compressed", is_compressed},
-                               {"not_null", ci.not_null},
-                               {"primary_key", ci.is_pk}});
+    for (const auto& field : schema.fields()) {
+        out_columns.push_back({{"name", field.name},
+                               {"kind", NormalizeColumnKind(field.affinity, field.compressed)},
+                               {"sqlite_type", field.affinity},
+                               {"compressed", field.compressed},
+                               {"not_null", field.not_null},
+                               {"primary_key", field.primary_key}});
     }
 
     return {{"table", cfg.log_table_name}, {"columns", std::move(out_columns)}};
 }
 
 inline asio::awaitable<http::response<http::string_body>> HandleSchema(const Request& req,
-                                                                       ServerContext& ctx) {
-    co_return MakeOKResp(BuildSchemaPayload(ctx), req, ctx.config.allow_origin);
+                                                                       HttpAccess http) {
+    co_return MakeOKResp(BuildSchemaPayload(http.config, http.schema), req,
+                         http.config.allow_origin);
 }
 
 }  // namespace loglite::handlers

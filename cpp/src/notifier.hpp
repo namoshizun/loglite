@@ -22,6 +22,7 @@ class LogNotifier {
     using Record = std::shared_ptr<const nlohmann::json>;
 
     explicit LogNotifier(size_t capacity) : capacity_(capacity) {}
+    virtual ~LogNotifier() = default;
 
     // Returns the cursor at registration: only later publications are delivered.
     [[nodiscard]] uint64_t Subscribe(std::shared_ptr<asio::steady_timer> timer) {
@@ -35,7 +36,7 @@ class LogNotifier {
         std::erase(timers_, timer);
     }
 
-    void Publish(std::vector<nlohmann::json> rows) {
+    virtual void Publish(std::vector<nlohmann::json> rows) {
         if (rows.empty()) return;
         std::lock_guard lock(mtx_);
 

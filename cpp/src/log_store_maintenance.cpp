@@ -7,7 +7,6 @@
 #include <chrono>
 #include <climits>
 #include <limits>
-#include <set>
 
 namespace loglite {
 
@@ -60,7 +59,8 @@ void LogStore::Maintain() {
         auto& file = files.emplace_back(Candidate{std::move(entry)});
         UseFile(file.entry.partition.path, [&](WriterDatabase& db) {
             if (incremental) reclaiming |= ReclaimPages(db, vacuum_budget);
-            file.bytes = db.GetSizeBytes();
+            const auto footprint = db.Footprint();
+            file.bytes = footprint.allocated_bytes + footprint.wal_bytes;
         });
     }
     if (reclaiming) return;
@@ -77,20 +77,21 @@ void LogStore::Maintain() {
                                 ? std::max<int64_t>(1, pass_bytes / average_bytes)
                                 : std::numeric_limits<int64_t>::max();
 
-    std::set<std::filesystem::path> trimmed;
     // Applies `remove` to one file and keeps the registry and budget in step.
     const auto trim = [&](Candidate& file, auto&& remove) {
         int64_t removed = 0;
         UseFile(file.entry.partition.path, [&](WriterDatabase& db) {
             removed = remove(db);
-            if (removed > 0) file.bytes = db.GetSizeBytes();
+            if (removed > 0) {
+                const auto footprint = db.Footprint();
+                file.bytes = footprint.allocated_bytes + footprint.wal_bytes;
+            }
         });
 
         if (removed == 0) return removed;
         file.entry.rows -= removed;
         delete_budget -= removed;
         registry_.Update(file.entry.partition.path, 0, -removed);
-        trimmed.insert(file.entry.partition.path);
         return removed;
     };
 
@@ -157,18 +158,22 @@ void LogStore::Maintain() {
             unlinked.push_back(file.entry.partition.path);
 
     RemoveFiles(unlinked);
+}
 
-    if (vacuum_mode == 1) {
-        for (const auto& path : trimmed) {
-            if (std::ranges::find(unlinked, path) != unlinked.end()) continue;
-            UseFile(path, [&](WriterDatabase& db) {
-                Timer timer;
-                db.Vacuum();
-                db.WALCheckpoint("FULL");
-                log::INFO("[vacuum] full vacuum of {} completed in {:.1f}s",
-                          path.filename().string(), timer.elapsed_s());
-            });
-        }
+void LogStore::Compact() {
+    writer_.reset();
+    std::vector<std::filesystem::path> paths{cfg_.db_path};
+    for (const auto& entry : registry_.Snapshot())
+        if (entry.partition.path != cfg_.db_path) paths.push_back(entry.partition.path);
+
+    for (const auto& path : paths) {
+        UseFile(path, [&](WriterDatabase& db) {
+            Timer timer;
+            db.Vacuum();
+            db.WALCheckpoint("FULL");
+            log::INFO("[vacuum] full vacuum of {} completed in {:.1f}s", path.filename().string(),
+                      timer.elapsed_s());
+        });
     }
 }
 

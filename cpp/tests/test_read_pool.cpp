@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "test_support.hpp"
-#include "reader_database.hpp"
+#include "reader_pool.hpp"
 #include "writer_database.hpp"
 #include "types.hpp"
 

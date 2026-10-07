@@ -5,10 +5,12 @@
 #include "types.hpp"
 #include "column_dict.hpp"
 
+#include <filesystem>
 #include <memory>
 #include <sqlite3.h>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -35,6 +37,28 @@ struct DatabaseCatalog {
     std::vector<ColumnInfo> activity_stats_column_info;
     std::vector<ColumnInfo> db_stats_column_info;
     std::shared_ptr<ColumnDictionary> col_dict;
+};
+
+class SqliteError : public std::runtime_error {
+   public:
+    SqliteError(int code, std::string message)
+        : std::runtime_error(std::move(message)), code_(code) {}
+
+    [[nodiscard]] int code() const noexcept { return code_; }
+    [[nodiscard]] int primary() const noexcept { return code_ & 0xff; }
+
+   private:
+    int code_;
+};
+
+// Physical file usage. `occupied_bytes` excludes free pages; `allocated_bytes`
+// is the main file; WAL and shared-memory files are counted separately.
+struct StorageFootprint {
+    int64_t occupied_bytes{};
+    int64_t allocated_bytes{};
+    int64_t wal_bytes{};
+    int64_t shm_bytes{};
+    int64_t total_bytes{};
 };
 
 struct Statement {
@@ -72,6 +96,7 @@ class Database {
     [[nodiscard]] int64_t EstimateAvgRowBytes() const;
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return catalog_; }
     [[nodiscard]] int64_t GetSizeBytes() const;
+    [[nodiscard]] StorageFootprint Footprint() const;
     [[nodiscard]] double GetSizeMB() const;
     [[nodiscard]] std::string GetPragma(std::string_view name) const;
     [[nodiscard]] int64_t GetMaxLogId() const;
@@ -125,10 +150,15 @@ class Database {
     [[nodiscard]] static nlohmann::json serialize_value(const nlohmann::json& v);
     [[nodiscard]] static std::vector<std::string> pluck_column_names(
         const std::vector<ColumnInfo>& infos);
+    [[nodiscard]] const ColumnDictionary* dictionary() const;
+    void note_path(const std::filesystem::path& path) { path_ = path; }
 
     const Config& cfg_;
     sqlite3* db_{};
+    std::filesystem::path path_;
     std::shared_ptr<DatabaseCatalog> catalog_;
+    // Reader-local dictionary from the same snapshot as the rows being decoded.
+    mutable std::shared_ptr<ColumnDictionary> snapshot_dict_;
 };
 
 }  // namespace loglite

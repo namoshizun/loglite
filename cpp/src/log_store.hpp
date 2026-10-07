@@ -1,12 +1,13 @@
 #ifndef LOGLITE_LOG_STORE_HPP_
 #define LOGLITE_LOG_STORE_HPP_
 
+#include "append.hpp"
 #include "partition.hpp"
+#include "schema.hpp"
 #include "writer_database.hpp"
 
 #include <atomic>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <vector>
@@ -19,21 +20,20 @@ namespace loglite {
 // Writes run on the server's write strand. The store outlives its reader pool.
 class LogStore {
    public:
-    using Acknowledge = std::function<void(size_t)>;
-    using OnCommitted = std::function<void(const WriterDatabase&, int inserted)>;
-
     explicit LogStore(const Config& cfg) : cfg_(cfg), scheme_(cfg), control_(cfg) {}
 
     void Open();
     void Initialize();
     void Close();
 
-    // Normalizes, routes and reorders `logs` in place so each file commits once.
-    // After each file commits, `acknowledge` receives the committed prefix of `logs`.
-    int Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge = {},
-               const OnCommitted& on_committed = {});
-    int Insert(std::vector<nlohmann::json>&& logs) { return Insert(logs); }
+    // Prepares `logs` and appends the admitted rows. Returns how many committed.
+    int Insert(std::vector<nlohmann::json> logs);
+    // `entries` are already prepared. Indices in the result are positions in
+    // `entries`. Partition routing consumes each entry's resolved instant.
+    AppendResult Append(const std::vector<PreparedEntry>& entries);
     void Maintain();
+    // Full rebuild of trimmed files. Not part of the periodic retention pass.
+    void Compact();
 
     bool Rollout(int start_version = -1);
     bool Rollback(int version, bool force = false);
@@ -43,9 +43,12 @@ class LogStore {
     }
     [[nodiscard]] int64_t EstimateLogRowCount() const;
     [[nodiscard]] int64_t GetSizeBytes();
+    [[nodiscard]] StorageFootprint Footprint();
     [[nodiscard]] const std::vector<ColumnInfo>& GetColumnInfo() const {
         return control_.GetColumnInfo();
     }
+    [[nodiscard]] const LogSchema& schema() const noexcept { return schema_; }
+    void RefreshSchema();
     [[nodiscard]] std::shared_ptr<DatabaseCatalog> catalog() const { return control_.catalog(); }
 
     bool InsertActivityStats(const ActivityStatsRow& row) {
@@ -64,18 +67,6 @@ class LogStore {
     }
     [[nodiscard]] std::shared_lock<std::shared_mutex> ReadLease() const {
         return std::shared_lock{lease_};
-    }
-
-    template <std::invocable<LogStore&> F>
-    asio::awaitable<std::invoke_result_t<F, LogStore&>> AsyncUseConnection(
-        asio::any_io_executor write_strand_ex, F&& f) {
-        using Result = std::invoke_result_t<F, LogStore&>;
-        return asio::co_spawn(
-            std::move(write_strand_ex),
-            [this, f = std::forward<F>(f)]() mutable -> asio::awaitable<Result> {
-                co_return std::invoke(std::move(f), *this);
-            },
-            asio::use_awaitable);
     }
 
    private:
@@ -111,6 +102,7 @@ class LogStore {
     std::unique_ptr<WriterDatabase> writer_;
     std::filesystem::path writer_path_;
     std::atomic<int64_t> committed_id_{};
+    LogSchema schema_;
 };
 
 }  // namespace loglite

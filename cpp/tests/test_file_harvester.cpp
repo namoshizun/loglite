@@ -2,13 +2,15 @@
 
 #include "test_support.hpp"
 #include "utils.hpp"
-#include "backlog.hpp"
+#include "submission.hpp"
 #include "harvesters/file.hpp"
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace loglite;
@@ -38,7 +40,8 @@ class FileHarvesterTest : public ::testing::Test {
     }
 
     void start() {
-        harvester_ = std::make_unique<FileHarvester>("test", log_file_, backlog_, options_);
+        harvester_ =
+            std::make_unique<FileHarvester>("test", log_file_, captured_.submission(), options_);
         harvester_->Start();
     }
 
@@ -50,7 +53,35 @@ class FileHarvesterTest : public ::testing::Test {
     test::TempDirectory directory_;
     fs::path tmp_dir_;
     fs::path log_file_;
-    Backlog backlog_{1000};
+    class CapturedLogs {
+       public:
+        CapturedLogs() {
+            gate_ = std::make_shared<Submission::Gate>();
+            gate_->submit = [this](nlohmann::json entry) {
+                std::lock_guard lock{mu_};
+                rows_.push_back(std::move(entry));
+                return true;
+            };
+        }
+        [[nodiscard]] Submission submission() const { return Submission{gate_}; }
+        [[nodiscard]] size_t Size() const {
+            std::lock_guard lock{mu_};
+            return rows_.size();
+        }
+        std::vector<nlohmann::json> Flush() {
+            std::lock_guard lock{mu_};
+            auto out = std::move(rows_);
+            rows_.clear();
+            return out;
+        }
+
+       private:
+        mutable std::mutex mu_;
+        std::shared_ptr<Submission::Gate> gate_;
+        std::vector<nlohmann::json> rows_;
+    };
+
+    CapturedLogs captured_;
     FileHarvester::Options options_{
         .poll_interval = 20ms, .missing_file_interval = 20ms, .rotation_drain_grace = 50ms};
     std::unique_ptr<FileHarvester> harvester_;
@@ -68,10 +99,10 @@ TEST_F(FileHarvesterTest, IngestsNewLinesAppendedAfterStart) {
     // Only this line — written after Start() — should be ingested.
     append(R"({"msg":"new-entry","level":"ERROR"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }))
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }))
         << "harvester did not ingest the new line in time";
 
-    auto entries = backlog_.Flush();
+    auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "new-entry");
 }
@@ -86,9 +117,9 @@ TEST_F(FileHarvesterTest, SkipsNonJsonLines) {
     append("{ broken json :");
     append(R"({"msg":"valid","level":"DEBUG"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }));
 
-    auto entries = backlog_.Flush();
+    auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 1u) << "only the valid JSON line should have been ingested";
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "valid");
 }
@@ -98,15 +129,11 @@ TEST_F(FileHarvesterTest, BatchIngestionAddsMissingTimestampsAndPreservesExistin
     // Write several lines at once so they land in a single poll iteration.
     append(R"({"msg":"no-ts","level":"INFO"})");
     append(R"({"msg":"with-ts","level":"INFO","timestamp":"2024-01-01T00:00:00Z"})");
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 2; }));
-    const auto entries = backlog_.Flush();
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 2; }));
+    const auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 2u);
     EXPECT_EQ(entries[0]["msg"], "no-ts");
-    ASSERT_TRUE(entries[0].contains("timestamp"));
-    const auto timestamp = entries[0]["timestamp"].get<std::string>();
-    EXPECT_TRUE(parse_iso8601(timestamp).has_value());
-    EXPECT_NE(timestamp.find('.'), std::string::npos)
-        << "injected timestamp should include milliseconds";
+    EXPECT_FALSE(entries[0].contains("timestamp"));
     EXPECT_EQ(entries[1]["msg"], "with-ts");
     EXPECT_EQ(entries[1]["timestamp"], "2024-01-01T00:00:00Z");
 }
@@ -119,8 +146,8 @@ TEST_F(FileHarvesterTest, DetectsTruncation) {
     ASSERT_TRUE(test::WaitUntil([&] {
         return harvester_->ReadOffset() == fs::file_size(log_file_);
     })) << "first batch not read";
-    ASSERT_EQ(backlog_.Size(), 1u);
-    backlog_.Flush();
+    ASSERT_EQ(captured_.Size(), 1u);
+    captured_.Flush();
 
     // Truncate the file (simulates logrotate copytruncate).
     {
@@ -133,10 +160,10 @@ TEST_F(FileHarvesterTest, DetectsTruncation) {
     // Write new content into the truncated (now-empty) file.
     append(R"({"msg":"after-truncate","level":"WARN"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }))
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }))
         << "harvester did not recover after file truncation";
 
-    auto entries = backlog_.Flush();
+    auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "after-truncate");
 }
@@ -146,9 +173,9 @@ TEST_F(FileHarvesterTest, DetectsRotation) {
 
     // Ingest something so the harvester records a non-zero offset.
     append(R"({"msg":"pre-rotate","level":"INFO"})");
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }))
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }))
         << "pre-rotation entry not ingested";
-    backlog_.Flush();
+    captured_.Flush();
 
     // Simulate rotation: rename the current file, then create a fresh one.
     fs::rename(log_file_, tmp_dir_ / "app.log.1");
@@ -156,10 +183,10 @@ TEST_F(FileHarvesterTest, DetectsRotation) {
     // Write to the new file at the original path (append() creates it).
     append(R"({"msg":"post-rotate","level":"INFO"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }))
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }))
         << "harvester did not detect rotation and pick up the new file";
 
-    auto entries = backlog_.Flush();
+    auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "post-rotate");
 }
@@ -178,7 +205,7 @@ TEST_F(FileHarvesterTest, IngestsPartialWritesAcrossPolls) {
     })) << "harvester did not buffer the partial write";
 
     // Verify it wasn't ingested yet (incomplete JSON, no newline).
-    EXPECT_EQ(backlog_.Size(), 0u);
+    EXPECT_EQ(captured_.Size(), 0u);
 
     // 2. Append the rest of the line with a newline.
     {
@@ -186,10 +213,10 @@ TEST_F(FileHarvesterTest, IngestsPartialWritesAcrossPolls) {
         f << R"(O"})" << "\n";
     }
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }))
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }))
         << "Harvester failed to assemble partial write";
 
-    auto entries = backlog_.Flush();
+    auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_EQ(entries[0]["msg"].get<std::string>(), "partial-write");
     EXPECT_EQ(entries[0]["level"].get<std::string>(), "INFO");
@@ -210,7 +237,7 @@ TEST_F(FileHarvesterTest, StopDrainsUnreadBytesAndFlushesPartialLine) {
     harvester_->Stop();
     EXPECT_FALSE(harvester_->ReadOffset().has_value());
 
-    const auto entries = backlog_.Flush();
+    const auto entries = captured_.Flush();
     ASSERT_EQ(entries.size(), 3u);
     EXPECT_EQ(entries[0]["msg"], "first");
     EXPECT_EQ(entries[1]["msg"], "second");
@@ -223,8 +250,8 @@ TEST_F(FileHarvesterTest, RetriesOpeningMissingFile) {
     ASSERT_FALSE(harvester_->ReadOffset().has_value());
     append(R"({"msg":"created-later"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }));
-    EXPECT_EQ(backlog_.Flush().front()["msg"], "created-later");
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }));
+    EXPECT_EQ(captured_.Flush().front()["msg"], "created-later");
 }
 
 TEST_F(FileHarvesterTest, RestartCapturesNewInitialEof) {
@@ -234,6 +261,6 @@ TEST_F(FileHarvesterTest, RestartCapturesNewInitialEof) {
     harvester_->Start();
     append(R"({"msg":"after-restart"})");
 
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_.Size() == 1; }));
-    EXPECT_EQ(backlog_.Flush().front()["msg"], "after-restart");
+    ASSERT_TRUE(test::WaitUntil([&] { return captured_.Size() == 1; }));
+    EXPECT_EQ(captured_.Flush().front()["msg"], "after-restart");
 }

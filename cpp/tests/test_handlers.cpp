@@ -10,9 +10,7 @@
 #include "handlers/query.hpp"
 #include "test_support.hpp"
 #include "handlers/stats.hpp"
-#include "log_store.hpp"
-#include "context.hpp"
-#include "backlog.hpp"
+#include "runtime.hpp"
 #include "metrics.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -37,34 +35,15 @@ class HandlersTest : public ::testing::Test {
     void SetUp() override {
         metrics::MetricsRegistry::Instance().Reset();
 
-        db_ = std::make_unique<LogStore>(cfg_);
-        db_->Open();
-        db_->Initialize();
-
-        backlog_ = std::make_unique<Backlog>(200);
-        notifier_ = std::make_unique<LogNotifier>(cfg_.sse_limit);
-
-        db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
-        reader_pool_ = std::make_unique<asio::thread_pool>(1u);
-        db_read_ = std::make_unique<LogReaderPool>(*db_, 1u);
-
-        ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
-                                               asio::make_strand(db_ops_pool_->get_executor()),
-                                               reader_pool_->get_executor());
+        runtime_ = std::make_unique<Runtime>(cfg_);
     }
 
     void TearDown() override {
-        ctx_.reset();
-        db_read_->Close();
-        db_read_.reset();
-        reader_pool_->join();
-        reader_pool_.reset();
-        db_ops_pool_->join();
-        db_ops_pool_.reset();
-        db_->Close();
-        db_.reset();
+        runtime_.reset();
         metrics::MetricsRegistry::Instance().Reset();
     }
+
+    HttpAccess http() { return runtime_->http(); }
 
     handlers::Request MakeRequest(http::verb method, std::string target, std::string body = "") {
         http::request<http::string_body> req{method, target, 11};
@@ -78,38 +57,32 @@ class HandlersTest : public ::testing::Test {
 
     test::TempDirectory directory_;
     Config cfg_{test::MakeConfig(directory_.path())};
-    std::unique_ptr<LogStore> db_;
-    std::unique_ptr<LogReaderPool> db_read_;
-    std::unique_ptr<Backlog> backlog_;
-    std::unique_ptr<LogNotifier> notifier_;
-    std::unique_ptr<asio::thread_pool> db_ops_pool_;
-    std::unique_ptr<asio::thread_pool> reader_pool_;
-    std::unique_ptr<ServerContext> ctx_;
+    std::unique_ptr<Runtime> runtime_;
 };
 
 // ── Health handler ──────────────────────────────────────────────────────────
 
 TEST_F(HandlersTest, HealthReturnsStatusAndCorsHeaders) {
     auto req = MakeRequest(http::verb::get, "/health");
-    auto res = SyncAwait(handlers::HandleHealth(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleHealth(req, http()));
     EXPECT_EQ(res.result(), http::status::ok);
     EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "ok");
     EXPECT_EQ(res[http::field::access_control_allow_origin], cfg_.allow_origin);
 }
 
 TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
-    cfg_.log_table_name = "MyLogs";
-    cfg_.db_pool_size = "8";
-    cfg_.sse_heartbeat_ms = 250;
-    cfg_.compression.enabled = true;
-    cfg_.harvesters.push_back(Config::HarvesterDef{
+    runtime_->config().log_table_name = "MyLogs";
+    runtime_->config().db_pool_size = "8";
+    runtime_->config().sse_heartbeat_ms = 250;
+    runtime_->config().compression.enabled = true;
+    runtime_->config().harvesters.push_back(Config::HarvesterDef{
         .type = "loglite.harvesters.FileHarvester",
         .name = "files",
         .config = {},
     });
 
     auto req = MakeRequest(http::verb::get, "/settings");
-    auto res = SyncAwait(handlers::HandleSettings(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleSettings(req, http()));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -161,7 +134,7 @@ TEST_F(HandlersTest, SettingsReturnsConfiguredValues) {
 
 TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
     auto req = MakeRequest(http::verb::get, "/schema");
-    auto res = SyncAwait(handlers::HandleSchema(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleSchema(req, http()));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -194,7 +167,7 @@ TEST_F(HandlersTest, SchemaReturnsLogTableColumns) {
 
 TEST_F(HandlersTest, VersionReturnsProjectVersion) {
     auto req = MakeRequest(http::verb::get, "/version");
-    auto res = SyncAwait(handlers::HandleVersion(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleVersion(req, http()));
     EXPECT_EQ(res.result(), http::status::ok);
 
     auto body = nlohmann::json::parse(res.body());
@@ -212,10 +185,12 @@ TEST_F(HandlersTest, IngestionPreservesObjectAndArrayPayloadsAndRecordsRequestSi
         SCOPED_TRACE(array ? "array" : "object");
         const auto payload = array ? nlohmann::json(logs) : logs[0];
         auto req = MakeRequest(http::verb::post, "/logs", payload.dump());
-        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleInsert(req, http()));
         EXPECT_EQ(res.result(), http::status::ok);
         EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "accepted");
-        EXPECT_EQ(backlog_->Flush(), array ? logs : std::vector<nlohmann::json>{logs[0]});
+        EXPECT_EQ(runtime_->ingestion().queued(),
+                  array ? logs : std::vector<nlohmann::json>{logs[0]});
+        runtime_->Settle();
         const auto samples = metrics::MetricsRegistry::Instance().Flush();
         ASSERT_EQ(samples.size(), 1u);
         EXPECT_EQ(samples[0].name, metrics::kIngestRequest);
@@ -227,14 +202,14 @@ TEST_F(HandlersTest, InvalidIngestionDoesNotEnqueueData) {
     for (const auto* payload : {"not json", "42", "null", "true", "\"string\""}) {
         SCOPED_TRACE(payload);
         auto req = MakeRequest(http::verb::post, "/logs", payload);
-        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleInsert(req, http()));
         EXPECT_EQ(res.result(), http::status::bad_request);
         const auto error = nlohmann::json::parse(res.body())["error"].get<std::string>();
         if (std::string_view{payload} == "not json")
             EXPECT_TRUE(error.starts_with("Invalid JSON"));
         else
             EXPECT_EQ(error, "Body must be a JSON object or array");
-        EXPECT_EQ(backlog_->Size(), 0u);
+        EXPECT_EQ(runtime_->ingestion().size(), 0u);
     }
 }
 
@@ -243,13 +218,14 @@ TEST_F(HandlersTest, MalformedArrayRejectsWholeRequestWithoutChangingBacklog) {
         {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "valid"}, {"level", "INFO"}};
     for (const auto* invalid : {"42", "null", "true", "\"string\"", "[]"}) {
         SCOPED_TRACE(invalid);
-        backlog_->Add(valid);
+        ASSERT_TRUE(runtime_->ingestion().Submit(valid).admitted);
         const auto payload = nlohmann::json::array({valid, nlohmann::json::parse(invalid), valid});
         auto req = MakeRequest(http::verb::post, "/logs", payload.dump());
-        auto res = SyncAwait(handlers::HandleInsert(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleInsert(req, http()));
         EXPECT_EQ(res.result(), http::status::bad_request);
         EXPECT_EQ(nlohmann::json::parse(res.body())["error"], "Array entries must be JSON objects");
-        EXPECT_EQ(backlog_->Flush(), (std::vector<nlohmann::json>{valid}));
+        EXPECT_EQ(runtime_->ingestion().queued(), (std::vector<nlohmann::json>{valid}));
+        runtime_->Settle();
     }
 }
 
@@ -278,7 +254,7 @@ TEST_F(HandlersTest, QueryValidationRejectsInvalidRequestsAndRecordsMetrics) {
     for (const auto& c : cases) {
         SCOPED_TRACE(c.target);
         auto req = MakeRequest(http::verb::get, c.target);
-        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleQuery(req, http()));
         EXPECT_EQ(res.result(), http::status::bad_request);
         EXPECT_EQ(nlohmann::json::parse(res.body())["error"], c.error);
         const auto samples = metrics::MetricsRegistry::Instance().Flush();
@@ -293,7 +269,7 @@ TEST_F(HandlersTest, EmptyQueriesAcceptBothLimitBoundaries) {
         SCOPED_TRACE(limit);
         auto req =
             MakeRequest(http::verb::get, fmt::format("/logs?fields=*&limit={}&offset=0", limit));
-        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleQuery(req, http()));
         EXPECT_EQ(res.result(), http::status::ok);
         const auto body = nlohmann::json::parse(res.body());
         EXPECT_EQ(body["total"], 0);
@@ -302,7 +278,7 @@ TEST_F(HandlersTest, EmptyQueriesAcceptBothLimitBoundaries) {
 }
 
 TEST_F(HandlersTest, QueriesCombineFilteringProjectionAndPagination) {
-    ASSERT_EQ(db_->Insert({
+    ASSERT_EQ(runtime_->store().Insert({
                   {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "ERROR"}},
                   {{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}},
                   {{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "ERROR"}},
@@ -326,7 +302,7 @@ TEST_F(HandlersTest, QueriesCombineFilteringProjectionAndPagination) {
     for (const auto& c : cases) {
         SCOPED_TRACE(c.target);
         auto req = MakeRequest(http::verb::get, c.target);
-        auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleQuery(req, http()));
         EXPECT_EQ(res.result(), http::status::ok);
         const auto body = nlohmann::json::parse(res.body());
         EXPECT_EQ(body["total"], c.total);
@@ -336,17 +312,17 @@ TEST_F(HandlersTest, QueriesCombineFilteringProjectionAndPagination) {
 
 TEST_F(HandlersTest, QueryInvalidFilterExpression) {
     auto req = MakeRequest(http::verb::get, "/logs?fields=*&limit=10&offset=0&bad_field=novalue");
-    auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleQuery(req, http()));
     EXPECT_EQ(static_cast<int>(res.result()), 400);
 }
 
 TEST_F(HandlersTest, QueryWithUnknownFieldInFilter) {
     nlohmann::json log1{
         {"timestamp", "2024-01-01T00:00:00Z"}, {"message", "hello"}, {"level", "INFO"}};
-    db_->Insert({log1});
+    runtime_->store().Insert({log1});
 
     auto req = MakeRequest(http::verb::get, "/logs?fields=*&limit=10&offset=0&nonexistent==val");
-    auto res = SyncAwait(handlers::HandleQuery(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleQuery(req, http()));
     EXPECT_EQ(static_cast<int>(res.result()), 500);
 }
 
@@ -359,7 +335,8 @@ TEST_F(HandlersTest, StatsRejectsMissingParametersAndInvalidTimeWindows) {
           "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z&activity_stats_fields=*"}) {
         SCOPED_TRACE(target);
         auto req = MakeRequest(http::verb::get, target);
-        EXPECT_EQ(SyncAwait(handlers::HandleStats(req, *ctx_)).result(), http::status::bad_request);
+        EXPECT_EQ(SyncAwait(handlers::HandleStats(req, http())).result(),
+                  http::status::bad_request);
     }
     struct Case {
         const char* since;
@@ -385,7 +362,7 @@ TEST_F(HandlersTest, StatsRejectsMissingParametersAndInvalidTimeWindows) {
                                fmt::format("/stats?since={}&until={}&ordering={}&activity_stats_"
                                            "fields=*&database_stats_fields=*",
                                            c.since, c.until, c.ordering));
-        auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleStats(req, http()));
         EXPECT_EQ(res.result(), http::status::bad_request);
         EXPECT_EQ(nlohmann::json::parse(res.body())["error"], c.error);
     }
@@ -410,7 +387,7 @@ TEST_F(HandlersTest, StatsAcceptsFractionalSecondsOffsetsAndMaximumWindow) {
             http::verb::get,
             fmt::format("/stats?since={}&until={}&activity_stats_fields=*&database_stats_fields=*",
                         c.since, c.until));
-        auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
+        auto res = SyncAwait(handlers::HandleStats(req, http()));
         EXPECT_EQ(res.result(), http::status::ok);
         const auto body = nlohmann::json::parse(res.body());
         EXPECT_TRUE(body["activities"]["data"].empty());
@@ -422,17 +399,17 @@ TEST_F(HandlersTest, StatsAcceptsFractionalSecondsOffsetsAndMaximumWindow) {
 }
 
 TEST_F(HandlersTest, StatsTrimsFieldListsAndReturnsPersistedValues) {
-    ASSERT_TRUE(db_->InsertActivityStats({.since = "2024-01-01T00:00:00Z",
-                                          .until = "2024-01-01T00:01:00Z",
-                                          .query_count = 10,
-                                          .query_avg = 5}));
-    ASSERT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
+    ASSERT_TRUE(runtime_->store().InsertActivityStats({.since = "2024-01-01T00:00:00Z",
+                                                       .until = "2024-01-01T00:01:00Z",
+                                                       .query_count = 10,
+                                                       .query_avg = 5}));
+    ASSERT_TRUE(runtime_->store().InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
     // Spaces after commas (and outer padding) via %20 — raw spaces in target break HTTP parsing.
     auto req = MakeRequest(http::verb::get,
                            "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
                            "&activity_stats_fields=query_count%2C%20query_avg"
                            "&database_stats_fields=%20rows_count%20%2C%20db_size%20&ordering=asc");
-    auto res = SyncAwait(handlers::HandleStats(req, *ctx_));
+    auto res = SyncAwait(handlers::HandleStats(req, http()));
     EXPECT_EQ(res.result(), http::status::ok);
     const auto body = nlohmann::json::parse(res.body());
     EXPECT_EQ(body["activities"]["fields"], (std::vector<std::string>{"query_count", "query_avg"}));

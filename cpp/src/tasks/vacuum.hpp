@@ -1,8 +1,9 @@
 #ifndef LOGLITE_TASKS_VACUUM_HPP_
 #define LOGLITE_TASKS_VACUUM_HPP_
 
-#include "../context.hpp"
 #include "../log.hpp"
+#include "../runtime.hpp"
+#include "../schedule.hpp"
 
 #include <boost/asio.hpp>
 #include <chrono>
@@ -13,28 +14,24 @@ namespace loglite::tasks {
 
 using namespace std::chrono_literals;
 
-// ── Vacuum task ────────────────────────────────────────────────────────────────
-
-inline asio::awaitable<void> VacuumTask(ServerContext& ctx) {
+inline asio::awaitable<void> VacuumTask(Runtime& runtime) {
     auto ex = co_await asio::this_coro::executor;
-    auto& cfg = ctx.config;
+    auto& cfg = runtime.config();
     auto timer = std::make_shared<asio::steady_timer>(ex);
-    ctx.RegisterShutdownTimer(timer);
+    runtime.RegisterShutdownTimer(timer);
 
     log::INFO("Vacuum task started (interval={}s)", cfg.task_vacuum_interval);
 
-    while (!ctx.StopRequested()) {
+    while (!runtime.StopRequested()) {
         timer->expires_after(cfg.task_vacuum_interval * 1s);
         co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
 
-        if (ctx.StopRequested()) {
+        if (runtime.StopRequested()) {
             log::INFO("[Termination] vacuum task stopped");
             co_return;
         }
 
-        // All vacuum operations mutate the DB → run on write strand.
-        co_await ctx.db_write.AsyncUseConnection(ctx.write_strand,
-                                                 [](LogStore& store) { store.Maintain(); });
+        co_await Schedule(runtime.write_strand(), [&runtime] { runtime.Maintain(); });
     }
 }
 

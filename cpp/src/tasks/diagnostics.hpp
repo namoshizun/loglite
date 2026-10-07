@@ -1,9 +1,10 @@
 #ifndef LOGLITE_TASKS_DIAGNOSTICS_HPP_
 #define LOGLITE_TASKS_DIAGNOSTICS_HPP_
 
-#include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
+#include "../runtime.hpp"
+#include "../schedule.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
@@ -110,21 +111,21 @@ inline ActivityStatsRow build_activity_stats(std::string since, std::string unti
 //
 // Periodically snapshots process-wide metrics, persists them, and prunes old stats rows.
 
-inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
+inline asio::awaitable<void> DiagnosticsTask(Runtime& runtime) {
     auto ex = co_await asio::this_coro::executor;
-    auto& cfg = ctx.config;
+    auto& cfg = runtime.config();
     auto timer = std::make_shared<asio::steady_timer>(ex);
-    ctx.RegisterShutdownTimer(timer);
+    runtime.RegisterShutdownTimer(timer);
 
     auto window_since = std::chrono::system_clock::now();
 
     log::INFO("Diagnostics task started (interval={}s)", cfg.task_diagnostics_interval);
 
-    while (!ctx.StopRequested()) {
+    while (!runtime.StopRequested()) {
         timer->expires_after(cfg.task_diagnostics_interval * 1s);
         co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
 
-        if (ctx.StopRequested()) {
+        if (runtime.StopRequested()) {
             log::INFO("[Termination] diagnostics task stopped");
             co_return;
         }
@@ -138,12 +139,14 @@ inline asio::awaitable<void> DiagnosticsTask(ServerContext& ctx) {
 
         // Persist the snapshot and prune expired rows in one write-strand hop.
         auto cutoff = loglite::format_utc(window_until - cfg.stats_retention_hours * 1h);
-        int pruned = co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&](LogStore& db) {
+        int pruned = co_await Schedule(runtime.write_strand(), [&] {
+            auto& db = runtime.store();
             db.InsertActivityStats(row);
+            const auto footprint = db.Footprint();
             db.InsertDatabaseStats({
                 row.until,
                 db.EstimateLogRowCount(),
-                db.GetSizeBytes(),
+                footprint.total_bytes,
             });
             return db.DeleteStatsBefore(cutoff);
         });

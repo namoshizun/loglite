@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "test_support.hpp"
-#include "reader_database.hpp"
+#include "reader_pool.hpp"
+#include "schedule.hpp"
 #include "writer_database.hpp"
 
 #include <atomic>
@@ -58,24 +59,20 @@ class AsyncDatabaseTest : public ::testing::Test {
 
     asio::awaitable<void> CheckWriterExecutor() {
         const auto caller_id = std::this_thread::get_id();
-        co_await writer_->AsyncUseConnection(write_strand_, [&](WriterDatabase& db) {
+        co_await Schedule(write_strand_, [&] {
             EXPECT_TRUE(write_strand_.running_in_this_thread());
             EXPECT_NE(std::this_thread::get_id(), caller_id);
-            db.SetPragma("cache_size", "-100");
+            writer_->SetPragma("cache_size", "-100");
         });
         EXPECT_EQ(std::this_thread::get_id(), caller_id);
 
-        // The lambda is destroyed before the operation is awaited. Its move-only
-        // capture must be owned by the asynchronous operation.
-        auto operation = writer_->AsyncUseConnection(
-            write_strand_, [this, value = std::make_unique<int>(42)](WriterDatabase& db) mutable {
-                EXPECT_TRUE(write_strand_.running_in_this_thread());
-                EXPECT_EQ(db.GetPragma("cache_size"), "-100");
-                return std::move(value);
-            });
-        auto value = co_await std::move(operation);
-        EXPECT_NE(value, nullptr);
-        if (value) EXPECT_EQ(*value, 42);
+        // The callable is owned by the scheduled operation, which resumes here.
+        EXPECT_EQ(co_await Schedule(write_strand_,
+                                    [this, value = 42] {
+                                        EXPECT_TRUE(write_strand_.running_in_this_thread());
+                                        return value;
+                                    }),
+                  42);
         EXPECT_EQ(std::this_thread::get_id(), caller_id);
     }
 
@@ -95,8 +92,7 @@ class AsyncDatabaseTest : public ::testing::Test {
                                               [](ReaderDatabase& db) { EXPECT_TRUE(db.Ping()); });
 
         try {
-            co_await writer_->AsyncUseConnection(
-                write_strand_, [](WriterDatabase&) { throw std::runtime_error("writer failure"); });
+            co_await Schedule(write_strand_, [] { throw std::runtime_error("writer failure"); });
             ADD_FAILURE() << "Writer exception was not propagated";
         } catch (const std::runtime_error& e) {
             EXPECT_STREQ(e.what(), "writer failure");
@@ -105,11 +101,11 @@ class AsyncDatabaseTest : public ::testing::Test {
     }
 
     asio::awaitable<int> SerializedWrite(std::atomic<int>& active) {
-        co_return co_await writer_->AsyncUseConnection(write_strand_, [&](WriterDatabase& db) {
+        co_return co_await Schedule(write_strand_, [&] {
             EXPECT_TRUE(write_strand_.running_in_this_thread());
             EXPECT_EQ(active.fetch_add(1), 0);
             std::this_thread::sleep_for(5ms);
-            auto inserted = db.Insert({{{"message", "serialized"}}});
+            auto inserted = writer_->Insert({{{"message", "serialized"}}});
             EXPECT_EQ(active.fetch_sub(1), 1);
             return inserted;
         });

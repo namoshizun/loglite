@@ -64,6 +64,8 @@ void MetricsRegistry::prune(std::chrono::steady_clock::time_point now) {
     while (!observations_.empty() && now - observations_.front().at >= window_) {
         observations_.pop_front();
     }
+    constexpr size_t kMaxObservations = 8192;
+    while (observations_.size() > kMaxObservations) observations_.pop_front();
 }
 
 // ── ObservationTimer ──────────────────────────────────────────────────────────

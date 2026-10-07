@@ -1,84 +1,51 @@
 #ifndef LOGLITE_BACKLOG_HPP_
 #define LOGLITE_BACKLOG_HPP_
 
+#include "append.hpp"
+
 #include <atomic>
 #include <cstddef>
 #include <deque>
 #include <functional>
 #include <mutex>
-#include <utility>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 namespace loglite {
 
-// ── Backlog ────────────────────────────────────────────────────────────────────
-//
-// Thread-safe, bounded in-memory buffer for incoming log entries.
-// Logs are batched here and flushed to SQLite by a background task.
-//
-// When the queue is at capacity, Add() evicts the oldest entry, so
-// memory use is bounded even if the flush task falls behind or dies.
-//
-// `IsFull()` is polled by the flush task so it can exit the periodic wait early
-// when the queue crosses a ~95% high watermark — before drop-oldest triggers
-// at the hard cap (task_backlog_max_size).
-
+// Thread-safe bounded queue of prepared entries. Only the ingestion coordinator
+// writes it. When queued plus in-flight entries exceed capacity, the oldest
+// queued entry is evicted. In-flight entries are already out of the queue and
+// are not evicted.
 class Backlog {
    public:
     explicit Backlog(size_t max_size);
 
-    void Add(nlohmann::json log);
+    void Add(PreparedEntry entry);
+    void SetWake(std::function<void()> wake);
 
-    // Move all pending entries out of the backlog and return them.
-    std::vector<nlohmann::json> Flush();
+    // Move every queued entry out and count it as in flight.
+    std::vector<PreparedEntry> Take();
+    void Restore(std::vector<PreparedEntry> entries);
+    void NoteSettled(size_t entries, size_t bytes);
 
-    // Lend the batch read-only to persistence; restore it on failure.
-    // The callback must commit before returning.
-    template <typename F>
-    int Flush(F&& persist) {
-        auto entries = Flush();
-        if (entries.empty()) return 0;
-
-        try {
-            return std::invoke(std::forward<F>(persist), std::as_const(entries));
-        } catch (...) {
-            Restore(std::move(entries));
-            throw;
-        }
-    }
-
-    // Lend the batch mutably: persistence may reorder it, then acknowledges the
-    // committed prefix of that order. A failure restores only the uncommitted rest.
-    template <typename F>
-    int FlushCommitted(F&& persist) {
-        auto entries = Flush();
-        if (entries.empty()) return 0;
-
-        size_t committed = 0;
-        const auto acknowledge = [&committed](size_t prefix) { committed = prefix; };
-        try {
-            return std::invoke(std::forward<F>(persist), entries, acknowledge);
-        } catch (...) {
-            entries.erase(entries.begin(), entries.begin() + committed);
-            Restore(std::move(entries));
-            throw;
-        }
-    }
-
-    bool IsFull() const noexcept;
-
-    size_t Size() const;
+    [[nodiscard]] bool IsFull() const noexcept;
+    [[nodiscard]] size_t Size() const;
+    [[nodiscard]] size_t QueuedBytes() const;
+    [[nodiscard]] size_t InFlightEntries() const;
+    [[nodiscard]] size_t InFlightBytes() const;
+    [[nodiscard]] std::vector<nlohmann::json> QueuedFields() const;
 
    private:
-    void Restore(std::vector<nlohmann::json> entries);
     size_t GuardOverflow();
 
     mutable std::mutex mtx_;
-    std::deque<nlohmann::json> queue_;
+    std::deque<PreparedEntry> queue_;
     size_t max_size_;
+    size_t queued_bytes_{};
+    size_t in_flight_entries_{};
+    size_t in_flight_bytes_{};
     std::atomic<bool> is_full_{false};
+    std::function<void()> wake_;
 };
 
 }  // namespace loglite

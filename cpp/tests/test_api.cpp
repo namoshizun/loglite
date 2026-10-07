@@ -217,28 +217,24 @@ TEST_F(ServerApiTest, ShutdownPersistsHarvesterPartialLine) {
     EXPECT_EQ(PersistedRows(), 2u);
 }
 
-TEST_F(ServerApiTest, BackgroundFailurePropagatesThroughRunServer) {
+TEST_F(ServerApiTest, PermanentRowFailureDoesNotStopTheServer) {
     WriteConfig("task_backlog_max_size: 1",
                 "- \"CREATE TRIGGER reject_log BEFORE INSERT ON Log BEGIN "
                 "SELECT RAISE(ABORT, 'injected background failure'); END\"");
     Start();
     PushToBacklog({{"message", "reject"}});
-    EXPECT_EQ(run_.wait_for(5s), std::future_status::ready);
-    EXPECT_THROW(run_.get(), std::runtime_error);
-    StopServer();
-    PushToBacklog({{"message", "after failure"}});
+    EXPECT_EQ(run_.wait_for(200ms), std::future_status::timeout);
+    Stop();
     EXPECT_EQ(PersistedRows(), 0u);
 }
 
-TEST_F(ServerApiTest, FinalFlushFailurePropagatesThroughRunServer) {
+TEST_F(ServerApiTest, FinalFlushRejectsPoisonRowsWithoutReplayingThem) {
     WriteConfig("",
                 "- \"CREATE TRIGGER reject_log BEFORE INSERT ON Log BEGIN "
                 "SELECT RAISE(ABORT, 'injected shutdown failure'); END\"");
     Start();
     PushToBacklog({{"message", "reject"}});
-    StopServer();
-    EXPECT_EQ(run_.wait_for(5s), std::future_status::ready);
-    EXPECT_THROW(run_.get(), std::runtime_error);
+    Stop();
     EXPECT_EQ(PersistedRows(), 0u);
 }
 

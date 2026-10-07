@@ -9,7 +9,7 @@
 #include "settings.hpp"
 #include "stats.hpp"
 #include "version_route.hpp"
-#include "../context.hpp"
+#include "../access.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
@@ -23,7 +23,7 @@ namespace asio = boost::asio;
 namespace loglite::handlers {
 
 using StringResponse = http::response<http::string_body>;
-using RouteHandler = asio::awaitable<StringResponse> (*)(const Request&, ServerContext&);
+using RouteHandler = asio::awaitable<StringResponse> (*)(const Request&, HttpAccess);
 
 struct RouteEntry {
     std::string_view path;
@@ -42,10 +42,10 @@ constexpr std::array kRoutes{
 };
 
 inline asio::awaitable<std::optional<StringResponse>> Dispatch(const Request& req,
-                                                               ServerContext& ctx) {
+                                                               HttpAccess http) {
     for (const auto& route : kRoutes) {
         if (req.path() == route.path && req.method() == route.method) {
-            co_return co_await route.handler(req, ctx);
+            co_return co_await route.handler(req, http);
         }
     }
     co_return std::nullopt;

@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_SETTINGS_HPP_
 
 #include "common.hpp"
-#include "../context.hpp"
+#include "../access.hpp"
 
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
@@ -86,8 +86,8 @@ inline nlohmann::json BuildSettingsPayload(const Config& cfg) {
 }
 
 inline asio::awaitable<http::response<http::string_body>> HandleSettings(const Request& req,
-                                                                         ServerContext& ctx) {
-    co_return MakeOKResp(BuildSettingsPayload(ctx.config), req, ctx.config.allow_origin);
+                                                                         HttpAccess http) {
+    co_return MakeOKResp(BuildSettingsPayload(http.config), req, http.config.allow_origin);
 }
 
 }  // namespace loglite::handlers

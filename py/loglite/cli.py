@@ -36,20 +36,32 @@ async def _run_python_harvesters(config_path: str, stop_event: threading.Event) 
 @server_app.command()
 def run(config: str = Option(..., "--config", "-c")):
     stop_event = threading.Event()
+    ready_event = threading.Event()
+    epoch: dict[str, int] = {"value": 0}
 
-    def harvester_thread():
-        asyncio.run(_run_python_harvesters(config, stop_event))
+    def on_ready() -> None:
+        epoch["value"] = _core.current_epoch()
+        ready_event.set()
 
-    t = threading.Thread(target=harvester_thread, daemon=True)
-    t.start()
+    def harvester_thread() -> None:
+        ready_event.wait()
+        try:
+            asyncio.run(_run_python_harvesters(config, stop_event))
+        finally:
+            if epoch["value"]:
+                _core.notify_producers_finished(epoch["value"])
+
+    thread = threading.Thread(target=harvester_thread, daemon=False)
+    thread.start()
 
     try:
-        # Blocks; releases GIL inside so the harvester thread can run.
-        # SIGTERM / SIGINT are handled by the C++ Asio signal_set.
-        _core.run_server(config)
+        # Blocks and releases the GIL. Producers start after readiness and are
+        # stopped, via on_stop, before C++ drains accepted work.
+        _core.run_server(config, on_ready=on_ready, on_stop=stop_event.set)
     finally:
         stop_event.set()
-        t.join()
+        ready_event.set()
+        thread.join()
 
 
 @migration_app.command()

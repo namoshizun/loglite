@@ -124,13 +124,40 @@ PYBIND11_MODULE(_core, m) {
     // ── Server ────────────────────────────────────────────────────────────────
     m.def(
         "run_server",
-        [](const std::string& config_path) {
+        [](const std::string& config_path, py::object on_ready, py::object on_stop) {
             py::gil_scoped_release release;
-            RunServer(config_path);
+            RunServer(
+                config_path,
+                [&] {
+                    if (on_ready.is_none()) return;
+                    py::gil_scoped_acquire gil;
+                    on_ready();
+                },
+                [&] {
+                    if (on_stop.is_none()) return;
+                    py::gil_scoped_acquire gil;
+                    on_stop();
+                });
         },
-        py::arg("config_path"), "Start the server (blocks until shutdown).");
+        py::arg("config_path"), py::arg("on_ready") = py::none(), py::arg("on_stop") = py::none(),
+        "Start the server (blocks until shutdown).");
 
     m.def("stop_server", &StopServer, "Signal the running server to shut down.");
+    m.def("current_epoch", &CurrentEpoch, "Epoch of the active server run, or 0.");
+    m.def("notify_producers_finished", &NotifyProducersFinished, py::arg("epoch"),
+          "Tell the active run that external producers have stopped.");
+
+    py::class_<Submission>(m, "Submission")
+        .def("bound", &Submission::bound)
+        .def("push", [](Submission& submission, const py::dict& log) {
+            auto entry = PyObjectToJson(log);
+            py::gil_scoped_release release;
+            if (!submission.Push(std::move(entry)))
+                throw std::runtime_error("loglite submission is closed");
+        });
+    m.def("capture_submission", &CurrentSubmission,
+          "Handle bound to the active run. Pushes after that run closes do not "
+          "enter a later run.");
 
     // ── Migrations ────────────────────────────────────────────────────────────
 

@@ -1,24 +1,17 @@
 #ifndef LOGLITE_WRITER_DATABASE_HPP_
 #define LOGLITE_WRITER_DATABASE_HPP_
 
+#include "append.hpp"
 #include "database.hpp"
 
-#include <boost/asio.hpp>
-
-#include <concepts>
 #include <cstdint>
-#include <functional>
 #include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
-#include <type_traits>
-#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
-
-namespace asio = boost::asio;
 
 namespace loglite {
 
@@ -38,6 +31,22 @@ class WriterDatabase final : public Database {
     int Insert(const std::vector<nlohmann::json>& logs) { return InsertRows(logs); }
     // A positive first_id assigns consecutive IDs; otherwise SQLite assigns them.
     int InsertRows(std::span<const nlohmann::json> logs, int64_t first_id = 0);
+
+    // Fast path commits the batch in one transaction. A permanent constraint
+    // failure falls back to per-row transactions so valid peers are preserved.
+    struct RowWrite {
+        enum class Disposition { kCommitted, kRejected, kPending };
+        Disposition disposition{Disposition::kPending};
+        int64_t id{};
+        nlohmann::json stored;
+        std::string reason;
+    };
+    struct BatchWrite {
+        std::vector<RowWrite> rows;
+        StorageFailure failure{StorageFailure::kNone};
+        std::string message;
+    };
+    BatchWrite WriteBatch(std::span<const nlohmann::json> logs, int64_t first_id = 0);
     int DeleteLogs(const std::vector<QueryFilter>& filters);
     int DeleteOldLogs(std::string_view cutoff, int64_t limit);
     int DeleteOldestLogs(int64_t count);
@@ -65,20 +74,13 @@ class WriterDatabase final : public Database {
     std::vector<std::tuple<std::string, std::string, ValueId>> GetColumnDictRows() const;
     bool InsertColumnDictValue(const std::string& col, const std::string& value, ValueId id);
 
-    template <std::invocable<WriterDatabase&> F>
-    asio::awaitable<std::invoke_result_t<F, WriterDatabase&>> AsyncUseConnection(
-        asio::any_io_executor write_strand_ex, F&& f) {
-        using Result = std::invoke_result_t<F, WriterDatabase&>;
-        return asio::co_spawn(
-            std::move(write_strand_ex),
-            [this, f = std::forward<F>(f)]() mutable -> asio::awaitable<Result> {
-                co_return std::invoke(std::move(f), *this);
-            },
-            asio::use_awaitable);
-    }
-
    private:
     void LoadColumnDictionary();
+    int64_t InsertOne(const nlohmann::json& log, int64_t assigned_id);
+    [[nodiscard]] nlohmann::json ReadBack(int64_t id) const;
+    void RollbackBatch();
+    BatchWrite WriteAll(std::span<const nlohmann::json> logs, int64_t first_id);
+    BatchWrite WriteIsolated(std::span<const nlohmann::json> logs, int64_t first_id);
 
     int64_t committed_id_{};
 };

@@ -48,8 +48,9 @@ Statement::Statement(sqlite3* db, std::string_view sql) {
 int Statement::Step() {
     const int rc = sqlite3_step(raw);
     if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
-        throw std::runtime_error(
-            fmt::format("sqlite3_step ({}): {}", rc, sqlite3_errmsg(sqlite3_db_handle(raw))));
+        auto* db = sqlite3_db_handle(raw);
+        throw SqliteError(sqlite3_extended_errcode(db),
+                          fmt::format("sqlite3_step ({}): {}", rc, sqlite3_errmsg(db)));
     }
     return rc;
 }
@@ -164,8 +165,9 @@ nlohmann::json Database::DecodeRow(sqlite3_stmt* stmt,
         const auto& field = fields[column];
         auto value = column_to_json(stmt, column);
 
-        if (catalog_->compressed_columns.contains(field) && value.is_number_integer())
-            value = catalog_->col_dict->GetValue(field, value.get<int>());
+        if (catalog_->compressed_columns.contains(field) && value.is_number_integer()) {
+            if (const auto* dict = dictionary()) value = dict->GetValue(field, value.get<int>());
+        }
 
         row[field] = std::move(value);
     }
@@ -192,10 +194,12 @@ std::vector<ColumnInfo> Database::FetchTableColumns(std::string_view table_name)
 
     std::vector<ColumnInfo> out;
     while (stmt.Step() == SQLITE_ROW) {
+        const auto* dflt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
         out.push_back({.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
                        .type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)),
                        .not_null = sqlite3_column_int(stmt, 3) != 0,
-                       .is_pk = sqlite3_column_int(stmt, 5) != 0});
+                       .is_pk = sqlite3_column_int(stmt, 5) != 0,
+                       .default_sql = dflt ? std::optional<std::string>{dflt} : std::nullopt});
     }
 
     return out;
@@ -237,14 +241,34 @@ std::string Database::GetMinTimestamp() const {
     return "";
 }
 
-int64_t Database::GetSizeBytes() const {
-    int64_t page_count = std::stoll(GetPragma("page_count"));
-    int64_t page_size = std::stoll(GetPragma("page_size"));
-    int64_t freelist = std::stoll(GetPragma("freelist_count"));
-    return (page_count - freelist) * page_size;
+int64_t Database::GetSizeBytes() const { return Footprint().occupied_bytes; }
+
+StorageFootprint Database::Footprint() const {
+    const int64_t page_count = std::stoll(GetPragma("page_count"));
+    const int64_t page_size = std::stoll(GetPragma("page_size"));
+    const int64_t freelist = std::stoll(GetPragma("freelist_count"));
+
+    const auto file_bytes = [](const std::filesystem::path& path) {
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        return ec ? int64_t{0} : static_cast<int64_t>(size);
+    };
+
+    StorageFootprint footprint;
+    footprint.occupied_bytes = (page_count - freelist) * page_size;
+    footprint.allocated_bytes = page_count * page_size;
+    footprint.wal_bytes = file_bytes(std::filesystem::path{path_.string() + "-wal"});
+    footprint.shm_bytes = file_bytes(std::filesystem::path{path_.string() + "-shm"});
+    footprint.total_bytes = footprint.allocated_bytes + footprint.wal_bytes + footprint.shm_bytes;
+    return footprint;
 }
 
 double Database::GetSizeMB() const { return bytes_to_mb(GetSizeBytes()); }
+
+const ColumnDictionary* Database::dictionary() const {
+    if (snapshot_dict_) return snapshot_dict_.get();
+    return catalog_->col_dict.get();
+}
 
 const std::vector<ColumnInfo>& Database::GetColumnInfo() const { return catalog_->log_column_info; }
 
@@ -298,7 +322,8 @@ Database::WhereClause Database::build_where_clause(const std::vector<QueryFilter
         if (!sql_parts.empty()) sql_parts += " AND ";
 
         if (catalog_->compressed_columns.contains(ft.field)) {
-            auto ids = catalog_->col_dict->QueryCandidates(ft);
+            const auto* dict = dictionary();
+            auto ids = dict ? dict->QueryCandidates(ft) : std::vector<ValueId>{};
             if (ids.empty()) return {"1=0", {}};
 
             sql_parts +=

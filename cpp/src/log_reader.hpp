@@ -2,7 +2,8 @@
 #define LOGLITE_LOG_READER_HPP_
 
 #include "log_store.hpp"
-#include "reader_database.hpp"
+#include "query_plan.hpp"
+#include "reader_pool.hpp"
 
 namespace loglite {
 
@@ -16,6 +17,7 @@ class LogReader {
     PaginatedQueryResult Query(const std::vector<std::string>& fields,
                                const std::vector<QueryFilter>& filters, int limit,
                                int offset) const;
+    PaginatedQueryResult Query(const QueryPlan& plan) const;
     LogIdQueryResult QueryLogIdRange(const std::vector<std::string>& fields,
                                      int64_t since_exclusive, int64_t until_inclusive,
                                      int limit) const;

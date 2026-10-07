@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 #include "migrations.hpp"
+#include "prepare.hpp"
 #include "utils.hpp"
 
 #include <algorithm>
@@ -101,6 +102,7 @@ void LogStore::Initialize() {
     }
 
     committed_id_.store(max_id, std::memory_order_release);
+    RefreshSchema();
 }
 
 void LogStore::Close() {
@@ -170,7 +172,10 @@ bool LogStore::Rollout(int start_version) {
         MigrationManager{file, selected}.ApplyPendingMigrations(start_version);
     });
 
-    return MigrationManager{control_, selected}.ApplyPendingMigrations(start_version);
+    const bool changed_control =
+        MigrationManager{control_, selected}.ApplyPendingMigrations(start_version);
+    if (changed_control) RefreshSchema();
+    return changed_control;
 }
 
 bool LogStore::Rollback(int version, bool force) {
@@ -187,8 +192,11 @@ bool LogStore::Rollback(int version, bool force) {
         rolled_back |= file.RollbackMigration(version, migration->rollback);
     });
     rolled_back |= control_.RollbackMigration(version, migration->rollback);
+    if (rolled_back) RefreshSchema();
     return rolled_back;
 }
+
+void LogStore::RefreshSchema() { schema_ = LogSchema::From(cfg_, control_.GetColumnInfo()); }
 
 WriterDatabase& LogStore::Writer(const Partition& partition) {
     if (partition.path == cfg_.db_path) return control_;
@@ -209,53 +217,101 @@ WriterDatabase& LogStore::Writer(const Partition& partition) {
     return *writer_;
 }
 
-int LogStore::Insert(std::vector<nlohmann::json>& logs, const Acknowledge& acknowledge,
-                     const OnCommitted& on_committed) {
-    const auto ingestion = std::chrono::system_clock::now();
+int LogStore::Insert(std::vector<nlohmann::json> logs) {
+    if (!schema_.usable()) RefreshSchema();
+    const auto admitted_at = std::chrono::system_clock::now();
+    auto preparation = PrepareEntries(schema_, logs, admitted_at);
 
-    // Route and sort indices before moving entries: a failure must leave the
-    // uncommitted logs available for backlog restoration.
-    std::vector<std::pair<Partition, size_t>> placed;
-    placed.reserve(logs.size());
-    for (size_t i = 0; i < logs.size(); ++i)
-        placed.emplace_back(scheme_.Place(logs[i], ingestion), i);
+    std::vector<PreparedEntry> entries;
+    entries.reserve(preparation.admitted.size());
+    for (auto& entry : preparation.admitted) {
+        entry.index = entries.size();
+        entries.push_back(std::move(entry));
+    }
 
-    std::ranges::stable_sort(placed, {}, [](const auto& item) { return item.first.since; });
+    const auto result = Append(entries);
+    if (result.failure == StorageFailure::kTransient)
+        throw std::runtime_error(result.message.empty() ? "storage is temporarily unavailable"
+                                                        : result.message);
+    if (result.failure != StorageFailure::kNone) throw StorageError{result.failure, result.message};
+    return static_cast<int>(result.committed.size());
+}
 
-    std::vector<nlohmann::json> ordered(logs.size());
-    std::ranges::transform(placed, ordered.begin(),
-                           [&](const auto& item) { return std::move(logs[item.second]); });
-    logs.swap(ordered);
+AppendResult LogStore::Append(const std::vector<PreparedEntry>& entries) {
+    AppendResult result;
+    if (entries.empty()) return result;
 
-    // Write one contiguous run of logs per partition.
-    int inserted = 0;
-    for (size_t begin = 0; begin < logs.size();) {
-        const auto& partition = placed[begin].first;
+    struct Item {
+        size_t position{};
+        Partition partition;
+    };
+    std::vector<Item> placed;
+    placed.reserve(entries.size());
+    for (size_t position = 0; position < entries.size(); ++position)
+        placed.push_back({position, scheme_.Route(entries[position].instant)});
+    std::ranges::stable_sort(placed, {}, [](const Item& item) { return item.partition.since; });
+
+    for (size_t begin = 0; begin < placed.size();) {
+        const auto& partition = placed[begin].partition;
         size_t end = begin + 1;
-        while (end < logs.size() && placed[end].first.since == partition.since) ++end;
+        while (end < placed.size() && placed[end].partition.since == partition.since) ++end;
 
-        auto& file = Writer(partition);
-        const auto group = std::span<const nlohmann::json>{logs}.subspan(begin, end - begin);
+        if (result.failure != StorageFailure::kNone) {
+            for (size_t index = begin; index < end; ++index)
+                result.pending.push_back(placed[index].position);
+            begin = end;
+            continue;
+        }
+
+        std::vector<nlohmann::json> rows;
+        rows.reserve(end - begin);
+        for (size_t index = begin; index < end; ++index)
+            rows.push_back(entries[placed[index].position].fields);
+
         const int64_t first_id =
-            scheme_.partitioned() ? control_.ReserveLogIds(static_cast<int64_t>(group.size())) : 0;
-        const int count = file.InsertRows(group, first_id);
+            scheme_.partitioned() ? control_.ReserveLogIds(static_cast<int64_t>(rows.size())) : 0;
+        WriterDatabase::BatchWrite written;
+        try {
+            written = Writer(partition).WriteBatch(rows, first_id);
+        } catch (const StorageError& error) {
+            result.failure = error.failure();
+            result.message = error.what();
+            for (size_t index = begin; index < placed.size(); ++index)
+                result.pending.push_back(placed[index].position);
+            break;
+        }
 
-        // Once committed, this prefix must never return to the backlog, even if
-        // publishing or updating the in-memory registry subsequently throws.
-        if (acknowledge) acknowledge(end);
-        registry_.Update(partition.path, file.GetCommittedLogId(), count);
+        int committed = 0;
+        for (size_t offset = 0; offset < written.rows.size(); ++offset) {
+            const auto position = placed[begin + offset].position;
+            const auto& row = written.rows[offset];
+            if (row.disposition == WriterDatabase::RowWrite::Disposition::kCommitted) {
+                result.committed.push_back({position, row.id, row.stored});
+                ++committed;
+            } else if (row.disposition == WriterDatabase::RowWrite::Disposition::kRejected) {
+                result.rejected.push_back({position, row.reason});
+            } else {
+                result.pending.push_back(position);
+            }
+        }
 
-        // Reserved IDs exceed every committed ID. Without reservations SQLite reuses
-        // IDs after the newest rows are deleted, and the watermark must follow.
-        if (count > 0) committed_id_.store(file.GetCommittedLogId(), std::memory_order_release);
+        // Record the commit before any later fallible work. Publication is the
+        // caller's job and cannot put these rows back on the queue.
+        if (committed > 0) {
+            auto& file = Writer(partition);
+            registry_.Update(partition.path, file.GetCommittedLogId(), committed);
+            committed_id_.store(file.GetCommittedLogId(), std::memory_order_release);
+        }
 
-        inserted += count;
-        if (on_committed && count > 0) on_committed(file, count);
-
+        if (written.failure != StorageFailure::kNone) {
+            result.failure = written.failure;
+            result.message = written.message;
+        }
         begin = end;
     }
 
-    return inserted;
+    std::ranges::sort(result.committed, {}, &StoredRow::index);
+    return result;
 }
 
 int64_t LogStore::EstimateLogRowCount() const {
@@ -264,11 +320,19 @@ int64_t LogStore::EstimateLogRowCount() const {
     return rows;
 }
 
-int64_t LogStore::GetSizeBytes() {
-    int64_t bytes = control_.GetSizeBytes();
-    VisitPartitionFiles(
-        [&](WriterDatabase& file, const Partition&) { bytes += file.GetSizeBytes(); });
-    return bytes;
+int64_t LogStore::GetSizeBytes() { return Footprint().occupied_bytes; }
+
+StorageFootprint LogStore::Footprint() {
+    StorageFootprint total = control_.Footprint();
+    VisitPartitionFiles([&](WriterDatabase& file, const Partition&) {
+        const auto part = file.Footprint();
+        total.occupied_bytes += part.occupied_bytes;
+        total.allocated_bytes += part.allocated_bytes;
+        total.wal_bytes += part.wal_bytes;
+        total.shm_bytes += part.shm_bytes;
+        total.total_bytes += part.total_bytes;
+    });
+    return total;
 }
 
 }  // namespace loglite

@@ -2,7 +2,7 @@
 
 #include "test_support.hpp"
 #include "log_store.hpp"
-#include "context.hpp"
+#include "runtime.hpp"
 #include "metrics.hpp"
 #include "log_reader.hpp"
 #include "server.hpp"
@@ -172,23 +172,8 @@ class ServerTest : public ::testing::Test {
             cfg_.port = port_picker.local_endpoint().port();
         }
 
-        db_ = std::make_unique<LogStore>(cfg_);
-        db_->Open();
-        db_->Initialize();
-
-        db_ops_pool_ = std::make_unique<asio::thread_pool>(1u);
-        reader_pool_ = std::make_unique<asio::thread_pool>(2u);
-
-        backlog_ = std::make_unique<Backlog>(200);
-        notifier_ = std::make_unique<LogNotifier>(cfg_.sse_limit);
-
-        db_read_ = std::make_unique<LogReaderPool>(*db_, 2u);
-
-        ctx_ = std::make_unique<ServerContext>(cfg_, *db_, *db_read_, *backlog_, *notifier_,
-                                               asio::make_strand(db_ops_pool_->get_executor()),
-                                               reader_pool_->get_executor());
-
-        server_ = std::make_unique<Server>(*ctx_);
+        runtime_ = std::make_unique<Runtime>(cfg_);
+        server_ = std::make_unique<Server>(*runtime_);
 
         server_finished_ = finished_.get_future();
         server_thread_ = std::thread{[this]() {
@@ -217,11 +202,15 @@ class ServerTest : public ::testing::Test {
             << "Server exited during startup";
     }
 
+    Ingestion& ingestion() { return runtime_->ingestion(); }
+    LogNotifier& live() { return runtime_->live(); }
+    LogStore& store() { return runtime_->store(); }
+
     int FlushLogs(const std::vector<nlohmann::json>& logs) {
-        for (const auto& row : logs) backlog_->Add(row);
+        for (const auto& row : logs) EXPECT_TRUE(ingestion().Submit(row).admitted);
         return asio::co_spawn(
-                   ctx_->write_strand,
-                   [this]() -> asio::awaitable<int> { co_return ctx_->FlushBacklog(); },
+                   runtime_->write_strand(),
+                   [this]() -> asio::awaitable<int> { co_return runtime_->Settle(); },
                    asio::use_future)
             .get();
     }
@@ -235,39 +224,12 @@ class ServerTest : public ::testing::Test {
         }
         EXPECT_EQ(server_error_, nullptr);
         server_.reset();
-
-        // Destroy context first — strand destructor posts cleanup to the
-        // executor, which must still be alive.
-        ctx_.reset();
-        if (db_read_) {
-            db_read_->Close();
-            db_read_.reset();
-        }
-
-        if (db_ops_pool_) {
-            db_ops_pool_->stop();
-            db_ops_pool_->join();
-            db_ops_pool_.reset();
-        }
-        if (reader_pool_) {
-            reader_pool_->stop();
-            reader_pool_->join();
-            reader_pool_.reset();
-        }
-
-        db_->Close();
-        db_.reset();
+        runtime_.reset();
     }
 
     test::TempDirectory directory_;
     Config cfg_{test::MakeConfig(directory_.path())};
-    std::unique_ptr<LogStore> db_;
-    std::unique_ptr<LogReaderPool> db_read_;
-    std::unique_ptr<Backlog> backlog_;
-    std::unique_ptr<LogNotifier> notifier_;
-    std::unique_ptr<ServerContext> ctx_;
-    std::unique_ptr<asio::thread_pool> db_ops_pool_;
-    std::unique_ptr<asio::thread_pool> reader_pool_;
+    std::unique_ptr<Runtime> runtime_;
     std::unique_ptr<Server> server_;
     std::thread server_thread_;
     std::promise<void> finished_;
@@ -322,7 +284,8 @@ TEST_F(ServerTest, KeepAliveRequestsEnqueueEachPayloadExactlyOnce) {
         EXPECT_EQ(res.result(), http::status::ok);
         EXPECT_EQ(nlohmann::json::parse(res.body())["status"], "accepted");
     }
-    EXPECT_EQ(backlog_->Flush(), (std::vector<nlohmann::json>(2, nlohmann::json::parse(payload))));
+    EXPECT_EQ(ingestion().queued(),
+              (std::vector<nlohmann::json>(2, nlohmann::json::parse(payload))));
 }
 
 TEST_F(ServerTest, ShutdownLeavesBufferedLogsForFinalFlushAfterProducersStop) {
@@ -333,34 +296,38 @@ TEST_F(ServerTest, ShutdownLeavesBufferedLogsForFinalFlushAfterProducersStop) {
     EXPECT_EQ(res.result(), http::status::ok);
 
     // The flush interval is 3600s, so the entry must still be buffered.
-    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
+    EXPECT_EQ(store().EstimateLogRowCount(), 0);
 
     server_->Stop();
     server_thread_.join();
 
     // RunServer owns the final flush: harvesters may still enqueue during Stop().
-    EXPECT_EQ(backlog_->Size(), 1u);
-    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
+    EXPECT_EQ(ingestion().size(), 1u);
+    EXPECT_EQ(store().EstimateLogRowCount(), 0);
 }
 
-TEST_F(ServerTest, FatalBackgroundFailureIsRethrownAndRestoresBatch) {
-    cfg_.migrations.push_back({2,
-                               {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog "
-                                "BEGIN SELECT RAISE(ABORT, 'injected background failure'); END"},
-                               {"DROP TRIGGER reject_log"}});
-    ASSERT_TRUE(db_->Rollout());
+TEST_F(ServerTest, PermanentRowFailureSettlesWithoutRestoringTheBatch) {
+    runtime_->config().migrations.push_back(
+        {2,
+         {"CREATE TRIGGER reject_log BEFORE INSERT ON TestLog "
+          "BEGIN SELECT RAISE(ABORT, 'injected background failure'); END"},
+         {"DROP TRIGGER reject_log"}});
+    ASSERT_TRUE(store().Rollout());
     for (int i = 0; i < 190; ++i) {
-        backlog_->Add(
-            {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "failure"}, {"level", "INFO"}});
+        EXPECT_TRUE(ingestion()
+                        .Submit({{"timestamp", "2024-01-01T00:00:00Z"},
+                                 {"message", "failure"},
+                                 {"level", "INFO"}})
+                        .admitted);
     }
-    EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
+    ASSERT_TRUE(test::WaitUntil([&] { return ingestion().size() == 0; }));
+    EXPECT_EQ(server_finished_.wait_for(std::chrono::milliseconds{50}),
+              std::future_status::timeout);
     server_->Stop();
     server_thread_.join();
-    ASSERT_NE(server_error_, nullptr);
-    EXPECT_THROW(std::rethrow_exception(server_error_), std::runtime_error);
-    server_error_ = nullptr;  // the failure is expected in this test
-    EXPECT_EQ(backlog_->Size(), 190u);
-    EXPECT_EQ(db_->EstimateLogRowCount(), 0);
+    EXPECT_EQ(server_error_, nullptr);
+    EXPECT_EQ(ingestion().size(), 0u);
+    EXPECT_EQ(store().EstimateLogRowCount(), 0);
 }
 
 TEST_F(ServerTest, ShutdownWaitsForInFlightDatabaseWork) {
@@ -374,24 +341,27 @@ TEST_F(ServerTest, ShutdownWaitsForInFlightDatabaseWork) {
 
     // The read transaction blocks COMMIT, keeping the flush in flight after it drains the backlog.
     for (int i = 0; i < 190; ++i) {
-        backlog_->Add(
-            {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "pending"}, {"level", "INFO"}});
+        EXPECT_TRUE(ingestion()
+                        .Submit({{"timestamp", "2024-01-01T00:00:00Z"},
+                                 {"message", "pending"},
+                                 {"level", "INFO"}})
+                        .admitted);
     }
-    ASSERT_TRUE(test::WaitUntil([&] { return backlog_->Size() == 0; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return ingestion().size() == 0; }));
     server_->Stop();
     const auto before_release = server_finished_.wait_for(std::chrono::milliseconds{100});
     ASSERT_EQ(sqlite3_exec(lock.get(), "COMMIT", nullptr, nullptr, nullptr), SQLITE_OK);
     EXPECT_EQ(before_release, std::future_status::timeout);
     EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
     server_thread_.join();
-    EXPECT_EQ(db_->EstimateLogRowCount(), 190);
+    EXPECT_EQ(store().EstimateLogRowCount(), 190);
 }
 
 // ── Query ───────────────────────────────────────────────────────────────────
 
 TEST_F(ServerTest, QueryRoutingPreservesEncodedFiltersProjectionAndPagination) {
     ASSERT_EQ(
-        db_->Insert({
+        store().Insert({
             {{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "ERROR A"}},
             {{"timestamp", "2024-01-01T00:00:01Z"}, {"message", "second"}, {"level", "INFO"}},
             {{"timestamp", "2024-01-01T00:00:02Z"}, {"message", "third"}, {"level", "ERROR A"}},
@@ -409,11 +379,11 @@ TEST_F(ServerTest, QueryRoutingPreservesEncodedFiltersProjectionAndPagination) {
 
 TEST_F(ServerTest, StatsRoutingReturnsPersistedValues) {
     // Insert some stats data directly.
-    ASSERT_TRUE(db_->InsertActivityStats({.since = "2024-01-01T00:00:00Z",
-                                          .until = "2024-01-01T00:01:00Z",
-                                          .query_count = 10,
-                                          .query_avg = 5}));
-    ASSERT_TRUE(db_->InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
+    ASSERT_TRUE(store().InsertActivityStats({.since = "2024-01-01T00:00:00Z",
+                                             .until = "2024-01-01T00:01:00Z",
+                                             .query_count = 10,
+                                             .query_avg = 5}));
+    ASSERT_TRUE(store().InsertDatabaseStats({"2024-01-01T00:01:00Z", 100, 4096}));
     auto res = http_req(
         cfg_.host, cfg_.port, http::verb::get,
         "/stats?since=2024-01-01T00:00:00Z&until=2024-01-01T01:00:00Z"
@@ -448,11 +418,11 @@ TEST_F(ServerTest, ShutdownCancelsIdleSSESubscriptions) {
         EXPECT_EQ(res[http::field::cache_control], "no-cache");
         EXPECT_TRUE(res.chunked());
     }
-    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 2; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 2; }));
     server_->Stop();
     EXPECT_EQ(server_finished_.wait_for(std::chrono::seconds{3}), std::future_status::ready);
     server_thread_.join();
-    EXPECT_EQ(notifier_->SubscriberCount(), 0u);
+    EXPECT_EQ(live().SubscriberCount(), 0u);
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kHttpConnection), 0);
 }
@@ -506,17 +476,17 @@ TEST_F(ServerTest, SSERejectsInvalidProjectionBeforeSendingEventStreamHeaders) {
         EXPECT_EQ(response[http::field::content_type], "application/json");
         EXPECT_TRUE(nlohmann::json::parse(response.body()).contains("error"));
     }
-    EXPECT_EQ(notifier_->SubscriberCount(), 0u);
+    EXPECT_EQ(live().SubscriberCount(), 0u);
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
 }
 
 TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutReaderWorkers) {
-    cfg_.sse_debounce_ms = 10;
+    runtime_->config().sse_debounce_ms = 10;
     SSEClient all{cfg_};
     SSEClient star{cfg_, "/logs/sse?fields=*"};
     SSEClient projected{cfg_, "/logs/sse?fields=message,service"};
     // Receiving headers does not guarantee that subscription registration has finished.
-    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 3; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 3; }));
 
     // Occupy every reader worker and every connection. An SSE database query
     // would remain queued or block on a lease until the gate is released.
@@ -533,8 +503,8 @@ TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutRea
         }
     } release_on_exit{release, finished};
     for (int i = 0; i < 2; ++i) {
-        asio::post(reader_pool_->get_executor(), [&, gate] {
-            db_read_->UseConnection([&](LogReader&) {
+        asio::post(runtime_->read_pool().get_executor(), [&, gate] {
+            runtime_->readers().UseConnection([&](LogReader&) {
                 entered.count_down();
                 gate.wait();
             });
@@ -576,13 +546,13 @@ TEST_F(ServerTest, SSESupportsAllFieldsAndIndependentProjectedSessionsWithoutRea
         1);
     ASSERT_TRUE(star.AwaitEvents(3));
     ASSERT_TRUE(projected.AwaitEvents(3));
-    EXPECT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 2; }));
+    EXPECT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 2; }));
 }
 
 TEST_F(ServerTest, SSEDebounceCoalescesRapidCommitsBetweenSuccessfulPushes) {
-    cfg_.sse_debounce_ms = 1000;
+    runtime_->config().sse_debounce_ms = 1000;
     SSEClient client{cfg_, "/logs/sse?fields=message"};
-    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 1; }));
     ASSERT_EQ(
         FlushLogs(
             {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),
@@ -607,21 +577,21 @@ TEST_F(ServerTest, SSEDebounceCoalescesRapidCommitsBetweenSuccessfulPushes) {
 }
 
 TEST_F(ServerTest, SSEHeartbeatDetectsIdleClientDisconnectAndUnsubscribes) {
-    cfg_.sse_heartbeat_ms = 100;
+    runtime_->config().sse_heartbeat_ms = 100;
     SSEClient client{cfg_};
     ASSERT_TRUE(client.AwaitHeartbeat());
     EXPECT_TRUE(client.events.empty());
     client.Disconnect();
     // The next heartbeat detects the disconnect without any log traffic.
-    EXPECT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 0; }));
+    EXPECT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 0; }));
     EXPECT_EQ(metrics::MetricsRegistry::Instance().Gauge(metrics::kSseSession), 0);
 }
 
 TEST_F(ServerTest, SSEHeartbeatIsNotDelayedByLongDebounceAfterData) {
-    cfg_.sse_debounce_ms = 60000;
-    cfg_.sse_heartbeat_ms = 100;
+    runtime_->config().sse_debounce_ms = 60000;
+    runtime_->config().sse_heartbeat_ms = 100;
     SSEClient client{cfg_};
-    ASSERT_TRUE(test::WaitUntil([&] { return notifier_->SubscriberCount() == 1; }));
+    ASSERT_TRUE(test::WaitUntil([&] { return live().SubscriberCount() == 1; }));
     ASSERT_EQ(
         FlushLogs(
             {{{"timestamp", "2024-01-01T00:00:00Z"}, {"message", "first"}, {"level", "INFO"}}}),

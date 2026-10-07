@@ -1,4 +1,5 @@
 #include "reader_database.hpp"
+#include "reader_pool.hpp"
 
 #include "log.hpp"
 
@@ -16,6 +17,7 @@ ReaderDatabase::ReaderDatabase(const Config& cfg, std::shared_ptr<DatabaseCatalo
 void ReaderDatabase::Open() { Open(cfg_.db_path); }
 
 void ReaderDatabase::Open(const std::filesystem::path& path) {
+    note_path(path);
     ensure_ok(
         sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nullptr),
         "sqlite3_open_v2");
@@ -41,15 +43,56 @@ PaginatedQueryResult ReaderDatabase::Query(const std::vector<std::string>& field
                                            const std::vector<QueryFilter>& filters, int limit,
                                            int offset) const {
     const auto resolved = ResolveFields(fields);
-    // Use a quick estimate of the total when no filters are applied.
-    const int64_t total = filters.empty() ? EstimateLogRowCount() : CountLogs(filters);
+    exec_sql("BEGIN");
+    const auto end_snapshot = [&] {
+        snapshot_dict_.reset();
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+    };
+    try {
+        LoadSnapshot(resolved, filters);
+        const int64_t total = CountLogs(filters);
+        PaginatedQueryResult result{total, offset, limit, {}};
+        if (total != 0) {
+            for (auto& row : ReadLogs(resolved, filters, LogOrder::kNewestFirst, limit, offset))
+                result.results.push_back(std::move(row.values));
+        }
+        end_snapshot();
+        return result;
+    } catch (...) {
+        end_snapshot();
+        throw;
+    }
+}
 
-    PaginatedQueryResult result{total, offset, limit, {}};
-    if (total == 0) return result;
+void ReaderDatabase::LoadSnapshot(const std::vector<std::string>& fields,
+                                  const std::vector<QueryFilter>& filters) const {
+    std::vector<std::string> needed;
+    const auto consider = [&](const std::string& column) {
+        if (!catalog_->compressed_columns.contains(column)) return;
+        if (std::ranges::find(needed, column) == needed.end()) needed.push_back(column);
+    };
+    for (const auto& field : fields) consider(field);
+    for (const auto& filter : filters) consider(filter.field);
+    if (needed.empty()) {
+        snapshot_dict_.reset();
+        return;
+    }
 
-    for (auto& row : ReadLogs(resolved, filters, LogOrder::kNewestFirst, limit, offset))
-        result.results.push_back(std::move(row.values));
-    return result;
+    const auto sql =
+        fmt::format("SELECT column, value, value_id FROM column_dictionary WHERE column IN ({})",
+                    fmt::join(std::vector<std::string_view>(needed.size(), "?"), ","));
+    Statement stmt{db_, sql};
+    for (int i = 0; i < static_cast<int>(needed.size()); ++i) bind_param(stmt, i + 1, needed[i]);
+
+    LookupTable lookup;
+    while (stmt.Step() == SQLITE_ROW) {
+        auto column = column_to_json(stmt, 0).get<std::string>();
+        const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        auto text = value ? std::string{value, static_cast<size_t>(sqlite3_column_bytes(stmt, 1))}
+                          : std::string{};
+        lookup[column][std::move(text)] = sqlite3_column_int(stmt, 2);
+    }
+    snapshot_dict_ = std::make_shared<ColumnDictionary>(std::move(lookup), nullptr);
 }
 
 void ReaderDatabase::LoadReadDictionary() {

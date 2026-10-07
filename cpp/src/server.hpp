@@ -1,7 +1,7 @@
 #ifndef LOGLITE_SERVER_HPP_
 #define LOGLITE_SERVER_HPP_
 
-#include "context.hpp"
+#include "runtime.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -16,7 +16,7 @@ namespace loglite {
 
 class Server {
    public:
-    Server(ServerContext& ctx);
+    Server(Runtime& runtime);
 
     // Start listening and run the thread pool (blocks until shutdown).
     void Run();
@@ -29,7 +29,7 @@ class Server {
     asio::awaitable<void> HandleConnection(beast::tcp_stream& stream);
     void OnTaskCompleted(std::exception_ptr error);
 
-    ServerContext& ctx_;
+    Runtime& runtime_;
     asio::thread_pool pool_;
     asio::ip::tcp::acceptor acceptor_;
     std::list<beast::tcp_stream> connections_;

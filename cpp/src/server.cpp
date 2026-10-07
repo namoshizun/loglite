@@ -42,10 +42,10 @@ void log_exception(std::exception_ptr eptr, std::string_view tag) {
 
 }  // namespace
 
-Server::Server(ServerContext& ctx) : ctx_(ctx), pool_(1u), acceptor_(pool_) {}
+Server::Server(Runtime& runtime) : runtime_(runtime), pool_(1u), acceptor_(pool_) {}
 
 void Server::Run() {
-    auto& cfg = ctx_.config;
+    auto& cfg = runtime_.config();
     auto ex = pool_.get_executor();
 
     // ── Bind TCP acceptor ─────────────────────────────────────────────────────
@@ -73,8 +73,8 @@ void Server::Run() {
     });
 
     // ── Background tasks ──────────────────────────────────────────────────────
-    std::array background_tasks{tasks::FlushBacklogTask(ctx_), tasks::VacuumTask(ctx_),
-                                tasks::DiagnosticsTask(ctx_)};
+    std::array background_tasks{tasks::FlushBacklogTask(runtime_), tasks::VacuumTask(runtime_),
+                                tasks::DiagnosticsTask(runtime_)};
     pending_tasks_ = background_tasks.size() + 1;  // plus the accept loop
     for (auto& task : background_tasks) {
         asio::co_spawn(ex, std::move(task),
@@ -94,16 +94,16 @@ void Server::Run() {
         OnTaskCompleted(eptr);
     });
 
-    if (ctx_.StopRequested()) Stop();
+    if (runtime_.StopRequested()) Stop();
 
     pool_.join();
     if (failure_) std::rethrow_exception(failure_);
 }
 
 void Server::Stop() {
-    ctx_.stopping.store(true, std::memory_order_release);
+    runtime_.RequestStop();
     asio::dispatch(pool_.get_executor(), [this] {
-        ctx_.RequestStop();
+        runtime_.RequestStop();
         boost::system::error_code ec;
         acceptor_.close(ec);
         for (auto& stream : connections_) stream.socket().close(ec);
@@ -123,7 +123,7 @@ asio::awaitable<void> Server::AcceptLoop(ip::tcp::acceptor& acceptor) {
     while (true) {
         auto [ec, socket] = co_await acceptor.async_accept(asio::as_tuple(asio::use_awaitable));
         if (ec) {
-            if (ec != asio::error::operation_aborted && !ctx_.StopRequested())
+            if (ec != asio::error::operation_aborted && !runtime_.StopRequested())
                 throw boost::system::system_error(ec);
             co_return;
         }
@@ -145,9 +145,10 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
     metrics::GaugeGuard http_connection{metrics::kHttpConnection};
 
     beast::flat_buffer buf;
-    auto& cfg = ctx_.config;
+    auto http = runtime_.http();
+    auto& cfg = http.config;
 
-    while (!ctx_.StopRequested()) {
+    while (!http.StopRequested()) {
         // Per-request idle timeout: re-arm each keep-alive iteration (not once at accept).
         stream.expires_after(kHttpIdleTimeout);
 
@@ -184,11 +185,11 @@ asio::awaitable<void> Server::HandleConnection(beast::tcp_stream& stream) {
 
         // ── Route dispatch ────────────────────────────────────────────────────
         if (req.path() == "/logs/sse" && method == http::verb::get) {
-            co_await handlers::HandleSSE(stream, std::move(req), ctx_);
+            co_await handlers::HandleSSE(stream, std::move(req), http);
             co_return;
         }
 
-        auto routed = co_await handlers::Dispatch(req, ctx_);
+        auto routed = co_await handlers::Dispatch(req, http);
         http::response<http::string_body> res =
             routed ? std::move(*routed)
                    : handlers::MakeFailResp(404, "not found", req, cfg.allow_origin);

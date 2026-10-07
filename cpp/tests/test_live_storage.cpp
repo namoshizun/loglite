@@ -1,4 +1,4 @@
-#include "backlog.hpp"
+#include "ingestion.hpp"
 #include "log_store_test_support.hpp"
 
 using namespace loglite;
@@ -41,18 +41,13 @@ TEST_P(LiveStorageModesTest, OnCommittedReadbackIsExactlyTheInsertedRowsById) {
     std::vector<nlohmann::json> logs{Log("2024-01-01T00:20:00Z", "newer"),
                                      {{"timestamp", "2024-01-01T00:30:00Z"}},
                                      Log("2024-01-01T00:10:00Z", "late")};
-    int calls = 0;
-    EXPECT_EQ(store.Insert(
-                  logs, {},
-                  [&](const WriterDatabase& file, int count) {
-                      ++calls;
-                      const auto fields = ResolveLogFields(file.catalog()->log_column_info, {"*"});
-                      const auto rows =
-                          file.ReadLogs(fields, {}, Database::LogOrder::kIdDescending, count, 0);
-                      EXPECT_EQ(Messages(rows), (std::vector<std::string>{"late", "newer"}));
-                  }),
-              2);
-    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(store.Insert(logs), 2);
+    LogReaderPool readers{store, 1};
+    const auto result = readers.UseConnection(
+        [](LogReader& reader) { return reader.Query({"message"}, {}, 10, 0); });
+    EXPECT_EQ(result.results,
+              (std::vector<nlohmann::json>{
+                  {{"message", "newer"}}, {{"message", "late"}}, {{"message", "old"}}}));
 }
 
 TEST_P(LiveStorageModesTest, InvalidRowsAreAcknowledgedWithoutOnCommitted) {
@@ -62,16 +57,9 @@ TEST_P(LiveStorageModesTest, InvalidRowsAreAcknowledgedWithoutOnCommitted) {
     LogStore store{config};
     store.Open();
     store.Initialize();
-    std::vector<nlohmann::json> invalid{{{"timestamp", "2024-01-01T00:00:00Z"}}};
-    size_t prefix = 0;
-    int calls = 0;
-    EXPECT_EQ(store.Insert(
-                  invalid, [&](size_t value) { prefix = value; },
-                  [&](const WriterDatabase&, int) { ++calls; }),
-              0);
-    EXPECT_EQ(prefix, 1u);
-    EXPECT_EQ(calls, 0);
+    EXPECT_EQ(store.Insert({{{"timestamp", "2024-01-01T00:00:00Z"}}}), 0);
     EXPECT_EQ(store.GetCommittedLogId(), 0);
+    EXPECT_EQ(store.Insert({{{"timestamp", "2024-01-01T00:00:00Z"}}}), 0);
 }
 
 TEST_P(LiveStorageModesTest, ObserverFailureCannotRestoreCommittedPrefixToBacklog) {
@@ -81,26 +69,20 @@ TEST_P(LiveStorageModesTest, ObserverFailureCannotRestoreCommittedPrefixToBacklo
     LogStore store{config};
     store.Open();
     store.Initialize();
-    Backlog backlog{10};
-    backlog.Add(Log("2024-01-01T00:00:00Z", "first"));
-    backlog.Add(Log("2024-01-02T00:00:00Z", "second"));
-    int calls = 0;
-    EXPECT_THROW(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
-        return store.Insert(entries, acknowledge, [&](const WriterDatabase&, int) {
-            ++calls;
+    struct ThrowingFeed : LogNotifier {
+        using LogNotifier::LogNotifier;
+        void Publish(std::vector<nlohmann::json>) override {
             throw std::runtime_error("injected publication failure");
-        });
-    }),
-                 std::runtime_error);
-    const int committed = GetParam() == PartitionInterval::kNone ? 2 : 1;
-    EXPECT_EQ(calls, 1);
-    EXPECT_EQ(store.EstimateLogRowCount(), committed);
-    EXPECT_EQ(store.GetCommittedLogId(), committed);
-    EXPECT_EQ(backlog.Size(), 2u - committed);
-    EXPECT_EQ(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
-        return store.Insert(entries, acknowledge);
-    }),
-              2 - committed);
+        }
+    };
+    ThrowingFeed feed{8};
+    Ingestion ingestion{store, feed, 10, std::chrono::seconds{1}};
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-01T00:00:00Z", "first")).admitted);
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-02T00:00:00Z", "second")).admitted);
+    EXPECT_EQ(ingestion.Settle(), 2);
+    EXPECT_EQ(store.EstimateLogRowCount(), 2);
+    EXPECT_EQ(ingestion.size(), 0u);
+    EXPECT_EQ(ingestion.Settle(), 0);
     EXPECT_EQ(store.EstimateLogRowCount(), 2);
 }
 

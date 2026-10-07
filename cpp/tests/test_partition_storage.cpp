@@ -1,7 +1,6 @@
 #include "log_store_test_support.hpp"
 
-#include "backlog.hpp"
-#include "context.hpp"
+#include "ingestion.hpp"
 #include "partition.hpp"
 #include "utils.hpp"
 
@@ -237,13 +236,12 @@ TEST_F(PartitionStorageTest, InterleavedBatchCommitsEachPartitionOnceInRangeOrde
     std::vector<nlohmann::json> batch{
         Log("2024-01-02T01:00:00Z", "a"), Log("2024-01-01T08:00:00+08:00", "b"),
         Log("2024-01-02T02:00:00Z", "c"), Log("2024-01-01T01:00:00Z", "d")};
-    std::vector<size_t> acknowledged;
-    EXPECT_EQ(db_->Insert(batch, [&](size_t prefix) { acknowledged.push_back(prefix); }), 4);
-    EXPECT_EQ(acknowledged, (std::vector<size_t>{2, 4}));
-    std::vector<std::string> order;
-    for (const auto& entry : batch) order.push_back(entry["message"]);
-    EXPECT_EQ(order, (std::vector<std::string>{"b", "d", "a", "c"}));
-    EXPECT_EQ(batch[0]["timestamp"], "2024-01-01T00:00:00.000Z");
+    EXPECT_EQ(db_->Insert(batch), 4);
+    EXPECT_EQ(Query({"message"}, {}, 10, 0).results,
+              (std::vector<nlohmann::json>{
+                  {{"message", "c"}}, {{"message", "a"}}, {{"message", "d"}}, {{"message", "b"}}}));
+    EXPECT_EQ(Query({"timestamp"}, {{"message", "=", "b"}}, 10, 0).results,
+              (std::vector<nlohmann::json>{{{"timestamp", "2024-01-01T00:00:00.000Z"}}}));
 
     EXPECT_EQ(PartitionFiles(), (std::vector{File("2024-01-01"), File("2024-01-02")}));
     EXPECT_EQ(test::ScalarFile(File("2024-01-01"), "SELECT group_concat(id) = '1,2' FROM TestLog"),
@@ -273,38 +271,14 @@ TEST_F(PartitionStorageTest, InvalidTimestampsUseIngestionTimeAndRowsMissingFiel
         EXPECT_LE(*stored, after);
     }
     EXPECT_EQ(db_->GetCommittedLogId(), 3);
-    EXPECT_EQ(ReservedId(), 4);  // the skipped row never became committed ID 4
+    EXPECT_EQ(ReservedId(), 3);  // a row rejected before admission is not reserved
 }
 
-TEST_F(PartitionStorageTest, RoutingFailureRestoresAllUncommittedEntriesForRetry) {
-    const std::vector<nlohmann::json> batch{Log("2024-01-02T00:00:00.000Z", "newer"),
-                                            Log("2024-01-01T00:00:00.000Z", "older"), 42,
-                                            Log("2024-01-03T00:00:00.000Z", "following")};
-    Backlog backlog{10};
-    for (const auto& entry : batch) backlog.Add(entry);
-    std::vector<size_t> acknowledged;
-    EXPECT_THROW(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
-        return db_->Insert(entries, [&](size_t prefix) {
-            acknowledged.push_back(prefix);
-            acknowledge(prefix);
-        });
-    }),
-                 nlohmann::json::type_error);
-
-    auto restored = backlog.Flush();
-    ASSERT_EQ(restored, batch);
-    EXPECT_TRUE(acknowledged.empty());
-    EXPECT_TRUE(PartitionFiles().empty());
-    EXPECT_EQ(ReservedId(), 0);
-
-    // Remove the malformed entry and retry the preserved logs.
-    restored.erase(restored.begin() + 2);
-    for (auto& entry : restored) backlog.Add(std::move(entry));
-    EXPECT_EQ(backlog.FlushCommitted([&](auto& entries, const auto& acknowledge) {
-        return db_->Insert(entries, acknowledge);
-    }),
+TEST_F(PartitionStorageTest, InvalidEntryIsRejectedAndValidPeersCommit) {
+    EXPECT_EQ(db_->Insert({Log("2024-01-02T00:00:00.000Z", "newer"),
+                           Log("2024-01-01T00:00:00.000Z", "older"), 42,
+                           Log("2024-01-03T00:00:00.000Z", "following")}),
               3);
-    EXPECT_TRUE(backlog.Flush().empty());
     EXPECT_EQ(Query({"message"}, {}, 10, 0).results,
               (std::vector<nlohmann::json>{
                   {{"message", "following"}}, {{"message", "newer"}}, {{"message", "older"}}}));
@@ -317,37 +291,23 @@ TEST_F(PartitionStorageTest, PartialFailureAcknowledgesCommittedPrefixAndNotifie
           "BEGIN SELECT RAISE(ABORT, 'injected partition failure'); END"},
          {"DROP TRIGGER reject_log"}});
     ASSERT_TRUE(db_->Rollout());
-    Backlog backlog{10};
-    backlog.Add(Log("2024-01-01T00:00:00Z", "accepted"));
-    backlog.Add(Log("2024-01-02T00:00:00Z", "reject"));
-    backlog.Add(Log("2024-01-03T00:00:00Z", "following"));
     LogNotifier notifier{static_cast<size_t>(cfg_.sse_limit)};
-    asio::thread_pool executor{1};
-    ServerContext context{cfg_,
-                          *db_,
-                          *pool_,
-                          backlog,
-                          notifier,
-                          asio::make_strand(executor.get_executor()),
-                          executor.get_executor()};
-    EXPECT_THROW(context.FlushBacklog(), std::runtime_error);
-    EXPECT_EQ(backlog.Size(), 2u);
-    EXPECT_EQ(db_->EstimateLogRowCount(), 1);
-    EXPECT_EQ(db_->GetCommittedLogId(), 1);
+    Ingestion ingestion{*db_, notifier, 10, std::chrono::seconds{1}};
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-01T00:00:00Z", "accepted")).admitted);
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-02T00:00:00Z", "reject")).admitted);
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-03T00:00:00Z", "following")).admitted);
+    EXPECT_EQ(ingestion.Settle(), 2);
+    EXPECT_EQ(ingestion.size(), 0u);
+    EXPECT_EQ(db_->EstimateLogRowCount(), 2);
     uint64_t cursor = 0;
     auto published = notifier.Since(cursor);
-    ASSERT_EQ(published.size(), 1u);
+    ASSERT_EQ(published.size(), 2u);
     EXPECT_EQ((*published[0])["message"], "accepted");
-    EXPECT_EQ(cursor, 1u);
-    EXPECT_EQ(ReservedId(), 2);
+    EXPECT_EQ((*published[1])["message"], "following");
     EXPECT_TRUE(db_->Rollback(2, true));
-    EXPECT_EQ(context.FlushBacklog(), 2);
-    EXPECT_EQ(backlog.Size(), 0u);
-    auto rest = notifier.Since(cursor);
-    EXPECT_EQ(rest.size(), 2u);
-    EXPECT_EQ(cursor, 3u);
+    ASSERT_TRUE(ingestion.Submit(Log("2024-01-02T00:00:00Z", "reject")).admitted);
+    EXPECT_EQ(ingestion.Settle(), 1);
     EXPECT_EQ(Query({"*"}, {}, 10, 0).total, 3);
-    executor.join();
 }
 
 TEST_F(PartitionStorageTest, RestartNeverReusesReservedIdsAfterEveryFileExpired) {
@@ -650,39 +610,32 @@ TEST_F(CompressedPartitionStorageTest, RetryReloadsDictionaryAfterOnePartitionCo
           "WHEN NEW.message = 'reject' BEGIN SELECT RAISE(ABORT, 'reject'); END"},
          {"DROP TRIGGER reject_log"}});
     ASSERT_TRUE(db_->Rollout());
-    Backlog backlog{10};
     auto accepted = Log("2024-01-01T00:00:00Z", "accepted");
     auto rejected = Log("2024-01-02T00:00:00Z", "reject");
     rejected["level"] = "FAILED";
     auto following = Log("2024-01-02T01:00:00Z", "following");
     following["level"] = "ERROR";
-    for (const auto& row : {accepted, rejected, following}) backlog.Add(row);
     LogNotifier notifier{static_cast<size_t>(cfg_.sse_limit)};
-    asio::thread_pool executor{1};
-    ServerContext context{cfg_,
-                          *db_,
-                          *pool_,
-                          backlog,
-                          notifier,
-                          asio::make_strand(executor.get_executor()),
-                          executor.get_executor()};
-    EXPECT_THROW(context.FlushBacklog(), std::runtime_error);
-    EXPECT_EQ(backlog.Size(), 2u);
+    Ingestion ingestion{*db_, notifier, 10, std::chrono::seconds{1}};
+    ASSERT_TRUE(ingestion.Submit(accepted).admitted);
+    ASSERT_TRUE(ingestion.Submit(rejected).admitted);
+    ASSERT_TRUE(ingestion.Submit(following).admitted);
+    EXPECT_EQ(ingestion.Settle(), 2);
+    EXPECT_EQ(ingestion.size(), 0u);
     uint64_t cursor = 0;
     auto published = notifier.Since(cursor);
-    ASSERT_EQ(published.size(), 1u);
+    ASSERT_EQ(published.size(), 2u);
     EXPECT_EQ((*published[0])["message"], "accepted");
-    EXPECT_EQ(cursor, 1u);
+    EXPECT_EQ((*published[1])["message"], "following");
     EXPECT_EQ(Query({"level"}, {}, 10, 0).results,
-              (std::vector<nlohmann::json>{{{"level", "INFO"}}}));
+              (std::vector<nlohmann::json>{{{"level", "ERROR"}}, {{"level", "INFO"}}}));
     ASSERT_TRUE(db_->Rollback(2, true));
-    EXPECT_EQ(context.FlushBacklog(), 2);
-    EXPECT_EQ(backlog.Size(), 0u);
+    ASSERT_TRUE(ingestion.Submit(rejected).admitted);
+    EXPECT_EQ(ingestion.Settle(), 1);
     EXPECT_EQ(Query({"level"}, {}, 10, 0).results,
               (std::vector<nlohmann::json>{
                   {{"level", "ERROR"}}, {{"level", "FAILED"}}, {{"level", "INFO"}}}));
     EXPECT_EQ(Query({"id"}, {{"level", "=", "FAILED"}}, 10, 0).total, 1);
-    executor.join();
 }
 
 TEST_F(CompressedPartitionStorageTest, FiltersUseEachFilesDictionaryForCompressedValues) {

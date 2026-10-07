@@ -1,14 +1,14 @@
 #ifndef LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
 #define LOGLITE_TASKS_FLUSH_BACKLOG_HPP_
 
-#include "../context.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
+#include "../runtime.hpp"
+#include "../schedule.hpp"
 #include "../utils.hpp"
 
 #include <boost/asio.hpp>
 #include <chrono>
-#include <thread>
 
 namespace asio = boost::asio;
 
@@ -16,51 +16,37 @@ namespace loglite::tasks {
 
 using namespace std::chrono_literals;
 
-// ── Backlog flush task ─────────────────────────────────────────────────────────
-//
-// Runs as an infinite Asio coroutine.  Every task_backlog_flush_interval seconds
-// (or when Backlog signals the high watermark via IsFull()), it:
-//   1. Dispatches to the write strand to drain the backlog and INSERT into SQLite.
-//   2. Restores the drained batch if the transaction fails.
-//   3. Publishes newly committed rows to SSE subscribers.
-
-inline asio::awaitable<void> FlushBacklogTask(ServerContext& ctx) {
+// Wakes when the backlog crosses its watermark, and also on the configured
+// deadline. Stop does not drain: the runtime settles after producers finish.
+inline asio::awaitable<void> FlushBacklogTask(Runtime& runtime) {
     auto ex = co_await asio::this_coro::executor;
-    auto& cfg = ctx.config;
+    auto& cfg = runtime.config();
     auto timer = std::make_shared<asio::steady_timer>(ex);
-    ctx.RegisterShutdownTimer(timer);
+    runtime.RegisterShutdownTimer(timer);
+    runtime.ingestion().SetWake([timer] { timer->cancel(); });
 
     log::INFO("Backlog flush task started");
 
-    while (true) {
-        // Poll every 100 ms; break early when the backlog hits the flush watermark.
-        auto deadline = std::chrono::steady_clock::now() + cfg.task_backlog_flush_interval * 1s;
-
-        while (std::chrono::steady_clock::now() < deadline && !ctx.backlog.IsFull() &&
-               !ctx.StopRequested()) {
-            timer->expires_after(100ms);
+    while (!runtime.StopRequested()) {
+        if (!runtime.ingestion().ShouldFlush()) {
+            timer->expires_after(cfg.task_backlog_flush_interval * 1s);
             co_await timer->async_wait(asio::as_tuple(asio::use_awaitable));
         }
-
-        if (ctx.StopRequested()) {
-            // Backlog may still be full... But timely termination guarantee is more important.
+        if (runtime.StopRequested()) {
             log::INFO("[Termination] backlog flush task stopped");
             co_return;
         }
+        if (runtime.ingestion().size() == 0 && runtime.ingestion().in_flight_bytes() == 0) continue;
 
-        if (ctx.backlog.Size() == 0) continue;
-
-        auto [count, max_id, elapsed] =
-            co_await ctx.db_write.AsyncUseConnection(ctx.write_strand, [&ctx](LogStore& db) {
-                Timer t;
-                int c = ctx.FlushBacklog();
-                int64_t m = db.GetCommittedLogId();
-                return std::make_tuple(c, m, t.elapsed_ms());
-            });
+        auto [count, elapsed] = co_await Schedule(runtime.write_strand(), [&runtime] {
+            Timer timer_scope;
+            const int settled = runtime.Settle();
+            return std::make_pair(settled, timer_scope.elapsed_ms());
+        });
         if (count == 0) continue;
 
         metrics::MetricsRegistry::Instance().Collect(metrics::kInsertBatch, elapsed, count);
-        log::DEBUG("Inserted {} row(s), max_log_id={}", count, max_id);
+        log::DEBUG("Inserted {} row(s)", count);
     }
 }
 

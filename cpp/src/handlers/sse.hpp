@@ -2,7 +2,7 @@
 #define LOGLITE_HANDLERS_SSE_HPP_
 
 #include "common.hpp"
-#include "../context.hpp"
+#include "../access.hpp"
 #include "../log.hpp"
 #include "../metrics.hpp"
 
@@ -21,12 +21,15 @@ namespace loglite::handlers {
 
 using namespace std::chrono_literals;
 
-inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, ServerContext& ctx) {
-    const auto& cfg = ctx.config;
+inline constexpr size_t kMaxSseSubscribers = 128;
+inline constexpr auto kSseWriteTimeout = 10s;
+
+inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, HttpAccess http) {
+    const auto& cfg = http.config;
     auto fields = req.ListParam("fields").value_or(std::vector<std::string>{"*"});
     std::string field_error;
     try {
-        fields = ResolveLogFields(ctx.db_write.catalog()->log_column_info, fields);
+        fields = ResolveLogFields(http.schema.columns(), fields);
     } catch (const std::runtime_error& error) {
         field_error = error.what();
     }
@@ -41,9 +44,15 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, S
         LogNotifier& _notifier;
         std::shared_ptr<asio::steady_timer> _timer;
         ~SubscriptionGuard() { _notifier.Unsubscribe(_timer); }
-    } unsubscribe{ctx.notifier, timer};
+    } unsubscribe{http.live, timer};
 
-    stream.expires_never();
+    if (http.live.SubscriberCount() >= kMaxSseSubscribers) {
+        auto response = MakeFailResp(503, "too many live subscribers", req, cfg.allow_origin);
+        co_await http::async_write(stream, response, asio::as_tuple(asio::use_awaitable));
+        co_return;
+    }
+
+    stream.expires_after(kSseWriteTimeout);
 
     http::response<http::empty_body> response{http::status::ok, req.version()};
     response.set(http::field::content_type, "text/event-stream");
@@ -65,22 +74,24 @@ inline asio::awaitable<void> HandleSSE(beast::tcp_stream& stream, Request req, S
 
     const auto subscriber_id = reinterpret_cast<uintptr_t>(timer.get());
     log::INFO("SSE subscriber {} connected (subscribers={})", subscriber_id,
-              ctx.notifier.SubscriberCount());
+              http.live.SubscriberCount());
 
     auto send = [&](std::string_view payload) -> asio::awaitable<bool> {
+        stream.expires_after(kSseWriteTimeout);
         const auto [error, bytes] = co_await asio::async_write(
             stream, http::make_chunk(asio::buffer(payload)), asio::as_tuple(asio::use_awaitable));
+        stream.expires_never();
         co_return !error;
     };
 
     const auto debounce = cfg.sse_debounce_ms * 1ms;
     const auto heartbeat_interval = cfg.sse_heartbeat_ms * 1ms;
-    uint64_t cursor = ctx.notifier.Subscribe(timer);
+    uint64_t cursor = http.live.Subscribe(timer);
 
-    while (!ctx.StopRequested()) {
+    while (!http.StopRequested()) {
         const auto now = std::chrono::steady_clock::now();
         if (now >= next_push) {
-            if (auto rows = ctx.notifier.Since(cursor); !rows.empty()) {
+            if (auto rows = http.live.Since(cursor); !rows.empty()) {
                 auto payload = nlohmann::json::array();
                 for (const auto& row : rows | std::views::reverse) {
                     auto projected = nlohmann::json::object();

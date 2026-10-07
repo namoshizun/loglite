@@ -32,7 +32,8 @@ def test_run_calls_core_run_server(monkeypatch: pytest.MonkeyPatch):
 
     cli.run("server.yml")
 
-    _core.run_server.assert_called_once_with("server.yml")  # pyright: ignore[reportAttributeAccessIssue]
+    _core.run_server.assert_called_once()  # pyright: ignore[reportAttributeAccessIssue]
+    assert _core.run_server.call_args.args[0] == "server.yml"
 
 
 def test_run_starts_and_joins_harvester_thread(monkeypatch: pytest.MonkeyPatch):

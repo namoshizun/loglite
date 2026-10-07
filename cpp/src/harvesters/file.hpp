@@ -11,7 +11,8 @@
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
+#include <fcntl.h>
+#include <unistd.h>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -70,11 +71,12 @@ class FileHarvester final : public Harvester {
         bool flush_partial_line_on_close{true};
     };
 
-    FileHarvester(std::string name, std::filesystem::path path, Backlog& backlog)
-        : Harvester(std::move(name), backlog), path_(std::move(path)) {}
+    FileHarvester(std::string name, std::filesystem::path path, Submission submission)
+        : Harvester(std::move(name), std::move(submission)), path_(std::move(path)) {}
 
-    FileHarvester(std::string name, std::filesystem::path path, Backlog& backlog, Options options)
-        : Harvester(std::move(name), backlog),
+    FileHarvester(std::string name, std::filesystem::path path, Submission submission,
+                  Options options)
+        : Harvester(std::move(name), std::move(submission)),
           path_(std::move(path)),
           options_(normalize_options(options)) {}
 
@@ -133,7 +135,7 @@ class FileHarvester final : public Harvester {
     };
 
     struct OpenFile {
-        std::ifstream stream;
+        int fd{-1};
         FileIdentity identity{};
         std::uintmax_t offset{};
         std::string pending_line;
@@ -215,13 +217,12 @@ class FileHarvester final : public Harvester {
 
             if (*path_identity != current->identity) {
                 log::INFO("FileHarvester '{}': file rotated/replaced: {}", name_, path_.string());
-
+                // Capture the replacement before draining the old descriptor, so a
+                // second rotation during the grace period cannot hide that inode.
+                auto replacement = open_file(false);
                 drain_for_grace_period(*current, buffer, st);
-
                 close_file(*current, "rotation");
-                current.reset();
-
-                // Next loop opens the new file from beginning.
+                current = std::move(replacement);
                 continue;
             }
 
@@ -235,8 +236,9 @@ class FileHarvester final : public Harvester {
                 current->offset = 0;
                 current->dropping_overlong_line = false;
 
-                current->stream.clear();
-                current->stream.seekg(0, std::ios::beg);
+                if (::lseek(current->fd, 0, SEEK_SET) < 0) {
+                    log::WARN("FileHarvester '{}': failed to rewind after truncation", name_);
+                }
                 read_offset_.store(0);
             }
 
@@ -247,12 +249,8 @@ class FileHarvester final : public Harvester {
 
         if (current.has_value()) {
             // Drain only the bytes present at shutdown, even if a writer keeps appending.
-            current->stream.clear();
-            current->stream.seekg(0, std::ios::end);
-            const auto end = current->stream.tellg();
-            if (end >= 0) {
-                read_available(*current, buffer, {}, static_cast<std::uintmax_t>(end));
-            }
+            const auto end = ::lseek(current->fd, 0, SEEK_END);
+            if (end >= 0) read_available(*current, buffer, {}, static_cast<std::uintmax_t>(end));
             close_file(*current, "shutdown");
         }
     }
@@ -263,21 +261,21 @@ class FileHarvester final : public Harvester {
             return std::nullopt;
         }
 
-        auto file = std::ifstream{path_, std::ios::binary};
-        if (!file.is_open()) {
+        const int fd = ::open(path_.c_str(), O_RDONLY);
+        if (fd < 0) {
             log::WARN("FileHarvester '{}': failed to open {}", name_, path_.string());
             return std::nullopt;
         }
-
-        // Re-check identity to detect rotation racing with the open.
-        const auto identity_after_open = current_path_identity();
-        if (!identity_after_open.has_value()) {
+        const auto descriptor_identity = identity_of_fd(fd);
+        if (!descriptor_identity) {
+            ::close(fd);
             return std::nullopt;
         }
 
-        if (*identity_before_open != *identity_after_open) {
-            // Path changed while opening. Retry on next polling iteration.
+        // The path was replaced between the pre-check and this descriptor.
+        if (*identity_before_open != *descriptor_identity) {
             log::WARN("FileHarvester '{}': file changed while opening {}", name_, path_.string());
+            ::close(fd);
             return std::nullopt;
         }
 
@@ -291,15 +289,16 @@ class FileHarvester final : public Harvester {
             offset = *size;
         }
 
-        if (!seek_to(file, offset)) {
+        if (::lseek(fd, static_cast<off_t>(offset), SEEK_SET) < 0) {
             log::WARN("FileHarvester '{}': failed to seek {} to offset {}", name_, path_.string(),
                       offset);
+            ::close(fd);
             return std::nullopt;
         }
 
         OpenFile opened;
-        opened.stream = std::move(file);
-        opened.identity = *identity_after_open;
+        opened.fd = fd;
+        opened.identity = *descriptor_identity;
         opened.offset = offset;
 
         read_offset_.store(offset);
@@ -312,20 +311,13 @@ class FileHarvester final : public Harvester {
                                std::uintmax_t end_offset = kClosedOffset) {
         std::size_t total_read = 0;
 
-        if (!file.stream.is_open()) {
-            return 0;
-        }
-
-        if (!seek_to(file.stream, file.offset)) {
-            log::WARN("FileHarvester '{}': failed to seek to offset {}", name_, file.offset);
-            return 0;
-        }
+        if (file.fd < 0) return 0;
 
         while (!st.stop_requested() && file.offset < end_offset) {
             const auto read_size =
                 std::min<std::uintmax_t>(buffer.size(), end_offset - file.offset);
-            file.stream.read(buffer.data(), static_cast<std::streamsize>(read_size));
-            const auto n = file.stream.gcount();
+            const auto n = ::pread(file.fd, buffer.data(), static_cast<size_t>(read_size),
+                                   static_cast<off_t>(file.offset));
 
             if (n <= 0) {
                 break;
@@ -410,8 +402,9 @@ class FileHarvester final : public Harvester {
     void close_file(OpenFile& file, std::string_view reason) {
         flush_or_drop_pending_line(file, reason);
 
-        if (file.stream.is_open()) {
-            file.stream.close();
+        if (file.fd >= 0) {
+            ::close(file.fd);
+            file.fd = -1;
         }
         read_offset_.store(kClosedOffset);
     }
@@ -445,11 +438,6 @@ class FileHarvester final : public Harvester {
                 log::WARN("FileHarvester '{}': dropping non-object JSON line: {}", name_,
                           escaped_preview(line));
                 return;
-            }
-
-            if (!entry.contains("timestamp") || !entry["timestamp"].is_string() ||
-                entry["timestamp"].get_ref<const std::string&>().empty()) {
-                entry["timestamp"] = format_utc(std::chrono::system_clock::now());
             }
 
             Ingest(std::move(entry));
@@ -488,17 +476,6 @@ class FileHarvester final : public Harvester {
         }
 
         return size;
-    }
-
-    static bool seek_to(std::ifstream& file, std::uintmax_t offset) {
-        if (offset > static_cast<std::uintmax_t>(std::numeric_limits<std::streamoff>::max())) {
-            return false;
-        }
-
-        file.clear();
-        file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-
-        return static_cast<bool>(file);
     }
 
     static void responsive_sleep(std::stop_token st, std::chrono::milliseconds duration) {
@@ -573,7 +550,25 @@ class FileHarvester final : public Harvester {
         return FileIdentity{
             static_cast<std::uint64_t>(st.st_dev),
             static_cast<std::uint64_t>(st.st_ino),
+#ifdef __APPLE__
+            static_cast<std::uint64_t>(st.st_gen),
+#else
             0,
+#endif
+        };
+    }
+
+    static std::optional<FileIdentity> identity_of_fd(int fd) {
+        struct stat st{};
+        if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) return std::nullopt;
+        return FileIdentity{
+            static_cast<std::uint64_t>(st.st_dev),
+            static_cast<std::uint64_t>(st.st_ino),
+#ifdef __APPLE__
+            static_cast<std::uint64_t>(st.st_gen),
+#else
+            0,
+#endif
         };
     }
 

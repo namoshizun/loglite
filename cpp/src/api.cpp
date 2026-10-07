@@ -1,15 +1,17 @@
 #include "api.hpp"
 
 #include "config.hpp"
-#include "log_store.hpp"
-#include "context.hpp"
 #include "harvesters/base.hpp"
 #include "harvesters/file.hpp"
 #include "log.hpp"
 #include "metrics.hpp"
+#include "runtime.hpp"
+#include "schedule.hpp"
 #include "server.hpp"
 
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -21,23 +23,27 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Module-level state set during RunServer so PushToBacklog / StopServer work.
-// Access and teardown are synchronized; only one server runs per process.
-Backlog* g_backlog{nullptr};
-Server* g_server{nullptr};
+struct ActiveRun {
+    uint64_t epoch{};
+    std::shared_ptr<Submission::Gate> gate;
+    Runtime* runtime{};
+    Server* server{};
+    std::mutex mu;
+    std::condition_variable cv;
+    bool producers_finished{true};
+};
 
-void FlushPendingBacklog(ServerContext& ctx) {
-    // Queue behind in-flight work and keep all access to the writer on its strand.
-    const int count =
-        asio::co_spawn(
-            ctx.write_strand, [&ctx]() -> asio::awaitable<int> { co_return ctx.FlushBacklog(); },
-            asio::use_future)
-            .get();
-    log::INFO("[Termination] flushed {} pending log(s)", count);
+std::mutex g_mu;
+std::shared_ptr<ActiveRun> g_run;
+uint64_t g_next_epoch{1};
+
+std::shared_ptr<ActiveRun> CurrentRun() {
+    std::lock_guard lock{g_mu};
+    return g_run;
 }
 
 std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const Config& cfg,
-                                                                          Backlog& backlog) {
+                                                                          Submission submission) {
     std::vector<std::unique_ptr<harvesters::Harvester>> harvesters;
     for (const auto& hdef : cfg.harvesters) {
         if (hdef.type == "loglite.harvesters.FileHarvester" || hdef.type == "FileHarvester") {
@@ -46,9 +52,8 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
                 log::WARN("FileHarvester '{}': missing 'path' config", hdef.name);
                 continue;
             }
-
             harvesters.push_back(
-                std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, backlog));
+                std::make_unique<harvesters::FileHarvester>(hdef.name, it->second, submission));
         } else {
             log::WARN("Unknown harvester type '{}', skipping", hdef.type);
         }
@@ -56,89 +61,119 @@ std::vector<std::unique_ptr<harvesters::Harvester>> BuildNativeHarvesters(const 
     return harvesters;
 }
 
+void WaitForProducers(const std::shared_ptr<ActiveRun>& run) {
+    std::unique_lock lock{run->mu};
+    run->cv.wait(lock, [&] { return run->producers_finished; });
+}
+
 }  // namespace
 
-void RunServer(const std::filesystem::path& config_path) {
-    // Load config and init database
+void RunServer(const std::filesystem::path& config_path, std::function<void()> on_ready,
+               std::function<void()> on_stop) {
     auto cfg = Config::from_file(config_path);
-
     log::SetLevel(cfg.debug ? log::Level::kDebug : log::Level::kInfo);
     metrics::MetricsRegistry::Instance().Configure(cfg.task_diagnostics_interval * 1s);
 
-    LogStore db_write{cfg};
-    db_write.Open();
-    db_write.Initialize();
+    auto runtime = std::make_unique<Runtime>(std::move(cfg));
+    auto run = std::make_shared<ActiveRun>();
+    {
+        std::lock_guard lock{g_mu};
+        run->epoch = g_next_epoch++;
+        run->gate = std::make_shared<Submission::Gate>();
+        run->runtime = runtime.get();
+        run->gate->submit = [rt = runtime.get()](nlohmann::json entry) {
+            return rt->ingestion().Submit(std::move(entry)).admitted;
+        };
+        // The runtime's own gate is unused; producers bind to this run's gate.
+        g_run = run;
+    }
 
-    LogReaderPool db_read(db_write, cfg.resolve_pool_size());
-
-    // Init server context
-    Backlog backlog{static_cast<size_t>(cfg.task_backlog_max_size)};
-    LogNotifier notifier{static_cast<size_t>(cfg.sse_limit)};
-
-    asio::thread_pool db_write_pool{1u};
-    asio::thread_pool db_read_pool{cfg.resolve_pool_size()};
-
-    const auto server_started_at = std::chrono::steady_clock::now();
-    ServerContext ctx{cfg,
-                      db_write,
-                      db_read,
-                      backlog,
-                      notifier,
-                      asio::make_strand(db_write_pool.get_executor()),
-                      db_read_pool.get_executor(),
-                      server_started_at};
-
-    Server server{ctx};
-    g_backlog = &backlog;
-    g_server = &server;
-
-    auto native = BuildNativeHarvesters(cfg, backlog);
-
+    auto native = BuildNativeHarvesters(runtime->config(), Submission{run->gate});
+    Server server{*runtime};
+    run->server = &server;
     std::exception_ptr failure;
+
     try {
+        if (on_ready) on_ready();
         for (const auto& harvester : native) harvester->Start();
-        log::INFO("loglite server starting on {}:{}", cfg.host, cfg.port);
+        log::INFO("loglite server starting on {}:{}", runtime->config().host,
+                  runtime->config().port);
         server.Run();
     } catch (...) {
         failure = std::current_exception();
     }
+    run->server = nullptr;
 
-    // Teardown
-    g_server = nullptr;
-    g_backlog = nullptr;
+    if (on_stop) {
+        {
+            std::lock_guard lock{run->mu};
+            run->producers_finished = false;
+        }
+        try {
+            on_stop();
+        } catch (...) {
+            if (!failure) failure = std::current_exception();
+        }
+        WaitForProducers(run);
+    }
 
     for (const auto& harvester : native) harvester->Stop();
+    run->gate->Seal();
+    runtime->ingestion().Seal();
 
-    // All producers have stopped, including harvesters that emit a partial line in Stop().
     try {
-        FlushPendingBacklog(ctx);
+        const int count =
+            asio::co_spawn(
+                runtime->write_strand(),
+                [&]() -> asio::awaitable<int> { co_return runtime->Settle(); }, asio::use_future)
+                .get();
+        log::INFO("[Termination] flushed {} pending log(s)", count);
     } catch (const std::exception& e) {
         log::ERROR("[Termination] backlog flush failed: {}", e.what());
-        if (!failure) {
-            failure = std::current_exception();
-        }
+        if (!failure) failure = std::current_exception();
     }
 
-    db_write_pool.join();
-    db_read_pool.join();
-
-    db_read.Close();
-    db_write.Close();
-
-    if (failure) {
-        std::rethrow_exception(failure);
+    {
+        std::lock_guard lock{g_mu};
+        if (g_run == run) g_run.reset();
+        run->runtime = nullptr;
     }
+    runtime.reset();
+
+    if (failure) std::rethrow_exception(failure);
 }
 
 void StopServer() {
-    if (g_server) g_server->Stop();
+    auto run = CurrentRun();
+    if (run && run->server)
+        run->server->Stop();
+    else if (run && run->runtime)
+        run->runtime->RequestStop();
 }
 
 void PushToBacklog(nlohmann::json entry) {
-    if (g_backlog) g_backlog->Add(std::move(entry));
+    auto run = CurrentRun();
+    if (!run || !run->gate) return;
+    run->gate->Push(std::move(entry));
 }
 
-// ── Migrations ────────────────────────────────────────────────────────────────
+Submission CurrentSubmission() {
+    auto run = CurrentRun();
+    return run && run->gate ? Submission{run->gate} : Submission{};
+}
+
+uint64_t CurrentEpoch() {
+    auto run = CurrentRun();
+    return run ? run->epoch : 0;
+}
+
+void NotifyProducersFinished(uint64_t epoch) {
+    auto run = CurrentRun();
+    if (!run || run->epoch != epoch) return;
+    std::lock_guard lock{run->mu};
+    run->producers_finished = true;
+    run->cv.notify_all();
+}
 
 void Rollout(const std::filesystem::path& config_path, int start_version) {
     auto cfg = Config::from_file(config_path);
@@ -146,9 +181,7 @@ void Rollout(const std::filesystem::path& config_path, int start_version) {
 
     LogStore db{cfg};
     db.Open();
-    if (!db.Rollout(start_version)) {
-        log::INFO("No pending migrations to apply.");
-    }
+    if (!db.Rollout(start_version)) log::INFO("No pending migrations to apply.");
 }
 
 void Rollback(const std::filesystem::path& config_path, int version, bool force) {

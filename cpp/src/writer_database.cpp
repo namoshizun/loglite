@@ -19,6 +19,7 @@ WriterDatabase::WriterDatabase(const Config& cfg)
 void WriterDatabase::Open() { Open(cfg_.db_path); }
 
 void WriterDatabase::Open(const std::filesystem::path& path) {
+    note_path(path);
     ensure_ok(sqlite3_open(path.string().c_str(), &db_), "sqlite3_open");
     apply_params(AccessMode::WRITE);
     log::DEBUG("Opened writer SQLite connection: {}", path.string());
@@ -102,81 +103,176 @@ void WriterDatabase::LoadColumnDictionary() {
         });
 }
 
-int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t first_id) {
-    std::vector<ColumnInfo> cols;
-    cols.reserve(catalog_->log_column_info.size());
-    std::ranges::copy_if(catalog_->log_column_info, std::back_inserter(cols),
-                         [](const ColumnInfo& ci) { return !ci.is_pk; });
+namespace {
 
-    if (cols.empty() || logs.empty()) return 0;
+class ConstraintAbort : public std::exception {};
 
-    auto col_list = fmt::to_string(fmt::join(cols | std::views::transform(&ColumnInfo::name), ","));
-    auto placeholders =
-        fmt::to_string(fmt::join(std::vector<std::string_view>(cols.size(), "?"), ","));
-    if (first_id > 0) {
-        col_list = "id," + col_list;
-        placeholders = "?," + placeholders;
+StorageFailure ClassifyStorage(const SqliteError& error) {
+    switch (error.primary()) {
+    case SQLITE_BUSY:
+    case SQLITE_LOCKED:
+        return StorageFailure::kTransient;
+    case SQLITE_FULL:
+    case SQLITE_IOERR:
+        return StorageFailure::kDiskFull;
+    default:
+        return StorageFailure::kInvariant;
+    }
+}
+
+}  // namespace
+
+int64_t WriterDatabase::InsertOne(const nlohmann::json& log, int64_t assigned_id) {
+    std::vector<std::string> names;
+    std::vector<nlohmann::json> values;
+    if (assigned_id > 0) {
+        names.emplace_back("id");
+        values.emplace_back(assigned_id);
     }
 
-    auto sql =
-        fmt::format("INSERT INTO {} ({}) VALUES ({})", cfg_.log_table_name, col_list, placeholders);
+    for (const auto& column : catalog_->log_column_info) {
+        if (column.is_pk) continue;
+        const auto it = log.find(column.name);
+        if (it == log.end()) continue;
+
+        nlohmann::json serialized = serialize_value(*it);
+        if (catalog_->compressed_columns.contains(column.name) && !serialized.is_null()) {
+            const std::string text =
+                serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
+            serialized = catalog_->col_dict->GetOrCreate(column.name, text);
+        }
+        names.push_back(column.name);
+        values.push_back(std::move(serialized));
+    }
+
+    if (names.empty()) throw std::runtime_error("log row has no insertable columns");
+
+    const auto sql =
+        fmt::format("INSERT INTO {} ({}) VALUES ({})", cfg_.log_table_name, fmt::join(names, ","),
+                    fmt::join(std::vector<std::string_view>(names.size(), "?"), ","));
     Statement stmt{db_, sql};
+    for (int i = 0; i < static_cast<int>(values.size()); ++i) bind_param(stmt, i + 1, values[i]);
+    stmt.Step();
+    return assigned_id > 0 ? assigned_id : static_cast<int64_t>(sqlite3_last_insert_rowid(db_));
+}
 
+nlohmann::json WriterDatabase::ReadBack(int64_t id) const {
+    const auto fields = pluck_column_names(catalog_->log_column_info);
+    const auto rows = ReadLogs(fields, {{"id", "=", id}}, LogOrder::kIdAscending, 1, 0);
+    if (rows.empty()) throw std::runtime_error("committed row disappeared before readback");
+    return rows.front().values;
+}
+
+void WriterDatabase::RollbackBatch() {
+    sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+    if (cfg_.compression.enabled) LoadColumnDictionary();
+}
+
+WriterDatabase::BatchWrite WriterDatabase::WriteAll(std::span<const nlohmann::json> logs,
+                                                    int64_t first_id) {
     exec_sql("BEGIN");
+    std::vector<int64_t> ids;
+    ids.reserve(logs.size());
     try {
-        int inserted = 0;
-        size_t row_index = 0;
-        int64_t last_id = first_id == 0 ? GetMaxLogId() : committed_id_;
-
-        for (const auto& log : logs) {
-            sqlite3_reset(stmt);
-            sqlite3_clear_bindings(stmt);
-
-            bool valid = true;
-            const int64_t assigned_id =
-                first_id > 0 ? first_id + static_cast<int64_t>(row_index++) : 0;
-            if (first_id > 0) bind_param(stmt, 1, assigned_id);
-
-            for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
-                const auto& ci = cols[i];
-                auto it = log.find(ci.name);
-                nlohmann::json raw = (it != log.end()) ? *it : nlohmann::json(nullptr);
-
-                if (ci.not_null && raw.is_null()) {
-                    log::WARN("Skipping log: column '{}' required but missing", ci.name);
-                    valid = false;
-                    break;
-                }
-
-                nlohmann::json serialized = serialize_value(raw);
-                if (catalog_->compressed_columns.contains(ci.name) && !serialized.is_null()) {
-                    std::string sv =
-                        serialized.is_string() ? serialized.get<std::string>() : serialized.dump();
-                    serialized = catalog_->col_dict->GetOrCreate(ci.name, sv);
-                }
-
-                bind_param(stmt, i + 1 + (first_id > 0 ? 1 : 0), serialized);
+        for (size_t index = 0; index < logs.size(); ++index) {
+            const int64_t assigned = first_id > 0 ? first_id + static_cast<int64_t>(index) : 0;
+            try {
+                ids.push_back(InsertOne(logs[index], assigned));
+            } catch (const SqliteError& error) {
+                if (error.primary() == SQLITE_CONSTRAINT) throw ConstraintAbort{};
+                throw;
             }
-
-            if (!valid) continue;
-
-            stmt.Step();
-            last_id = std::max(last_id, first_id > 0
-                                            ? assigned_id
-                                            : static_cast<int64_t>(sqlite3_last_insert_rowid(db_)));
-            ++inserted;
         }
 
+        BatchWrite written;
+        written.rows.resize(logs.size());
+        for (size_t index = 0; index < ids.size(); ++index) {
+            written.rows[index].disposition = RowWrite::Disposition::kCommitted;
+            written.rows[index].id = ids[index];
+            written.rows[index].stored = ReadBack(ids[index]);
+        }
         exec_sql("COMMIT");
-        // No SQLite work may fail between COMMIT and publishing the committed ID.
-        committed_id_ = last_id;
-        return inserted;
+        if (!ids.empty()) committed_id_ = GetMaxLogId();
+        return written;
+    } catch (const ConstraintAbort&) {
+        RollbackBatch();
+        throw;
     } catch (...) {
-        sqlite3_reset(stmt);
-        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
-        if (cfg_.compression.enabled) LoadColumnDictionary();
+        RollbackBatch();
         throw;
     }
+}
+
+WriterDatabase::BatchWrite WriterDatabase::WriteIsolated(std::span<const nlohmann::json> logs,
+                                                         int64_t first_id) {
+    BatchWrite written;
+    written.rows.resize(logs.size());
+
+    for (size_t index = 0; index < logs.size(); ++index) {
+        const int64_t assigned = first_id > 0 ? first_id + static_cast<int64_t>(index) : 0;
+        try {
+            exec_sql("BEGIN");
+            const int64_t id = InsertOne(logs[index], assigned);
+            auto stored = ReadBack(id);
+            exec_sql("COMMIT");
+            committed_id_ = GetMaxLogId();
+            written.rows[index].disposition = RowWrite::Disposition::kCommitted;
+            written.rows[index].id = id;
+            written.rows[index].stored = std::move(stored);
+        } catch (const SqliteError& error) {
+            RollbackBatch();
+            if (error.primary() == SQLITE_CONSTRAINT) {
+                written.rows[index].disposition = RowWrite::Disposition::kRejected;
+                written.rows[index].reason = error.what();
+                continue;
+            }
+            written.failure = ClassifyStorage(error);
+            written.message = error.what();
+            for (size_t rest = index; rest < logs.size(); ++rest)
+                written.rows[rest].disposition = RowWrite::Disposition::kPending;
+            return written;
+        } catch (const std::exception& error) {
+            RollbackBatch();
+            written.failure = StorageFailure::kInvariant;
+            written.message = error.what();
+            for (size_t rest = index; rest < logs.size(); ++rest)
+                written.rows[rest].disposition = RowWrite::Disposition::kPending;
+            return written;
+        }
+    }
+    return written;
+}
+
+WriterDatabase::BatchWrite WriterDatabase::WriteBatch(std::span<const nlohmann::json> logs,
+                                                      int64_t first_id) {
+    if (logs.empty()) return {};
+    try {
+        return WriteAll(logs, first_id);
+    } catch (const ConstraintAbort&) {
+        return WriteIsolated(logs, first_id);
+    } catch (const SqliteError& error) {
+        BatchWrite failed;
+        failed.rows.resize(logs.size());
+        failed.failure = ClassifyStorage(error);
+        failed.message = error.what();
+        for (auto& row : failed.rows) row.disposition = RowWrite::Disposition::kPending;
+        if (failed.failure == StorageFailure::kTransient) return failed;
+        throw StorageError{failed.failure, failed.message};
+    }
+}
+
+int WriterDatabase::InsertRows(std::span<const nlohmann::json> logs, int64_t first_id) {
+    const auto written = WriteBatch(logs, first_id);
+    if (written.failure == StorageFailure::kTransient)
+        throw std::runtime_error(written.message.empty() ? "storage is temporarily unavailable"
+                                                         : written.message);
+    if (written.failure != StorageFailure::kNone)
+        throw StorageError{written.failure, written.message};
+
+    int inserted = 0;
+    for (const auto& row : written.rows)
+        if (row.disposition == RowWrite::Disposition::kCommitted) ++inserted;
+    return inserted;
 }
 
 int WriterDatabase::DeleteLogs(const std::vector<QueryFilter>& filters) {

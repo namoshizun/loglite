@@ -34,6 +34,8 @@ struct ColumnInfo {
     std::string type;
     bool not_null{false};
     bool is_pk{false};
+    // SQL default expression, unevaluated. Nullopt means the column declares none.
+    std::optional<std::string> default_sql;
 
     bool operator==(const ColumnInfo&) const = default;
 };

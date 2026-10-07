@@ -93,7 +93,7 @@ void LogStore::Initialize() {
                 throw std::runtime_error("Partition log schema differs from logs.db");
 
             const int64_t file_max = file.GetMaxLogId();
-            registry_.Update(partition.path, file_max, file.CountLogRows());
+            registry_.Update(partition.path, file_max, file.EstimateLogRowCount());
 
             max_id = std::max(max_id, file_max);
         });

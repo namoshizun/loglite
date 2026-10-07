@@ -254,8 +254,10 @@ int64_t Database::CountLogRows() const {
 }
 
 int64_t Database::EstimateLogRowCount() const {
-    auto sql =
-        fmt::format("SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM {}", cfg_.log_table_name);
+    auto sql = fmt::format(
+        "SELECT COALESCE((SELECT MAX(id) FROM {0}) - "
+        "(SELECT MIN(id) FROM {0}) + 1, 0)",
+        cfg_.log_table_name);
     Statement stmt{db_, sql};
     if (stmt.Step() == SQLITE_ROW) return sqlite3_column_int64(stmt, 0);
     return 0;

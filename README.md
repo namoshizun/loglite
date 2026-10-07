@@ -27,12 +27,12 @@
 
 ## What you get
 
-|                   |                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------- |
-| **Ingest**        | REST bulk backlog · file/socket/ZMQ harvesters · Python `Harvester` plugins               |
-| **Store**         | SQLite + WAL · migrations you write · retention vacuum · optional enum column compression |
-| **Use**           | Filtered `GET /logs` · `GET /logs/sse` live tail                                          |
-| **Observability** | Web Dashboard to gain insights into loglite performance and usage (optional)              |
+|                   |                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| **Ingest**        | REST bulk backlog · Log harvesters (extensible via Python plugin)                   |
+| **Store**         | SQLite · Custom schema · Auto vacuum · Column compression · Time-based partitioning |
+| **Use**           | Filtered `GET /logs` · SSE live tail                                                |
+| **Observability** | Web Dashboard to gain insights into loglite performance and usage (optional)        |
 
 Core is **C++20** (Asio/Beast); Python is a thin CLI and harvester layer. Same `config.yaml` for the wheel or the [standalone binary](cpp/README.md).
 
